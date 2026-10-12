@@ -32,3 +32,17 @@ This track develops Stanford CS106B-level programming and algorithmic skills thr
 ## Current status
 
 Week 1 — DNA Sequence Toolkit
+
+## FDE / Data Architect Bootcamp (Oct 2026 - Jan 2027)
+
+A 3-month, job-targeted track added 2026-10-12, built from Harvard / Stanford / UCSF public content and aimed at Forward Deployed Engineer and Data Architect roles in biomedical and health-data fields. Existing tracks above (BMDS 214, ForwardDeployment/01) continue unchanged and feed into it.
+
+- `Bootcamp/` — 12-module curriculum, job pipeline (36 verified postings), skills-gap log, interview prep
+- `ClinicalML/` — Portfolio 1: clinical ML on synthetic/public data (Synthea / MIMIC demo)
+- `GenomicsRAG/` — Portfolio 2: genomics pipeline + biomedical RAG with eval harness
+- `DataArchitecture/` — FHIR -> OMOP in dbt: the recurring gap in real postings
+- `ForwardDeployment/02-fde-capstone/` — Portfolio 3: FDE-style deployment into a LIMS/lab workflow
+
+## BMDS 276 Preparation
+
+**Stanford BMDS 276 (CS 286) — Advanced Topics in Computer Vision and Biomedicine**: vision foundation models (representation, generative, and vision-language) and their real-world use in biomedicine. Prep track in `BMDS276/` — vision foundations, representation learning, generative models, vision-language models, biomedical applications, and a final project. Added 2026-10-12; feeds the ClinicalML portfolio and the FDE capstone.
