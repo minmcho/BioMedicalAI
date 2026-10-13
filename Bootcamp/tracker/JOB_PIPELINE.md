@@ -40,3 +40,8 @@ Cross-cutting gap: no prior ML Engineer / Data Scientist job title — portfolio
 | 4 | Covetrus | Principal Data Architect | Remote | Stretch | Kafka/Mongo/Python overlap high; Snowflake/dbt gap |
 Recurring gaps across all batches: (1) dbt + Snowflake, (2) FHIR->OMOP, (3) Databricks lakehouse. Bootcamp Week 8 now covers all three with one project: FHIR -> OMOP in dbt.
 No verified Data Architect posting found this run for UCSF, Stanford Medicine, Kaiser, Genentech, Tempus, Flatiron, Illumina, Guardant, Gilead, Snowflake-health (none verified != none exist).
+
+## CORRECTIONS — verified 2026-10-13 (supersede earlier rows above)
+- Collective Health Sr Staff Data Architect: **DEAD** — employer's own careers board shows zero open positions; the $226k-$283k listings are Aug-2025 aggregator ghosts. Struck from targets.
+- CA HCAI MDM Architect (JC-534497): verified live on CalCareers — IT Specialist II, $8,625-$11,557/mo ($103.5k-$138.7k/yr), **below the $180k floor**; posting prints final filing 10/18/2026, HCAI page says 10/16 (plan to 10/16). Min's decision 2026-10-13: pursue anyway as a title stepping-stone. SOQ draft done; packet needs his 4 lab numbers + transcripts + STD 678.
+- **Databricks Solutions Architect, Healthcare/Life Sciences is now the #1 above-floor target**: $180k-$248k, apply by Dec 2, 2026. Proof resequence proposed: lakehouse MVP in Weeks 2-3, target apply Fri Nov 20.

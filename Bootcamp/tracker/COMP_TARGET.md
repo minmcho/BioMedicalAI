@@ -11,3 +11,4 @@ Re-ranked from the 36 verified postings:
 - Clears: Databricks SA Healthcare/LS $180-248k (low end borderline; OTE/commission matters)
 - Top-end only: Guardant $157-212k; Teladoc $175-195k
 - Likely below floor on base: Verily Clinical Data Architect $120-179k; most state/university bands (HCAI, UCSF, Stanford) - verify range first
+Update 2026-10-13: Collective Health range was a stale aggregator listing (role delisted) — removed. Databricks SA $180k-$248k is the top verified above-floor range. HCAI verified at $103.5k-$138.7k/yr — below floor, pursued only as a stepping-stone by Min's decision.
