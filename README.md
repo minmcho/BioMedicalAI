@@ -31,7 +31,7 @@ This track develops Stanford CS106B-level programming and algorithmic skills thr
 
 ## Current status
 
-Week 1 — DNA Sequence Toolkit
+BMDS 214: Weeks 1-4 complete - Week 5 (dynamic programming & edit distance) in progress
 
 ## FDE / Data Architect Bootcamp (Oct 2026 - Jan 2027)
 
