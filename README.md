@@ -46,3 +46,7 @@ A 3-month, job-targeted track added 2026-10-12, built from Harvard / Stanford / 
 ## BMDS 276 Preparation
 
 **Stanford BMDS 276 (CS 286) — Advanced Topics in Computer Vision and Biomedicine**: vision foundation models (representation, generative, and vision-language) and their real-world use in biomedicine. Prep track in `BMDS276/` — vision foundations, representation learning, generative models, vision-language models, biomedical applications, and a final project. Added 2026-10-12; feeds the ClinicalML portfolio and the FDE capstone.
+
+## BMDS 260 Preparation
+
+**Stanford BMDS 260 — Computational Methods for Biomedical Image Analysis and Interpretation** (cross-listed BMP 260 / BIOMEDIN 260 / CS 235): the classical methods layer under BMDS 276 — image representation and intensity statistics, convolution/filtering and Sobel edges, Otsu segmentation with Dice evaluation (all from scratch, code + tests), then registration & features and classification & interpretation, closing with a classical-pipeline final project on a public dataset. Prep track in `BMDS260/`. Added 2026-10-14; runs alongside BMDS 276 in Weeks 5–8 of the 3-month prep.

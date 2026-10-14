@@ -33,6 +33,7 @@ for FDE / Data Architect roles at or above the $180k base floor (see tracker/COM
 ## Week 5 — Nov 9-15 · Single-cell + vision begins
 - BMDS 214 Week 9: single-cell RNA-seq algorithms (ties to Min's dissertation)
 - BMDS 276 Week 2: representation learning for biomedical images
+- BMDS 260 Weeks 1-2: image representation, filtering & enhancement (classical methods, code + tests)
 - Claude project starts: API tool use + structured outputs
 
 ## Week 6 — Nov 16-22 · BMDS 214 capstone + Databricks application
@@ -46,6 +47,7 @@ for FDE / Data Architect roles at or above the $180k base floor (see tracker/COM
 
 ## Week 8 — Nov 30-Dec 6 · Imaging project + depth
 - BMDS 276 Week 5: biomedical applications; imaging final project run on public histopathology patches
+- BMDS 260 Weeks 3-5: Otsu segmentation + Dice, registration & features, classification & interpretation; classical pipeline project (evaluated against the BMDS 276 project in the final report)
 - DataArchitecture depth: dbt on Databricks, governance pack (Databricks deadline Dec 2 — already applied)
 
 ## Week 9 — Dec 7-13 · Pilot + Anthropic application
