@@ -34,6 +34,7 @@ Cross-cutting gap: no prior ML Engineer / Data Scientist job title — portfolio
 | Priority | Company | Title | Location | Fit | Deadline/Note |
 |---|---|---|---|---|---|
 | URGENT | CA HCAI | MDM Architect | Sacramento | Strong | **Final filing Fri 2026-10-16** — check CalCareers eligibility/SOQ now |
+| URGENT | Teladoc | Principal Data & AI Platform Engineer, DataOps (JR21143) | Remote US | Stretch-Strong | $200k-$230k base + bonus; posted Oct 9, **closes Tue 2026-11-03** — submit by Mon Nov 2; proof = lakehouse v0 freeze Nov 1; gap: production Databricks/Snowflake |
 | 1 | Collective Health | Sr Staff Data Architect ($226k-$283k) | SF hybrid 2d | Strong exp / Stretch stack | Databricks lakehouse gap |
 | 2 | Verily | Clinical Data Architect ($120k-$179k+bonus) | US | Stretch | FHIR/OMOP/HL7 core — bootcamp-fixable |
 | 3 | Databricks | Solutions Architect, Healthcare/Life Sciences ($180k-$248k) | Remote US | Stretch | Posted Oct 3, apply by Dec 2; pre-sales gap |
@@ -45,3 +46,6 @@ No verified Data Architect posting found this run for UCSF, Stanford Medicine, K
 - Collective Health Sr Staff Data Architect: **DEAD** — employer's own careers board shows zero open positions; the $226k-$283k listings are Aug-2025 aggregator ghosts. Struck from targets.
 - CA HCAI MDM Architect (JC-534497): verified live on CalCareers — IT Specialist II, $8,625-$11,557/mo ($103.5k-$138.7k/yr), **below the $180k floor**; posting prints final filing 10/18/2026, HCAI page says 10/16 (plan to 10/16). Min's decision 2026-10-13: pursue anyway as a title stepping-stone. SOQ draft done; packet needs his 4 lab numbers + transcripts + STD 678.
 - **Databricks Solutions Architect, Healthcare/Life Sciences is now the #1 above-floor target**: $180k-$248k, apply by Dec 2, 2026. Proof resequence proposed: lakehouse MVP in Weeks 2-3, target apply Fri Nov 20.
+
+## ADDED — verified 2026-10-14
+- Teladoc JR21143, Principal Data & AI Platform Engineer (DataOps): $200k-$230k base + bonus, USA remote, posted 2026-10-09 on Teladoc's own Workday board, **closes Tue 2026-11-03**. Fit re-scored Stretch-Strong (brief: goal hidden_files teladoc-jr21143-fit-rescore-2026-10-13.md). One hard gap: production Databricks/Snowflake — answered by the lakehouse linkable v0 freeze (Sun Nov 1). Plan amended 2026-10-14: submit by Mon Nov 2.

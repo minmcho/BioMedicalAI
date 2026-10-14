@@ -7,8 +7,9 @@ Estimate (MFJ + 2 kids, CA; verify with a tax pro / payroll calculator before si
 - Single-filer / no child credits, taxes only: ~$181k gross
 APPLICATION FILTER: prioritize $180k+ base salary. Equity and annual bonus do not pay monthly bills - they are upside, not survival money. For any posting below $180k base, check the posted range BEFORE investing in a tailored application.
 Re-ranked from the 36 verified postings:
-- Clears comfortably: Collective Health Sr Staff Data Architect $226-283k; Anthropic FDE $280-320k (syndicated); HealthLeap FDE $200-275k
+- Clears comfortably: Collective Health Sr Staff Data Architect $226-283k; Anthropic FDE $280-320k (syndicated); HealthLeap FDE $200-275k; Teladoc JR21143 $200-230k base (verified 2026-10-13)
 - Clears: Databricks SA Healthcare/LS $180-248k (low end borderline; OTE/commission matters)
-- Top-end only: Guardant $157-212k; Teladoc $175-195k
+- Top-end only: Guardant $157-212k
 - Likely below floor on base: Verily Clinical Data Architect $120-179k; most state/university bands (HCAI, UCSF, Stanford) - verify range first
 Update 2026-10-13: Collective Health range was a stale aggregator listing (role delisted) — removed. Databricks SA $180k-$248k is the top verified above-floor range. HCAI verified at $103.5k-$138.7k/yr — below floor, pursued only as a stepping-stone by Min's decision.
+Update 2026-10-14: Teladoc corrected — the $175-195k figure was a stale aggregator copy of an older listing. The live JR21143 posting (Teladoc's Workday board, verified 2026-10-13) is $200k-$230k base + bonus; it closes Tue 2026-11-03.

@@ -30,7 +30,7 @@ Finish the 12 weeks with *checkable evidence*, not coursework notes:
 | BMDS 276 | W2 representation → W3 generative → W4 vision-language → W5 applications → imaging project | Week 8 |
 | Claude deployment | API build → MCP server → eval set → pilot → case study | Week 10 |
 | Portfolios | GenomicsRAG (W9), ClinicalML (W10), FDE capstone write-up (W10) | Week 10 |
-| Applications | Databricks Nov 20 → Anthropic W9 → sprint W10 → loops W11–12 | Week 12 |
+| Applications | HCAI Oct 16 → Teladoc Nov 2 → Databricks Nov 20 → Anthropic W9 → sprint W10 → loops W11–12 | Week 12 |
 
 ---
 
@@ -38,7 +38,8 @@ Finish the 12 weeks with *checkable evidence*, not coursework notes:
 - **Build:** BMDS 214 Week 5 — dynamic programming & edit distance (`BMDS214/week05-dynamic-programming/`) ✓ built, 9 tests pass
 - **Learn:** Anthropic Academy — create account, start *Claude 101*; environment setup (Python, venv, git clone of this repo)
 - **Min's tasks:** Week 5 Exercise 1 by hand (DP table for ACG → AGG, predict then verify); 300-word biological interpretation draft
-- **Done when:** worksheet + interpretation committed; Academy account active
+- **Apply: Fri Oct 16 — submit HCAI packet** (JC-534497, IT Specialist II — below the $180k floor, pursued as a title stepping-stone by Min's decision): SOQ + resume + transcripts + STD 678. Posting prints Oct 18; plan to the 16th. Min-only items: UIUC transcript (order now if not on hand); the 4 lab numbers are optional polish — the placeholder-free fallback SOQ is submittable as-is
+- **Done when:** worksheet + interpretation committed; Academy account active; HCAI packet submitted
 
 ## Week 2 — Mon Oct 19 – Sun Oct 25 · Alignment + clinical data
 - **Build:** BMDS 214 Week 6 — sequence alignment: Needleman–Wunsch (global) and Smith–Waterman (local) with traceback (`BMDS214/week06-alignment/`)
@@ -50,9 +51,12 @@ Finish the 12 weeks with *checkable evidence*, not coursework notes:
 - **Build:** BMDS 214 Week 7 — FASTA/FASTQ parsing & QC metrics (`BMDS214/week07-fastq-qc/`)
 - **Build:** Lakehouse MVP — Synthea FHIR JSON → bronze (raw) → silver (OMOP-shaped) Delta tables on Databricks; notebooks exported to `DataArchitecture/`
 - **Learn:** Academy — *Introduction to MCP*
-- **Done when:** QC module + tests pushed; bronze/silver tables exist with a README diagram
+- **Apply: Teladoc JR21143 prep** — tailored DataOps resume variant (reliability + eval/observability evidence first)
+- **⭐ Sun Nov 1: lakehouse linkable v0 freeze** — silver Delta tables + one gold summary + one MLflow run + README, public in this repo. This is the version the Teladoc application links; the fuller Week 4 freeze still serves Databricks
+- **Done when:** QC module + tests pushed; bronze/silver tables exist with a README diagram; v0 freeze shipped Sun Nov 1
 
-## Week 4 — Mon Nov 2 – Sun Nov 8 · Assembly + gold layer · applications open
+## Week 4 — Mon Nov 2 – Sun Nov 8 · Assembly + gold layer · general applications open
+- **⭐ Apply: Teladoc JR21143 closes Tue Nov 3 — submit by Mon Nov 2** ($200k–$230k base + bonus, USA remote; Stretch-Strong fit; honest gap: no production Databricks/Snowflake — answered by the Nov 1 v0 freeze linked in the application)
 - **Build:** BMDS 214 Week 8 — genome assembly & de Bruijn graphs (`BMDS214/week08-assembly/`)
 - **Build:** Lakehouse gold table + one MLflow-tracked run; lakehouse README frozen and linkable
 - **Learn:** Academy — *MCP: Advanced Topics*
@@ -118,6 +122,8 @@ Interviews, follow-ups, and negotiation — against the comp floor, in writing. 
 
 ## Milestones at a glance
 - **Week 1:** edit-distance engine live; Academy started
+- **Fri Oct 16 (Week 1):** HCAI packet submitted
+- **Mon Nov 2 (Week 4):** Teladoc JR21143 submitted (closes Tue Nov 3)
 - **Fri Nov 20 (Week 6):** Databricks application submitted (posting deadline Wed Dec 2)
 - **Week 6:** BMDS 214 complete; MCP server public; Academy core complete
 - **Week 8:** BMDS 260 + BMDS 276 complete, two evaluated imaging projects
@@ -131,5 +137,5 @@ Interviews, follow-ups, and negotiation — against the comp floor, in writing. 
 - [ ] Lakehouse: bronze/silver/gold Delta tables + MLflow run + README, all linked
 - [ ] Claude deployment: live demo, public MCP server, published eval report
 - [ ] Pilot case study + deployment playbook published
-- [ ] Databricks + Anthropic applications submitted; sprint applications logged in `tracker/JOB_PIPELINE.md`
+- [ ] HCAI (Oct 16) + Teladoc (Nov 2) + Databricks + Anthropic applications submitted; sprint applications logged in `tracker/JOB_PIPELINE.md`
 - [ ] Resume contains only claims backed by artifacts in this repo
