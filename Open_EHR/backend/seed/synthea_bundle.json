@@ -1,0 +1,3024 @@
+{
+  "resourceType": "Bundle",
+  "type": "transaction",
+  "entry": [
+    {
+      "fullUrl": "urn:uuid:patient-pat-1",
+      "resource": {
+        "resourceType": "Patient",
+        "id": "pat-1",
+        "meta": {
+          "tag": [
+            {
+              "system": "urn:opencare:seed",
+              "code": "synthetic",
+              "display": "Fabricated demo data \u2014 not a real person"
+            }
+          ]
+        },
+        "identifier": [
+          {
+            "system": "urn:opencare:synthetic-mrn",
+            "value": "SYN-1001"
+          }
+        ],
+        "name": [
+          {
+            "family": "Synthetic402",
+            "given": [
+              "Alicia"
+            ]
+          }
+        ],
+        "gender": "female",
+        "birthDate": "1968-04-12"
+      },
+      "request": {
+        "method": "POST",
+        "url": "Patient"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:patient-pat-2",
+      "resource": {
+        "resourceType": "Patient",
+        "id": "pat-2",
+        "meta": {
+          "tag": [
+            {
+              "system": "urn:opencare:seed",
+              "code": "synthetic",
+              "display": "Fabricated demo data \u2014 not a real person"
+            }
+          ]
+        },
+        "identifier": [
+          {
+            "system": "urn:opencare:synthetic-mrn",
+            "value": "SYN-2001"
+          }
+        ],
+        "name": [
+          {
+            "family": "Synthetic517",
+            "given": [
+              "Marcus"
+            ]
+          }
+        ],
+        "gender": "male",
+        "birthDate": "1955-09-03"
+      },
+      "request": {
+        "method": "POST",
+        "url": "Patient"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:patient-pat-3",
+      "resource": {
+        "resourceType": "Patient",
+        "id": "pat-3",
+        "meta": {
+          "tag": [
+            {
+              "system": "urn:opencare:seed",
+              "code": "synthetic",
+              "display": "Fabricated demo data \u2014 not a real person"
+            }
+          ]
+        },
+        "identifier": [
+          {
+            "system": "urn:opencare:synthetic-mrn",
+            "value": "SYN-3001"
+          }
+        ],
+        "name": [
+          {
+            "family": "Synthetic233",
+            "given": [
+              "Priya"
+            ]
+          }
+        ],
+        "gender": "female",
+        "birthDate": "1982-01-27"
+      },
+      "request": {
+        "method": "POST",
+        "url": "Patient"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:patient-pat-4",
+      "resource": {
+        "resourceType": "Patient",
+        "id": "pat-4",
+        "meta": {
+          "tag": [
+            {
+              "system": "urn:opencare:seed",
+              "code": "synthetic",
+              "display": "Fabricated demo data \u2014 not a real person"
+            }
+          ]
+        },
+        "identifier": [
+          {
+            "system": "urn:opencare:synthetic-mrn",
+            "value": "SYN-4001"
+          }
+        ],
+        "name": [
+          {
+            "family": "Synthetic718",
+            "given": [
+              "Tom\u00e1s"
+            ]
+          }
+        ],
+        "gender": "male",
+        "birthDate": "1974-06-19"
+      },
+      "request": {
+        "method": "POST",
+        "url": "Patient"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:patient-pat-5",
+      "resource": {
+        "resourceType": "Patient",
+        "id": "pat-5",
+        "meta": {
+          "tag": [
+            {
+              "system": "urn:opencare:seed",
+              "code": "synthetic",
+              "display": "Fabricated demo data \u2014 not a real person"
+            }
+          ]
+        },
+        "identifier": [
+          {
+            "system": "urn:opencare:synthetic-mrn",
+            "value": "SYN-5001"
+          }
+        ],
+        "name": [
+          {
+            "family": "Synthetic090",
+            "given": [
+              "Grace"
+            ]
+          }
+        ],
+        "gender": "female",
+        "birthDate": "1990-12-05"
+      },
+      "request": {
+        "method": "POST",
+        "url": "Patient"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:patient-pat-6",
+      "resource": {
+        "resourceType": "Patient",
+        "id": "pat-6",
+        "meta": {
+          "tag": [
+            {
+              "system": "urn:opencare:seed",
+              "code": "synthetic",
+              "display": "Fabricated demo data \u2014 not a real person"
+            }
+          ]
+        },
+        "identifier": [
+          {
+            "system": "urn:opencare:synthetic-mrn",
+            "value": "SYN-6001"
+          }
+        ],
+        "name": [
+          {
+            "family": "Synthetic664",
+            "given": [
+              "Henry"
+            ]
+          }
+        ],
+        "gender": "male",
+        "birthDate": "1949-03-30"
+      },
+      "request": {
+        "method": "POST",
+        "url": "Patient"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:encounter-enc-1-1",
+      "resource": {
+        "resourceType": "Encounter",
+        "id": "enc-1-1",
+        "status": "finished",
+        "class": {
+          "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+          "code": "AMB",
+          "display": "ambulatory"
+        },
+        "type": [
+          {
+            "coding": [
+              {
+                "system": "http://snomed.info/sct",
+                "code": "185349003",
+                "display": "Encounter for check up"
+              }
+            ]
+          }
+        ],
+        "subject": {
+          "reference": "Patient/pat-1"
+        },
+        "period": {
+          "start": "2025-03-10T09:00:00Z",
+          "end": "2025-03-10T09:30:00Z"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Encounter"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:encounter-enc-1-2",
+      "resource": {
+        "resourceType": "Encounter",
+        "id": "enc-1-2",
+        "status": "finished",
+        "class": {
+          "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+          "code": "AMB",
+          "display": "ambulatory"
+        },
+        "type": [
+          {
+            "coding": [
+              {
+                "system": "http://snomed.info/sct",
+                "code": "390906007",
+                "display": "Follow-up encounter"
+              }
+            ]
+          }
+        ],
+        "subject": {
+          "reference": "Patient/pat-1"
+        },
+        "period": {
+          "start": "2025-09-14T09:00:00Z",
+          "end": "2025-09-14T09:30:00Z"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Encounter"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:encounter-enc-2-1",
+      "resource": {
+        "resourceType": "Encounter",
+        "id": "enc-2-1",
+        "status": "finished",
+        "class": {
+          "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+          "code": "AMB",
+          "display": "ambulatory"
+        },
+        "type": [
+          {
+            "coding": [
+              {
+                "system": "http://snomed.info/sct",
+                "code": "185349003",
+                "display": "Encounter for check up"
+              }
+            ]
+          }
+        ],
+        "subject": {
+          "reference": "Patient/pat-2"
+        },
+        "period": {
+          "start": "2025-03-10T09:00:00Z",
+          "end": "2025-03-10T09:30:00Z"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Encounter"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:encounter-enc-2-2",
+      "resource": {
+        "resourceType": "Encounter",
+        "id": "enc-2-2",
+        "status": "finished",
+        "class": {
+          "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+          "code": "AMB",
+          "display": "ambulatory"
+        },
+        "type": [
+          {
+            "coding": [
+              {
+                "system": "http://snomed.info/sct",
+                "code": "390906007",
+                "display": "Follow-up encounter"
+              }
+            ]
+          }
+        ],
+        "subject": {
+          "reference": "Patient/pat-2"
+        },
+        "period": {
+          "start": "2025-09-14T09:00:00Z",
+          "end": "2025-09-14T09:30:00Z"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Encounter"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:encounter-enc-3-1",
+      "resource": {
+        "resourceType": "Encounter",
+        "id": "enc-3-1",
+        "status": "finished",
+        "class": {
+          "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+          "code": "AMB",
+          "display": "ambulatory"
+        },
+        "type": [
+          {
+            "coding": [
+              {
+                "system": "http://snomed.info/sct",
+                "code": "185349003",
+                "display": "Encounter for check up"
+              }
+            ]
+          }
+        ],
+        "subject": {
+          "reference": "Patient/pat-3"
+        },
+        "period": {
+          "start": "2025-03-10T09:00:00Z",
+          "end": "2025-03-10T09:30:00Z"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Encounter"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:encounter-enc-3-2",
+      "resource": {
+        "resourceType": "Encounter",
+        "id": "enc-3-2",
+        "status": "finished",
+        "class": {
+          "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+          "code": "AMB",
+          "display": "ambulatory"
+        },
+        "type": [
+          {
+            "coding": [
+              {
+                "system": "http://snomed.info/sct",
+                "code": "390906007",
+                "display": "Follow-up encounter"
+              }
+            ]
+          }
+        ],
+        "subject": {
+          "reference": "Patient/pat-3"
+        },
+        "period": {
+          "start": "2025-09-14T09:00:00Z",
+          "end": "2025-09-14T09:30:00Z"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Encounter"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:encounter-enc-4-1",
+      "resource": {
+        "resourceType": "Encounter",
+        "id": "enc-4-1",
+        "status": "finished",
+        "class": {
+          "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+          "code": "AMB",
+          "display": "ambulatory"
+        },
+        "type": [
+          {
+            "coding": [
+              {
+                "system": "http://snomed.info/sct",
+                "code": "185349003",
+                "display": "Encounter for check up"
+              }
+            ]
+          }
+        ],
+        "subject": {
+          "reference": "Patient/pat-4"
+        },
+        "period": {
+          "start": "2025-03-10T09:00:00Z",
+          "end": "2025-03-10T09:30:00Z"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Encounter"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:encounter-enc-4-2",
+      "resource": {
+        "resourceType": "Encounter",
+        "id": "enc-4-2",
+        "status": "finished",
+        "class": {
+          "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+          "code": "AMB",
+          "display": "ambulatory"
+        },
+        "type": [
+          {
+            "coding": [
+              {
+                "system": "http://snomed.info/sct",
+                "code": "390906007",
+                "display": "Follow-up encounter"
+              }
+            ]
+          }
+        ],
+        "subject": {
+          "reference": "Patient/pat-4"
+        },
+        "period": {
+          "start": "2025-09-14T09:00:00Z",
+          "end": "2025-09-14T09:30:00Z"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Encounter"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:encounter-enc-5-1",
+      "resource": {
+        "resourceType": "Encounter",
+        "id": "enc-5-1",
+        "status": "finished",
+        "class": {
+          "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+          "code": "AMB",
+          "display": "ambulatory"
+        },
+        "type": [
+          {
+            "coding": [
+              {
+                "system": "http://snomed.info/sct",
+                "code": "185349003",
+                "display": "Encounter for check up"
+              }
+            ]
+          }
+        ],
+        "subject": {
+          "reference": "Patient/pat-5"
+        },
+        "period": {
+          "start": "2025-03-10T09:00:00Z",
+          "end": "2025-03-10T09:30:00Z"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Encounter"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:encounter-enc-5-2",
+      "resource": {
+        "resourceType": "Encounter",
+        "id": "enc-5-2",
+        "status": "finished",
+        "class": {
+          "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+          "code": "AMB",
+          "display": "ambulatory"
+        },
+        "type": [
+          {
+            "coding": [
+              {
+                "system": "http://snomed.info/sct",
+                "code": "390906007",
+                "display": "Follow-up encounter"
+              }
+            ]
+          }
+        ],
+        "subject": {
+          "reference": "Patient/pat-5"
+        },
+        "period": {
+          "start": "2025-09-14T09:00:00Z",
+          "end": "2025-09-14T09:30:00Z"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Encounter"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:encounter-enc-6-1",
+      "resource": {
+        "resourceType": "Encounter",
+        "id": "enc-6-1",
+        "status": "finished",
+        "class": {
+          "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+          "code": "AMB",
+          "display": "ambulatory"
+        },
+        "type": [
+          {
+            "coding": [
+              {
+                "system": "http://snomed.info/sct",
+                "code": "185349003",
+                "display": "Encounter for check up"
+              }
+            ]
+          }
+        ],
+        "subject": {
+          "reference": "Patient/pat-6"
+        },
+        "period": {
+          "start": "2025-03-10T09:00:00Z",
+          "end": "2025-03-10T09:30:00Z"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Encounter"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:encounter-enc-6-2",
+      "resource": {
+        "resourceType": "Encounter",
+        "id": "enc-6-2",
+        "status": "finished",
+        "class": {
+          "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+          "code": "AMB",
+          "display": "ambulatory"
+        },
+        "type": [
+          {
+            "coding": [
+              {
+                "system": "http://snomed.info/sct",
+                "code": "390906007",
+                "display": "Follow-up encounter"
+              }
+            ]
+          }
+        ],
+        "subject": {
+          "reference": "Patient/pat-6"
+        },
+        "period": {
+          "start": "2025-09-14T09:00:00Z",
+          "end": "2025-09-14T09:30:00Z"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Encounter"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:condition-cond-1",
+      "resource": {
+        "resourceType": "Condition",
+        "id": "cond-1",
+        "clinicalStatus": {
+          "coding": [
+            {
+              "system": "http://terminology.hl7.org/CodeSystem/condition-clinical",
+              "code": "active",
+              "display": "Active"
+            }
+          ]
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://snomed.info/sct",
+              "code": "38341003",
+              "display": "Hypertensive disorder"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-1"
+        },
+        "recordedDate": "2024-06-01"
+      },
+      "request": {
+        "method": "POST",
+        "url": "Condition"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:condition-cond-2",
+      "resource": {
+        "resourceType": "Condition",
+        "id": "cond-2",
+        "clinicalStatus": {
+          "coding": [
+            {
+              "system": "http://terminology.hl7.org/CodeSystem/condition-clinical",
+              "code": "active",
+              "display": "Active"
+            }
+          ]
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://snomed.info/sct",
+              "code": "44054006",
+              "display": "Type 2 diabetes mellitus"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-1"
+        },
+        "recordedDate": "2024-06-01"
+      },
+      "request": {
+        "method": "POST",
+        "url": "Condition"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:condition-cond-3",
+      "resource": {
+        "resourceType": "Condition",
+        "id": "cond-3",
+        "clinicalStatus": {
+          "coding": [
+            {
+              "system": "http://terminology.hl7.org/CodeSystem/condition-clinical",
+              "code": "active",
+              "display": "Active"
+            }
+          ]
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://snomed.info/sct",
+              "code": "38341003",
+              "display": "Hypertensive disorder"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-2"
+        },
+        "recordedDate": "2024-06-01"
+      },
+      "request": {
+        "method": "POST",
+        "url": "Condition"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:condition-cond-4",
+      "resource": {
+        "resourceType": "Condition",
+        "id": "cond-4",
+        "clinicalStatus": {
+          "coding": [
+            {
+              "system": "http://terminology.hl7.org/CodeSystem/condition-clinical",
+              "code": "active",
+              "display": "Active"
+            }
+          ]
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://snomed.info/sct",
+              "code": "195967001",
+              "display": "Asthma"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-2"
+        },
+        "recordedDate": "2024-06-01"
+      },
+      "request": {
+        "method": "POST",
+        "url": "Condition"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:condition-cond-5",
+      "resource": {
+        "resourceType": "Condition",
+        "id": "cond-5",
+        "clinicalStatus": {
+          "coding": [
+            {
+              "system": "http://terminology.hl7.org/CodeSystem/condition-clinical",
+              "code": "active",
+              "display": "Active"
+            }
+          ]
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://snomed.info/sct",
+              "code": "55822004",
+              "display": "Hyperlipidemia"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-3"
+        },
+        "recordedDate": "2024-06-01"
+      },
+      "request": {
+        "method": "POST",
+        "url": "Condition"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:condition-cond-6",
+      "resource": {
+        "resourceType": "Condition",
+        "id": "cond-6",
+        "clinicalStatus": {
+          "coding": [
+            {
+              "system": "http://terminology.hl7.org/CodeSystem/condition-clinical",
+              "code": "active",
+              "display": "Active"
+            }
+          ]
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://snomed.info/sct",
+              "code": "44054006",
+              "display": "Type 2 diabetes mellitus"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-4"
+        },
+        "recordedDate": "2024-06-01"
+      },
+      "request": {
+        "method": "POST",
+        "url": "Condition"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:condition-cond-7",
+      "resource": {
+        "resourceType": "Condition",
+        "id": "cond-7",
+        "clinicalStatus": {
+          "coding": [
+            {
+              "system": "http://terminology.hl7.org/CodeSystem/condition-clinical",
+              "code": "active",
+              "display": "Active"
+            }
+          ]
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://snomed.info/sct",
+              "code": "239873007",
+              "display": "Knee osteoarthritis"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-4"
+        },
+        "recordedDate": "2024-06-01"
+      },
+      "request": {
+        "method": "POST",
+        "url": "Condition"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:condition-cond-8",
+      "resource": {
+        "resourceType": "Condition",
+        "id": "cond-8",
+        "clinicalStatus": {
+          "coding": [
+            {
+              "system": "http://terminology.hl7.org/CodeSystem/condition-clinical",
+              "code": "active",
+              "display": "Active"
+            }
+          ]
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://snomed.info/sct",
+              "code": "48694002",
+              "display": "Anxiety disorder"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-5"
+        },
+        "recordedDate": "2024-06-01"
+      },
+      "request": {
+        "method": "POST",
+        "url": "Condition"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:condition-cond-9",
+      "resource": {
+        "resourceType": "Condition",
+        "id": "cond-9",
+        "clinicalStatus": {
+          "coding": [
+            {
+              "system": "http://terminology.hl7.org/CodeSystem/condition-clinical",
+              "code": "active",
+              "display": "Active"
+            }
+          ]
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://snomed.info/sct",
+              "code": "38341003",
+              "display": "Hypertensive disorder"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-6"
+        },
+        "recordedDate": "2024-06-01"
+      },
+      "request": {
+        "method": "POST",
+        "url": "Condition"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:condition-cond-10",
+      "resource": {
+        "resourceType": "Condition",
+        "id": "cond-10",
+        "clinicalStatus": {
+          "coding": [
+            {
+              "system": "http://terminology.hl7.org/CodeSystem/condition-clinical",
+              "code": "active",
+              "display": "Active"
+            }
+          ]
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://snomed.info/sct",
+              "code": "410429000",
+              "display": "Cardiac arrhythmia"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-6"
+        },
+        "recordedDate": "2024-06-01"
+      },
+      "request": {
+        "method": "POST",
+        "url": "Condition"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:medicationrequest-med-1",
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "med-1",
+        "status": "active",
+        "intent": "order",
+        "medicationCodeableConcept": {
+          "coding": [
+            {
+              "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+              "code": "1049221",
+              "display": "Lisinopril 10 MG Oral Tablet"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-1"
+        },
+        "authoredOn": "2025-03-10"
+      },
+      "request": {
+        "method": "POST",
+        "url": "MedicationRequest"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:medicationrequest-med-2",
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "med-2",
+        "status": "active",
+        "intent": "order",
+        "medicationCodeableConcept": {
+          "coding": [
+            {
+              "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+              "code": "847232",
+              "display": "Metformin hydrochloride 500 MG Oral Tablet"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-1"
+        },
+        "authoredOn": "2025-03-10"
+      },
+      "request": {
+        "method": "POST",
+        "url": "MedicationRequest"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:medicationrequest-med-3",
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "med-3",
+        "status": "active",
+        "intent": "order",
+        "medicationCodeableConcept": {
+          "coding": [
+            {
+              "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+              "code": "1049221",
+              "display": "Lisinopril 10 MG Oral Tablet"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-2"
+        },
+        "authoredOn": "2025-03-10"
+      },
+      "request": {
+        "method": "POST",
+        "url": "MedicationRequest"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:medicationrequest-med-4",
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "med-4",
+        "status": "active",
+        "intent": "order",
+        "medicationCodeableConcept": {
+          "coding": [
+            {
+              "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+              "code": "245314",
+              "display": "Albuterol 0.09 MG/ACTUAT Metered Dose Inhaler"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-2"
+        },
+        "authoredOn": "2025-03-10"
+      },
+      "request": {
+        "method": "POST",
+        "url": "MedicationRequest"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:medicationrequest-med-5",
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "med-5",
+        "status": "active",
+        "intent": "order",
+        "medicationCodeableConcept": {
+          "coding": [
+            {
+              "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+              "code": "1044910",
+              "display": "Atorvastatin 20 MG Oral Tablet"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-3"
+        },
+        "authoredOn": "2025-03-10"
+      },
+      "request": {
+        "method": "POST",
+        "url": "MedicationRequest"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:medicationrequest-med-6",
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "med-6",
+        "status": "active",
+        "intent": "order",
+        "medicationCodeableConcept": {
+          "coding": [
+            {
+              "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+              "code": "847232",
+              "display": "Metformin hydrochloride 500 MG Oral Tablet"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-4"
+        },
+        "authoredOn": "2025-03-10"
+      },
+      "request": {
+        "method": "POST",
+        "url": "MedicationRequest"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:medicationrequest-med-7",
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "med-7",
+        "status": "active",
+        "intent": "order",
+        "medicationCodeableConcept": {
+          "coding": [
+            {
+              "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+              "code": "1048467",
+              "display": "Sertraline 50 MG Oral Tablet"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-5"
+        },
+        "authoredOn": "2025-03-10"
+      },
+      "request": {
+        "method": "POST",
+        "url": "MedicationRequest"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:medicationrequest-med-8",
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "med-8",
+        "status": "active",
+        "intent": "order",
+        "medicationCodeableConcept": {
+          "coding": [
+            {
+              "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+              "code": "1049221",
+              "display": "Lisinopril 10 MG Oral Tablet"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-6"
+        },
+        "authoredOn": "2025-03-10"
+      },
+      "request": {
+        "method": "POST",
+        "url": "MedicationRequest"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:medicationrequest-med-9",
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "med-9",
+        "status": "active",
+        "intent": "order",
+        "medicationCodeableConcept": {
+          "coding": [
+            {
+              "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+              "code": "1351886",
+              "display": "Apixaban 5 MG Oral Tablet"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-6"
+        },
+        "authoredOn": "2025-03-10"
+      },
+      "request": {
+        "method": "POST",
+        "url": "MedicationRequest"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-1",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-1",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "4548-4",
+              "display": "Hemoglobin A1c"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-1"
+        },
+        "effectiveDateTime": "2025-01-15T08:15:00Z",
+        "valueQuantity": {
+          "value": 7.8,
+          "unit": "%",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-2",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-2",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "4548-4",
+              "display": "Hemoglobin A1c"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-1"
+        },
+        "effectiveDateTime": "2025-04-15T08:15:00Z",
+        "valueQuantity": {
+          "value": 7.4,
+          "unit": "%",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-3",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-3",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "4548-4",
+              "display": "Hemoglobin A1c"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-1"
+        },
+        "effectiveDateTime": "2025-07-15T08:15:00Z",
+        "valueQuantity": {
+          "value": 7.1,
+          "unit": "%",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-4",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-4",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "4548-4",
+              "display": "Hemoglobin A1c"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-1"
+        },
+        "effectiveDateTime": "2025-10-15T08:15:00Z",
+        "valueQuantity": {
+          "value": 6.9,
+          "unit": "%",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-5",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-5",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "2345-7",
+              "display": "Glucose"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-1"
+        },
+        "effectiveDateTime": "2025-01-15T08:15:00Z",
+        "valueQuantity": {
+          "value": 152,
+          "unit": "mg/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-6",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-6",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "2345-7",
+              "display": "Glucose"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-1"
+        },
+        "effectiveDateTime": "2025-04-15T08:15:00Z",
+        "valueQuantity": {
+          "value": 141,
+          "unit": "mg/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-7",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-7",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "2345-7",
+              "display": "Glucose"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-1"
+        },
+        "effectiveDateTime": "2025-07-15T08:15:00Z",
+        "valueQuantity": {
+          "value": 133,
+          "unit": "mg/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-8",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-8",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "2345-7",
+              "display": "Glucose"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-1"
+        },
+        "effectiveDateTime": "2025-10-15T08:15:00Z",
+        "valueQuantity": {
+          "value": 126,
+          "unit": "mg/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-9",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-9",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "13457-7",
+              "display": "LDL cholesterol"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-1"
+        },
+        "effectiveDateTime": "2025-01-15T08:15:00Z",
+        "valueQuantity": {
+          "value": 148,
+          "unit": "mg/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-10",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-10",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "13457-7",
+              "display": "LDL cholesterol"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-1"
+        },
+        "effectiveDateTime": "2025-07-15T08:15:00Z",
+        "valueQuantity": {
+          "value": 129,
+          "unit": "mg/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-11",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-11",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "13457-7",
+              "display": "LDL cholesterol"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-1"
+        },
+        "effectiveDateTime": "2025-10-15T08:15:00Z",
+        "valueQuantity": {
+          "value": 118,
+          "unit": "mg/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-12",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-12",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "14682-9",
+              "display": "Creatinine"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-2"
+        },
+        "effectiveDateTime": "2025-02-01T08:15:00Z",
+        "valueQuantity": {
+          "value": 1.1,
+          "unit": "mg/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-13",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-13",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "14682-9",
+              "display": "Creatinine"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-2"
+        },
+        "effectiveDateTime": "2025-05-01T08:15:00Z",
+        "valueQuantity": {
+          "value": 1.2,
+          "unit": "mg/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-14",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-14",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "14682-9",
+              "display": "Creatinine"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-2"
+        },
+        "effectiveDateTime": "2025-08-01T08:15:00Z",
+        "valueQuantity": {
+          "value": 1.15,
+          "unit": "mg/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-15",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-15",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "2345-7",
+              "display": "Glucose"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-2"
+        },
+        "effectiveDateTime": "2025-02-01T08:15:00Z",
+        "valueQuantity": {
+          "value": 99,
+          "unit": "mg/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-16",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-16",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "2345-7",
+              "display": "Glucose"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-2"
+        },
+        "effectiveDateTime": "2025-08-01T08:15:00Z",
+        "valueQuantity": {
+          "value": 104,
+          "unit": "mg/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-17",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-17",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "13457-7",
+              "display": "LDL cholesterol"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-3"
+        },
+        "effectiveDateTime": "2025-03-01T08:15:00Z",
+        "valueQuantity": {
+          "value": 171,
+          "unit": "mg/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-18",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-18",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "13457-7",
+              "display": "LDL cholesterol"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-3"
+        },
+        "effectiveDateTime": "2025-06-01T08:15:00Z",
+        "valueQuantity": {
+          "value": 152,
+          "unit": "mg/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-19",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-19",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "13457-7",
+              "display": "LDL cholesterol"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-3"
+        },
+        "effectiveDateTime": "2025-09-01T08:15:00Z",
+        "valueQuantity": {
+          "value": 138,
+          "unit": "mg/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-20",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-20",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "4548-4",
+              "display": "Hemoglobin A1c"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-4"
+        },
+        "effectiveDateTime": "2025-01-20T08:15:00Z",
+        "valueQuantity": {
+          "value": 8.3,
+          "unit": "%",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-21",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-21",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "4548-4",
+              "display": "Hemoglobin A1c"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-4"
+        },
+        "effectiveDateTime": "2025-05-20T08:15:00Z",
+        "valueQuantity": {
+          "value": 7.9,
+          "unit": "%",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-22",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-22",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "4548-4",
+              "display": "Hemoglobin A1c"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-4"
+        },
+        "effectiveDateTime": "2025-09-20T08:15:00Z",
+        "valueQuantity": {
+          "value": 7.6,
+          "unit": "%",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-23",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-23",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "2345-7",
+              "display": "Glucose"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-4"
+        },
+        "effectiveDateTime": "2025-01-20T08:15:00Z",
+        "valueQuantity": {
+          "value": 168,
+          "unit": "mg/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-24",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-24",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "2345-7",
+              "display": "Glucose"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-4"
+        },
+        "effectiveDateTime": "2025-05-20T08:15:00Z",
+        "valueQuantity": {
+          "value": 149,
+          "unit": "mg/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-25",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-25",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "2345-7",
+              "display": "Glucose"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-4"
+        },
+        "effectiveDateTime": "2025-09-20T08:15:00Z",
+        "valueQuantity": {
+          "value": 138,
+          "unit": "mg/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-26",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-26",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "2345-7",
+              "display": "Glucose"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-5"
+        },
+        "effectiveDateTime": "2025-04-10T08:15:00Z",
+        "valueQuantity": {
+          "value": 92,
+          "unit": "mg/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-27",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-27",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "2345-7",
+              "display": "Glucose"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-5"
+        },
+        "effectiveDateTime": "2025-10-10T08:15:00Z",
+        "valueQuantity": {
+          "value": 95,
+          "unit": "mg/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-28",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-28",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "14682-9",
+              "display": "Creatinine"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-6"
+        },
+        "effectiveDateTime": "2025-02-14T08:15:00Z",
+        "valueQuantity": {
+          "value": 1.3,
+          "unit": "mg/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-29",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-29",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "14682-9",
+              "display": "Creatinine"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-6"
+        },
+        "effectiveDateTime": "2025-06-14T08:15:00Z",
+        "valueQuantity": {
+          "value": 1.35,
+          "unit": "mg/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-30",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-30",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "14682-9",
+              "display": "Creatinine"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-6"
+        },
+        "effectiveDateTime": "2025-10-14T08:15:00Z",
+        "valueQuantity": {
+          "value": 1.28,
+          "unit": "mg/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-31",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-31",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "13457-7",
+              "display": "LDL cholesterol"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-6"
+        },
+        "effectiveDateTime": "2025-02-14T08:15:00Z",
+        "valueQuantity": {
+          "value": 122,
+          "unit": "mg/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-obs-32",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-32",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "13457-7",
+              "display": "LDL cholesterol"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-6"
+        },
+        "effectiveDateTime": "2025-10-14T08:15:00Z",
+        "valueQuantity": {
+          "value": 115,
+          "unit": "mg/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:diagnosticreport-rep-1",
+      "resource": {
+        "resourceType": "DiagnosticReport",
+        "id": "rep-1",
+        "status": "final",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "24323-8",
+              "display": "Comprehensive metabolic panel"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-1"
+        },
+        "effectiveDateTime": "2025-10-15T10:00:00Z",
+        "result": [
+          {
+            "reference": "Observation/obs-9"
+          },
+          {
+            "reference": "Observation/obs-10"
+          },
+          {
+            "reference": "Observation/obs-11"
+          }
+        ]
+      },
+      "request": {
+        "method": "POST",
+        "url": "DiagnosticReport"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:diagnosticreport-rep-2",
+      "resource": {
+        "resourceType": "DiagnosticReport",
+        "id": "rep-2",
+        "status": "final",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "24323-8",
+              "display": "Comprehensive metabolic panel"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-2"
+        },
+        "effectiveDateTime": "2025-10-15T10:00:00Z",
+        "result": [
+          {
+            "reference": "Observation/obs-14"
+          },
+          {
+            "reference": "Observation/obs-15"
+          },
+          {
+            "reference": "Observation/obs-16"
+          }
+        ]
+      },
+      "request": {
+        "method": "POST",
+        "url": "DiagnosticReport"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:diagnosticreport-rep-3",
+      "resource": {
+        "resourceType": "DiagnosticReport",
+        "id": "rep-3",
+        "status": "final",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "24323-8",
+              "display": "Comprehensive metabolic panel"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-3"
+        },
+        "effectiveDateTime": "2025-10-15T10:00:00Z",
+        "result": [
+          {
+            "reference": "Observation/obs-17"
+          },
+          {
+            "reference": "Observation/obs-18"
+          },
+          {
+            "reference": "Observation/obs-19"
+          }
+        ]
+      },
+      "request": {
+        "method": "POST",
+        "url": "DiagnosticReport"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:diagnosticreport-rep-4",
+      "resource": {
+        "resourceType": "DiagnosticReport",
+        "id": "rep-4",
+        "status": "final",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "24323-8",
+              "display": "Comprehensive metabolic panel"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-4"
+        },
+        "effectiveDateTime": "2025-10-15T10:00:00Z",
+        "result": [
+          {
+            "reference": "Observation/obs-23"
+          },
+          {
+            "reference": "Observation/obs-24"
+          },
+          {
+            "reference": "Observation/obs-25"
+          }
+        ]
+      },
+      "request": {
+        "method": "POST",
+        "url": "DiagnosticReport"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:diagnosticreport-rep-5",
+      "resource": {
+        "resourceType": "DiagnosticReport",
+        "id": "rep-5",
+        "status": "final",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "24323-8",
+              "display": "Comprehensive metabolic panel"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-5"
+        },
+        "effectiveDateTime": "2025-10-15T10:00:00Z",
+        "result": [
+          {
+            "reference": "Observation/obs-26"
+          },
+          {
+            "reference": "Observation/obs-27"
+          }
+        ]
+      },
+      "request": {
+        "method": "POST",
+        "url": "DiagnosticReport"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:diagnosticreport-rep-6",
+      "resource": {
+        "resourceType": "DiagnosticReport",
+        "id": "rep-6",
+        "status": "final",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "24323-8",
+              "display": "Comprehensive metabolic panel"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-6"
+        },
+        "effectiveDateTime": "2025-10-15T10:00:00Z",
+        "result": [
+          {
+            "reference": "Observation/obs-30"
+          },
+          {
+            "reference": "Observation/obs-31"
+          },
+          {
+            "reference": "Observation/obs-32"
+          }
+        ]
+      },
+      "request": {
+        "method": "POST",
+        "url": "DiagnosticReport"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:procedure-proc-1",
+      "resource": {
+        "resourceType": "Procedure",
+        "id": "proc-1",
+        "status": "completed",
+        "code": {
+          "coding": [
+            {
+              "system": "http://www.ama-assn.org/go/cpt",
+              "code": "71046",
+              "display": "Chest X-ray, 2 views"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-1"
+        },
+        "performedDateTime": "2025-08-22"
+      },
+      "request": {
+        "method": "POST",
+        "url": "Procedure"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:procedure-proc-2",
+      "resource": {
+        "resourceType": "Procedure",
+        "id": "proc-2",
+        "status": "completed",
+        "code": {
+          "coding": [
+            {
+              "system": "http://www.ama-assn.org/go/cpt",
+              "code": "94640",
+              "display": "Inhalation therapy administration"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-2"
+        },
+        "performedDateTime": "2025-08-22"
+      },
+      "request": {
+        "method": "POST",
+        "url": "Procedure"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:procedure-proc-3",
+      "resource": {
+        "resourceType": "Procedure",
+        "id": "proc-3",
+        "status": "completed",
+        "code": {
+          "coding": [
+            {
+              "system": "http://www.ama-assn.org/go/cpt",
+              "code": "20610",
+              "display": "Arthrocentesis, knee"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-4"
+        },
+        "performedDateTime": "2025-08-22"
+      },
+      "request": {
+        "method": "POST",
+        "url": "Procedure"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:procedure-proc-4",
+      "resource": {
+        "resourceType": "Procedure",
+        "id": "proc-4",
+        "status": "completed",
+        "code": {
+          "coding": [
+            {
+              "system": "http://www.ama-assn.org/go/cpt",
+              "code": "90791",
+              "display": "Psychiatric diagnostic evaluation"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-5"
+        },
+        "performedDateTime": "2025-08-22"
+      },
+      "request": {
+        "method": "POST",
+        "url": "Procedure"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:procedure-proc-5",
+      "resource": {
+        "resourceType": "Procedure",
+        "id": "proc-5",
+        "status": "completed",
+        "code": {
+          "coding": [
+            {
+              "system": "http://www.ama-assn.org/go/cpt",
+              "code": "93005",
+              "display": "Electrocardiogram"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/pat-6"
+        },
+        "performedDateTime": "2025-08-22"
+      },
+      "request": {
+        "method": "POST",
+        "url": "Procedure"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:appointment-appt-1",
+      "resource": {
+        "resourceType": "Appointment",
+        "id": "appt-1",
+        "status": "booked",
+        "start": "2026-11-11T09:00:00Z",
+        "end": "2026-11-11T09:30:00Z",
+        "participant": [
+          {
+            "actor": {
+              "reference": "Patient/pat-1"
+            },
+            "status": "accepted"
+          },
+          {
+            "actor": {
+              "reference": "Practitioner/prac-1"
+            },
+            "status": "accepted"
+          }
+        ]
+      },
+      "request": {
+        "method": "POST",
+        "url": "Appointment"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:appointment-appt-2",
+      "resource": {
+        "resourceType": "Appointment",
+        "id": "appt-2",
+        "status": "booked",
+        "start": "2026-11-12T09:00:00Z",
+        "end": "2026-11-12T09:30:00Z",
+        "participant": [
+          {
+            "actor": {
+              "reference": "Patient/pat-2"
+            },
+            "status": "accepted"
+          },
+          {
+            "actor": {
+              "reference": "Practitioner/prac-1"
+            },
+            "status": "accepted"
+          }
+        ]
+      },
+      "request": {
+        "method": "POST",
+        "url": "Appointment"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:appointment-appt-3",
+      "resource": {
+        "resourceType": "Appointment",
+        "id": "appt-3",
+        "status": "booked",
+        "start": "2026-11-13T09:00:00Z",
+        "end": "2026-11-13T09:30:00Z",
+        "participant": [
+          {
+            "actor": {
+              "reference": "Patient/pat-3"
+            },
+            "status": "accepted"
+          },
+          {
+            "actor": {
+              "reference": "Practitioner/prac-1"
+            },
+            "status": "accepted"
+          }
+        ]
+      },
+      "request": {
+        "method": "POST",
+        "url": "Appointment"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:appointment-appt-4",
+      "resource": {
+        "resourceType": "Appointment",
+        "id": "appt-4",
+        "status": "booked",
+        "start": "2026-11-14T09:00:00Z",
+        "end": "2026-11-14T09:30:00Z",
+        "participant": [
+          {
+            "actor": {
+              "reference": "Patient/pat-4"
+            },
+            "status": "accepted"
+          },
+          {
+            "actor": {
+              "reference": "Practitioner/prac-1"
+            },
+            "status": "accepted"
+          }
+        ]
+      },
+      "request": {
+        "method": "POST",
+        "url": "Appointment"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:appointment-appt-5",
+      "resource": {
+        "resourceType": "Appointment",
+        "id": "appt-5",
+        "status": "booked",
+        "start": "2026-11-15T09:00:00Z",
+        "end": "2026-11-15T09:30:00Z",
+        "participant": [
+          {
+            "actor": {
+              "reference": "Patient/pat-5"
+            },
+            "status": "accepted"
+          },
+          {
+            "actor": {
+              "reference": "Practitioner/prac-1"
+            },
+            "status": "accepted"
+          }
+        ]
+      },
+      "request": {
+        "method": "POST",
+        "url": "Appointment"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:appointment-appt-6",
+      "resource": {
+        "resourceType": "Appointment",
+        "id": "appt-6",
+        "status": "booked",
+        "start": "2026-11-16T09:00:00Z",
+        "end": "2026-11-16T09:30:00Z",
+        "participant": [
+          {
+            "actor": {
+              "reference": "Patient/pat-6"
+            },
+            "status": "accepted"
+          },
+          {
+            "actor": {
+              "reference": "Practitioner/prac-1"
+            },
+            "status": "accepted"
+          }
+        ]
+      },
+      "request": {
+        "method": "POST",
+        "url": "Appointment"
+      }
+    }
+  ]
+}
