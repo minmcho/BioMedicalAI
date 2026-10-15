@@ -1,52 +1,38 @@
-# Phases
+# Phases — reconciled to the ORIGINAL plan (2026-10-15)
 
 Each phase ships end-to-end and passes the SQA gate in `docs/SQA.md`, with a
 report in `docs/sqa/`, before the next phase starts.
 
-## Phase 0 — Foundation — DONE (see docs/sqa/PHASE0_SQA_REPORT.md)
-Repo scaffold; FastAPI + SQLAlchemy 2.0 core; Postgres (pgvector) + Valkey in
-Compose, SQLite locally (portable repository design); Studio pack lifecycle;
-hash-chained audit; FHIR Patient/Encounter/Observation; contracts stubs;
-pytest suite green.
-**Note on naming:** the earlier build plan used "Phase 0" for a SMART-on-FHIR
-sandbox companion app. That app remains a planned fast-follow (it needs the
-foundation's FHIR surface to be meaningful as our own code) — the foundation
-delivered here is Phase 0 of the codebase, and the sandbox app is tracked as
-Phase 1a below.
+> **Superseded numbering:** this codebase was initially built foundation-first
+> and the phases were renumbered twice along the way (foundation called
+> "Phase 0" with the SMART app as "Phase 1a"; then the Agentic ADK layer
+> inserted as "Phase 2", pushing clinical phases to 3–5). **All of that is
+> superseded.** Min re-asserted the original plan from
+> `Open-Source-Epic-Like-EHR-Build-Plan.md`; the table below is the single
+> source of truth for phase numbers and status.
 
-## Phase 1 — Core EHR MVP — **API scope DONE 2026-10-15** (see docs/sqa/PHASE1_SQA_REPORT.md)
-Delivered: Condition/Procedure/MedicationRequest/DiagnosticReport/Appointment
-resources through the Phase 0 repository/audit path, with per-resource
-required-field validation (contracts/fhir-resources.md); scheduling & ADT
-(Appointment search by practitioner + date range; status transitions with
-order enforcement and terminal states, audited); staff results inbox
-(Observation + DiagnosticReport, newest first); patient-portal read scoping
-(patient role + `patient_ref`, own-record only, portal `/my-results`);
-OIDC auth mode (`AUTH_MODE=oidc`, PyJWT/JWKS verification, Keycloak-shaped
-claim mapping) alongside the unchanged dev mode.
-**Still open in Phase 1 (not claimed):** patient portal *web* views and the
-other web UI; a live Keycloak server run + verification (OIDC is tested with
-in-process signed tokens + fixture JWKS); full US Core profile validation in
-CI (required-field rules are implemented; the profile validator is not wired).
-Practitioner/Organization/DocumentReference resources remain planned.
-**Phase 1a (parallel, small):** SMART on FHIR companion app against a public
-FHIR sandbox using this codebase's FHIR client shapes.
+| Phase | Scope (original plan) | Status |
+|---|---|---|
+| **0** | SMART on FHIR companion app launching inside the Epic sandbox: patient summary, conditions, meds, lab trends | **DONE 2026-10-15** (`smart-app/`, fhirclient + Vite/TS, SMART mode + local demo mode; unit tests + build + local smoke green). **Live Epic-sandbox launch NOT RUN** — needs Min's client_id registration (see `smart-app/README.md`) |
+| **1** | Core EHR MVP: auth/RBAC + audit, FHIR chart (Patient/Encounter + Condition/Procedure/MedicationRequest/DiagnosticReport/Appointment), scheduling & ADT, results inbox, patient-portal read scoping, **Synthea demo data**, Docker one-command run | **DONE 2026-10-15** — foundation + core API (docs/sqa/PHASE0_SQA_REPORT.md + PHASE1_SQA_REPORT.md under the old numbering) and the seed (`backend/seed/`, idempotent loader, live-verified) in docs/sqa/PHASE_SMART_SYNTHEA_SQA_REPORT.md. Open items, not claimed: live Keycloak run, full US Core profile validation in CI, Practitioner/Organization/DocumentReference resources |
+| **2** | Lab LIS: order → specimen → result → QC workflow, analyser ingest (HL7 v2 ORU / CSV), reference ranges, critical-value flags | **NEXT** — not started. (Min has also directed a Studio customization engine to be built immediately after Phase 1 closes and before Lab LIS, so Lab lands as Studio configuration + packs — spec: `docs/STUDIO_CUSTOMIZATION.md`) |
+| **3** | Analytics warehouse: FHIR → OMOP CDM (dbt), population registry, risk lists, self-service explorer | Not started |
+| **4** | Revenue + specialties, one at a time, only if 1–3 land: billing/claims, pharmacy dispensing + barcode med-admin, ED board, radiology (DICOMweb + open viewer) | Not started |
 
-## Phase 2 — Lab LIS
-ServiceRequest → Specimen → result → QC workflow, analyser file ingest
-(HL7 v2 ORU / CSV) via the Go integration tier, reference ranges,
-critical-value flags. Lab pack manifest graduates from draft content to real
-routes — through the Studio lifecycle, never by editing the manifest flag.
+## Workstreams delivered alongside the phases (not clinical phases)
 
-## Phase 3 — Analytics warehouse
-Transactional outbox → FHIR → OMOP CDM (dbt), population registry, self-service
-explorer. Go bulk-export API lands here.
-
-## Phase 4 — Revenue + specialties (one at a time, cut rather than half-ship)
-Billing/claims (X12), pharmacy + barcode med-admin, ED board, radiology
-(DICOMweb + open-source viewer), surgery board. Go realtime tier and Rust
-compute services (DICOM, de-identification, terminology) land with the
-features that need them.
+- **Client deliverables (alongside Phase 1):** the web app (`web/` —
+  clinician workspace, patient portal, Studio packs UI) and the native
+  mobile sources (`mobile/` — SwiftUI iOS Universal + Kotlin Compose
+  Android + KMP shared models). Each carries its own SQA report in
+  `docs/sqa/`; mobile first builds happen in Xcode / Android Studio on
+  Min's Macs.
+- **Agentic ADK layer (`agents/`, DONE 2026-10-15):** a separate service on
+  the real Google ADK — LlmAgent roster, read-only FHIR tools, guardrail
+  callback, draft-proposal human-confirm write path, multimodal intake.
+  Full detail: `docs/AGENTS.md`; SQA: `docs/sqa/PHASE2_AGENTS_SQA_REPORT.md`
+  (report filename kept from the superseded numbering). Agent reasoning
+  quality / evals are NOT RUN (no model on the build VM).
 
 ## Studio-reuse mapping (concepts adapted from Agentic_App's System Studio)
 
