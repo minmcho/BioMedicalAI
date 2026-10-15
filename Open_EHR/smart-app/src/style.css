@@ -1,0 +1,64 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+body {
+  margin: 1.5rem auto;
+  max-width: 56rem;
+  padding: 0 1rem;
+}
+header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.badge {
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+  font-size: 0.85rem;
+}
+.badge.local {
+  color: #8a5a00;
+}
+.badge.smart {
+  color: #0a6b2d;
+}
+.card {
+  border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin: 1rem 0;
+}
+.muted {
+  opacity: 0.75;
+}
+.banner-local {
+  font-weight: 600;
+}
+label {
+  display: block;
+  margin: 0.5rem 0;
+}
+input,
+select {
+  width: 100%;
+  padding: 0.4rem;
+  margin-top: 0.2rem;
+}
+button {
+  padding: 0.45rem 1rem;
+  margin: 0.5rem 0;
+  cursor: pointer;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+td {
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+}
+.spark {
+  color: #2563eb;
+}
