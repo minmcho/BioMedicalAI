@@ -1,0 +1,50 @@
+import { useAuth } from "../auth/AuthContext";
+import { AUTH_MODE, DEV_ACCOUNTS } from "../auth/session";
+
+export function LoginPage() {
+  const { signIn } = useAuth();
+
+  return (
+    <main className="login">
+      <h1>OpenCare</h1>
+      <p className="tagline">Open-source, FHIR-native electronic health record.</p>
+
+      {AUTH_MODE === "oidc" ? (
+        <section className="card" aria-label="OIDC sign-in">
+          <h2>Sign-in via identity provider</h2>
+          <p>
+            This deployment is configured for <strong>OIDC</strong> (for example Keycloak).
+            Sign-in happens through your identity provider, and the OpenCare API must be
+            called with a token it issued. This web build does not run its own SSO flow —
+            use the provider sign-in supplied by your deployment.
+          </p>
+        </section>
+      ) : (
+        <section className="card" aria-label="Dev sign-in">
+          <h2>Dev sign-in</h2>
+          <p className="hint">
+            Local development only. Pick a seeded role to sign in with its dev token
+            (the backend&rsquo;s <code>AUTH_MODE=dev</code> accounts). Production uses OIDC.
+          </p>
+          <div className="account-list">
+            {DEV_ACCOUNTS.map((account) => (
+              <button
+                key={account.role}
+                type="button"
+                className="account"
+                onClick={() =>
+                  signIn({ token: account.token, role: account.role, username: account.username })
+                }
+              >
+                <span className="account-label">{account.label}</span>
+                <span className="account-meta">
+                  {account.username} · role: {account.role}
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+    </main>
+  );
+}

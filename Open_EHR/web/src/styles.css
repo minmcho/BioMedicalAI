@@ -1,0 +1,78 @@
+:root {
+  color-scheme: light;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --ink: #17222b;
+  --muted: #5b6b76;
+  --accent: #0b6e4f;
+  --border: #d6dee3;
+  --error-bg: #fdecec;
+  --error-ink: #7a1f1f;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; color: var(--ink); background: #f6f8f9; }
+button { font: inherit; cursor: pointer; }
+input { font: inherit; padding: 0.4rem 0.55rem; border: 1px solid var(--border); border-radius: 6px; }
+
+.login { max-width: 480px; margin: 8vh auto; padding: 0 1rem; }
+.login h1 { margin-bottom: 0.2rem; }
+.tagline { color: var(--muted); margin-top: 0; }
+.card { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.2rem; }
+.hint { color: var(--muted); font-size: 0.92rem; }
+
+.account-list { display: grid; gap: 0.5rem; margin-top: 0.8rem; }
+.account { display: flex; flex-direction: column; align-items: flex-start; gap: 0.15rem;
+  background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.8rem; text-align: left; }
+.account:hover { border-color: var(--accent); }
+.account-label { font-weight: 600; }
+.account-meta { color: var(--muted); font-size: 0.85rem; }
+
+.layout { display: flex; min-height: 100vh; }
+.sidebar { width: 220px; flex: 0 0 220px; background: #fff; border-right: 1px solid var(--border);
+  padding: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.brand { font-size: 1.3rem; margin: 0.2rem 0; }
+.user-line { color: var(--muted); font-size: 0.9rem; margin: 0 0 0.6rem; }
+.badge { display: inline-block; background: #e6f2ec; color: var(--accent); border-radius: 999px;
+  padding: 0.05rem 0.55rem; font-size: 0.8rem; font-weight: 600; }
+nav { display: flex; flex-direction: column; gap: 0.25rem; }
+.nav { background: none; border: 1px solid transparent; border-radius: 8px; padding: 0.5rem 0.7rem; text-align: left; }
+.nav:hover { background: #eef3f1; }
+.nav.active { background: #e6f2ec; border-color: var(--accent); font-weight: 600; }
+.nav.signout { margin-top: auto; color: var(--muted); }
+
+.content { flex: 1; padding: 1.4rem 1.8rem; max-width: 980px; }
+.field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.92rem; font-weight: 600; max-width: 320px; }
+.inline-form { display: flex; gap: 0.8rem; align-items: end; flex-wrap: wrap; margin-bottom: 1rem; }
+.inline-form button, .pack button { background: var(--accent); color: #fff; border: none;
+  border-radius: 8px; padding: 0.5rem 0.95rem; font-weight: 600; }
+.inline-form button:disabled, .pack button:disabled { opacity: 0.55; cursor: default; }
+.linklike { background: none; border: none; color: var(--accent); padding: 0; margin-bottom: 0.6rem; }
+
+.state { border-radius: 8px; padding: 0.7rem 0.9rem; margin: 0.8rem 0; }
+.state-loading, .state-empty { color: var(--muted); background: #eef2f4; }
+.state-error { background: var(--error-bg); color: var(--error-ink); }
+
+.patient-list, .result-list, .appt-list { list-style: none; padding: 0; display: grid; gap: 0.5rem; }
+.patient-row { width: 100%; display: flex; justify-content: space-between; gap: 1rem; background: #fff;
+  border: 1px solid var(--border); border-radius: 8px; padding: 0.7rem 0.9rem; text-align: left; }
+.patient-name { font-weight: 600; }
+.patient-meta, .result-meta, .appt-meta { color: var(--muted); font-size: 0.88rem; }
+.result-row, .appt-row { background: #fff; border: 1px solid var(--border); border-radius: 8px;
+  padding: 0.7rem 0.9rem; display: flex; justify-content: space-between; gap: 1rem; align-items: center; }
+.result-type { font-weight: 700; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.appt-main { display: flex; flex-direction: column; gap: 0.15rem; }
+.appt-actions { display: flex; gap: 0.4rem; }
+.appt-actions button { border: 1px solid var(--accent); background: #fff; color: var(--accent);
+  border-radius: 8px; padding: 0.35rem 0.8rem; font-weight: 600; }
+.appt-actions button:disabled { opacity: 0.55; }
+
+.pack-list { display: grid; gap: 0.8rem; }
+.pack header { display: flex; justify-content: space-between; align-items: center; }
+.pack h3 { margin: 0.2rem 0; }
+.pack-version { color: var(--muted); font-weight: 400; font-size: 0.9rem; }
+.pack-detail { color: var(--muted); font-size: 0.9rem; margin: 0.3rem 0; }
+
+@media (max-width: 720px) {
+  .layout { flex-direction: column; }
+  .sidebar { width: 100%; flex: none; border-right: none; border-bottom: 1px solid var(--border); }
+}

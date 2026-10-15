@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OpenCare — SMART on FHIR app</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>OpenCare patient summary</h1>
+      <span id="mode-badge" class="badge">Starting…</span>
+    </header>
+
+    <p id="app-status" class="muted" role="status"></p>
+
+    <section id="local-panel" class="card" hidden>
+      <h2>Connect to OpenCare backend (dev)</h2>
+      <p class="banner-local">
+        LOCAL DEMO MODE — this talks to a local OpenCare backend with its
+        dev-token auth and synthetic seed data. It is not an EHR connection.
+      </p>
+      <label>Backend URL <input id="local-base" type="url" /></label>
+      <label>Dev token <input id="local-token" type="text" /></label>
+      <button id="local-connect" type="button">Connect</button>
+      <label>Patient <select id="local-patient"></select></label>
+    </section>
+
+    <main id="summary"></main>
+
+    <section class="card">
+      <h2>SMART settings</h2>
+      <p class="muted">
+        Used by the EHR-launch entry point (<code>launch.html</code>). Saved
+        in this browser only. See the app README for registration steps.
+      </p>
+      <form id="settings-form">
+        <label>Client ID <input id="smart-client-id" type="text" autocomplete="off" /></label>
+        <label>Scope <input id="smart-scope" type="text" autocomplete="off" /></label>
+        <label>FHIR service URL (standalone launch) <input id="smart-fhir-url" type="url" /></label>
+        <label>Redirect URI <input id="smart-redirect-uri" type="text" /></label>
+        <button type="submit">Save settings</button>
+      </form>
+    </section>
+
+    <script type="module" src="/src/app.ts"></script>
+  </body>
+</html>
