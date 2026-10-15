@@ -56,5 +56,5 @@
 - No diagnosis/treatment claims — prediction / workflow support only, hedged.
 - Every claim on a resume must point to a commit, README, or demo in these repos.
 
-## Added 2026-10-12 — BMDS 276 (Stanford, CS 286)
-Advanced Topics in Computer Vision and Biomedicine is now a parallel advanced track (`../BMDS276/` in BioMedicalAI). Slot: Weeks 5-7 alongside GenomicsRAG for the imaging half; its final project can serve as Portfolio 1's imaging extension. Prereq honesty check: CS231N-level deep learning/CV first.
+## Added 2026-10-12 — Biomedical Vision AI (Stanford, CS 286)
+Advanced Topics in Computer Vision and Biomedicine is now a parallel advanced track (`../BiomedicalVisionAI/` in BioMedicalAI). Slot: Weeks 5-7 alongside GenomicsRAG for the imaging half; its final project can serve as Portfolio 1's imaging extension. Prereq honesty check: CS231N-level deep learning/CV first.
