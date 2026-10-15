@@ -1,0 +1,11 @@
+# Replace with the real hostname before go-live; Caddy obtains TLS automatically.
+# Until a domain is set, run with the IP/localhost block commented in the runbook.
+biomed.example.com {
+	encode gzip
+	reverse_proxy app:8000
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+	}
+}

@@ -9,6 +9,7 @@ Finish the 12 weeks with *checkable evidence*, not coursework notes:
 1. BMDS 214 complete (Weeks 5–10 built, tested, pushed)
 2. BMDS 260 + BMDS 276 imaging tracks complete, with two evaluated imaging projects
 3. A Databricks lakehouse proof (FHIR → OMOP on Delta Lake) — public and linkable
+4. A true enterprise-level AI data deployment, operated on a real VM with pilot users (`EnterpriseDeployment/`)
 4. One public Claude deployment (API + MCP server + sub-agents) with a published eval report
 5. A real-user pilot written up as a deployment case study / playbook
 6. Applications submitted to verified FDE / Data Architect roles at the $180k+ base floor (see `tracker/COMP_TARGET.md`)
@@ -47,7 +48,8 @@ Finish the 12 weeks with *checkable evidence*, not coursework notes:
 - **Setup:** Databricks Free Edition account; first Delta Lake notebook (create/read/time travel)
 - **Done when:** alignment module + tests pushed; FHIR→OMOP mapping notes in `DataArchitecture/`; Delta notebook exported to the repo
 
-## Week 3 — Mon Oct 26 – Sun Nov 1 · Sequencing QC + lakehouse MVP
+## Week 3 — Mon Oct 26 – Sun Nov 1 · Sequencing QC + lakehouse MVP + enterprise deployment goes live
+- **Deploy:** EnterpriseDeployment Rep 1 — compose stack live on the Oracle VM with TLS (see `EnterpriseDeployment/EXPERIENCE.md`)
 - **Build:** BMDS 214 Week 7 — FASTA/FASTQ parsing & QC metrics (`BMDS214/week07-fastq-qc/`)
 - **Build:** Lakehouse MVP — Synthea FHIR JSON → bronze (raw) → silver (OMOP-shaped) Delta tables on Databricks; notebooks exported to `DataArchitecture/`
 - **Learn:** Academy — *Introduction to MCP*
@@ -92,7 +94,7 @@ Finish the 12 weeks with *checkable evidence*, not coursework notes:
 - **Done when:** both project reports committed; dbt project runs against the lakehouse
 
 ## Week 9 — Mon Dec 7 – Sun Dec 13 · Pilot + Anthropic application
-- **Run:** Claude deployment pilot with real users (invite-only); log usage, failures, fixes
+- **Run:** Claude deployment pilot with real users (invite-only) on the enterprise deployment (Rep 3); log usage, failures, fixes
 - **Write:** deployment case study + playbook draft (problem, architecture, evals, rollout, lessons)
 - **Build:** GenomicsRAG portfolio finished — genomics RAG with its eval harness green (`GenomicsRAG/`)
 - **⭐ Milestone: submit Anthropic FDE (Applied AI) application** — live demo + MCP server + eval report linked; fit scorecard re-scored honestly (target 15+/20)

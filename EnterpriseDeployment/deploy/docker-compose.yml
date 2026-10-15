@@ -1,0 +1,48 @@
+# Enterprise deployment stack — runs on the customer's own infrastructure.
+# Design rules (same as a real enterprise rollout):
+# - the database is never exposed publicly; only the proxy publishes ports
+# - secrets come from .env on the host, never from the repo
+# - the app runs as a non-root user; data persists in a named volume
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-biomed}
+      POSTGRES_USER: ${POSTGRES_USER:-biomed}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-biomed}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # no ports: published — database is internal only
+
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-biomed}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-biomed}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      TENANT_MODE: multi
+    depends_on:
+      db:
+        condition: service_healthy
+    # no ports: published — reached only through the proxy
+
+  proxy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      - app
+
+volumes:
+  pgdata:
+  caddy_data:
