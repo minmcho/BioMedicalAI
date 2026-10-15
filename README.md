@@ -43,6 +43,14 @@ A 3-month, job-targeted track added 2026-10-12, built from Harvard / Stanford / 
 - `DataArchitecture/` — FHIR -> OMOP in dbt: the recurring gap in real postings
 - `ForwardDeployment/02-fde-capstone/` — Portfolio 3: FDE-style deployment into a LIMS/lab workflow
 
+## Open_EHR — Open-Source EHR (OpenCare)
+
+An original, open-source (Apache-2.0) EHR with feature categories similar to large enterprise EHR suites — built FHIR-native from day one, in `Open_EHR/`. Added 2026-10-15; see [`Open_EHR/README.md`](Open_EHR/README.md) for the full guide and `Open_EHR/docs/` for the roadmap and SQA reports.
+
+- **Design:** FastAPI clinical core (PostgreSQL primary behind a portable repository layer — other RDBMS, document, pgvector and Valkey/Redis-API stores by tier) with Go planned as the high-throughput API/integration tier and Rust for performance-critical compute (DICOM, de-identification, terminology); APIs each in their own lane — FHIR R4 REST, GraphQL, gRPC, MCP — and native SwiftUI (iOS) + Kotlin (Android) mobile. 100% open-source stack.
+- **System Studio concepts, reused:** versioned module packs install as designer drafts only and go live only through separate human steps — approve → attach → enable — with pack endpoints disabled until enabled, role gates, and a hash-chained audit log.
+- **Status:** Phase 0 (foundation: pack lifecycle, RBAC, audit, FHIR Patient/Encounter/Observation) and Phase 1 (core EHR: Condition, Procedure, MedicationRequest, DiagnosticReport, Appointment scheduling/ADT, results inbox, patient-portal read scoping, Keycloak-ready OIDC auth) are complete — **37 tests passing**, with a written SQA report per phase (`Open_EHR/docs/sqa/`). Next: Lab LIS, then the FHIR → OMOP warehouse.
+
 ## Biomedical Vision AI Preparation
 
 Vision foundation models (representation, generative, and vision-language) and their real-world use in biomedicine. Prep track in `BiomedicalVisionAI/` — vision foundations, representation learning, generative models, vision-language models, biomedical applications, and a final project. Added 2026-10-12; feeds the ClinicalML portfolio and the FDE capstone. Topic selection informed by Stanford's advanced computer-vision-in-biomedicine course; all material here is original.

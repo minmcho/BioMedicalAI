@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+// Internal service-to-service contracts (STUB — no gRPC server is implemented
+// in Phase 0). Lanes: FastAPI clinical core <-> Go API/integration tier and
+// Rust compute services (DICOM, de-identification, terminology).
+package opencare.internal.v1;
+
+service TerminologyService {
+  rpc LookupCode(CodeLookupRequest) returns (CodeLookupResponse);
+  rpc ValidateCode(CodeLookupRequest) returns (CodeLookupResponse);
+}
+
+message CodeLookupRequest {
+  string system = 1;  // e.g. LOINC / ICD-10 / RxNorm URI
+  string code = 2;
+}
+
+message CodeLookupResponse {
+  bool found = 1;
+  string display = 2;
+  string system = 3;
+  string code = 4;
+}
+
+service DeidentificationService {
+  rpc Deidentify(DeidentifyRequest) returns (DeidentifyResponse);
+}
+
+message DeidentifyRequest {
+  string resource_json = 1;  // serialised FHIR resource
+  string method = 2;         // "safe_harbor" | "expert_determination"
+}
+
+message DeidentifyResponse {
+  string resource_json = 1;
+  repeated string removed_fields = 2;
+}

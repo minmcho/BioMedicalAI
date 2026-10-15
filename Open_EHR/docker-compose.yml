@@ -1,0 +1,38 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-openehr}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-openehr}
+      POSTGRES_DB: ${POSTGRES_DB:-openehr}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-openehr}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  valkey:
+    image: valkey/valkey:8
+    ports:
+      - "6379:6379"
+    volumes:
+      - valkeydata:/data
+  app:
+    build:
+      context: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-openehr}:${POSTGRES_PASSWORD:-openehr}@db:5432/${POSTGRES_DB:-openehr}
+      VALKEY_URL: redis://valkey:6379/0
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      valkey:
+        condition: service_started
+volumes:
+  pgdata:
+  valkeydata:

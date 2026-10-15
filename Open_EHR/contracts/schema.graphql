@@ -1,0 +1,23 @@
+# GraphQL BFF schema — STUB (no GraphQL server is implemented in Phase 0).
+# Lane rule: GraphQL is frontend/mobile aggregation only and resolves through
+# the FHIR/domain services; it never touches the database directly.
+
+type PatientSummary {
+  id: ID!
+  displayName: String
+  birthDate: String
+  encounterCount: Int!
+  latestObservations(limit: Int = 10): [ObservationSummary!]!
+}
+
+type ObservationSummary {
+  id: ID!
+  codeDisplay: String
+  value: String
+  effectiveDateTime: String
+}
+
+type Query {
+  patientSummary(patientId: ID!): PatientSummary
+  health: String!
+}
