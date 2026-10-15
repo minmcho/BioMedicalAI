@@ -33,6 +33,17 @@ services:
         condition: service_healthy
       valkey:
         condition: service_started
+  web:
+    build:
+      context: ./web
+      args:
+        VITE_API_BASE: ${VITE_API_BASE:-http://localhost:8000}
+        VITE_AUTH_MODE: ${VITE_AUTH_MODE:-dev}
+    ports:
+      - "8080:8080"
+    depends_on:
+      app:
+        condition: service_started
 volumes:
   pgdata:
   valkeydata:
