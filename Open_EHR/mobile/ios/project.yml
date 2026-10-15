@@ -1,0 +1,36 @@
+# XcodeGen project definition for the OpenCare iOS app.
+#
+# The committed OpenCare.xcodeproj/project.pbxproj is hand-authored and is
+# the primary project. This file is the documented regeneration path: if
+# the hand-authored project ever misbehaves in a future Xcode, regenerate
+# an equivalent project with XcodeGen (https://github.com/yonaskolb/XcodeGen):
+#
+#     cd mobile/ios && xcodegen generate
+#
+# It describes exactly the same target, sources, and settings.
+name: OpenCare
+options:
+  bundleIdPrefix: org.opencare
+  deploymentTarget:
+    iOS: "17.0"
+settings:
+  base:
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    SWIFT_VERSION: "5.0"
+targets:
+  OpenCare:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: OpenCare
+    settings:
+      base:
+        INFOPLIST_FILE: OpenCare/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        PRODUCT_BUNDLE_IDENTIFIER: org.opencare.ehr
+        PRODUCT_NAME: OpenCare
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
