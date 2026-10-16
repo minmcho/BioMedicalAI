@@ -1,0 +1,86 @@
+# Mobile CI — first real compilation of the OpenCare native apps.
+#
+# Placement note: this file lives in staging at Open_EHR/.github/workflows/
+# and is published to the BioMedicalAI repo root as
+# .github/workflows/mobile.yml (paths below are written for that layout:
+# the repo root contains Open_EHR/).
+#
+# Why CI exists: the Linux build VM cannot compile either app — SwiftUI
+# needs the iOS SDK (macOS only), and the sandbox blocks JVM-initiated
+# TCP so Gradle cannot run there. These runners are where the first
+# real builds happen; results appear on the repo's Actions tab.
+
+name: Mobile
+
+on:
+  push:
+    paths:
+      - "Open_EHR/mobile/**"
+      - ".github/workflows/mobile.yml"
+  pull_request:
+    paths:
+      - "Open_EHR/mobile/**"
+      - ".github/workflows/mobile.yml"
+  workflow_dispatch:
+
+jobs:
+  android-build:
+    name: Android (assembleDebug)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages (platform 34, build-tools 34)
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Build debug APK
+        working-directory: Open_EHR/mobile/android
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencare-android-debug-apk
+          path: Open_EHR/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+  ios-build:
+    name: iOS (xcodebuild, simulator, unsigned)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build with the committed Xcode project
+        id: xcodebuild_primary
+        continue-on-error: true
+        working-directory: Open_EHR/mobile/ios
+        run: |
+          xcodebuild build \
+            -project OpenCare.xcodeproj \
+            -scheme OpenCare \
+            -destination "generic/platform=iOS Simulator" \
+            CODE_SIGNING_ALLOWED=NO
+
+      # The .xcodeproj is hand-authored; if a future Xcode rejects it,
+      # regenerate an equivalent project from project.yml with XcodeGen
+      # and retry once (same scheme/settings) before failing the job.
+      - name: Fallback — regenerate project with XcodeGen and retry
+        if: steps.xcodebuild_primary.outcome == 'failure'
+        working-directory: Open_EHR/mobile/ios
+        run: |
+          brew install xcodegen
+          xcodegen generate
+          xcodebuild build \
+            -project OpenCare.xcodeproj \
+            -scheme OpenCare \
+            -destination "generic/platform=iOS Simulator" \
+            CODE_SIGNING_ALLOWED=NO
