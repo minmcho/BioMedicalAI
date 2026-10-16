@@ -10,6 +10,18 @@ Everything a deploying organisation needs to change — forms, fields, workflows
 - Role gates (admin / configurator / clinician / viewer / patient) and a hash-chained audit log on every Studio and clinical write.
 - Web Studio page (packs) in the Phase 1 web app.
 
+## Visual System Studio module (built 2026-10-16)
+
+The web Studio is now a real tabbed **System Studio** module (nav label "System Studio", SQA: `docs/sqa/STUDIO_UI_SQA_REPORT.md`), not a single packs + raw-JSON page:
+
+- **Overview** — org profile from the published branding config, published-config inventory per kind with versions, pack counts by state, recent audit activity.
+- **Module packs** — the pack lifecycle UI (unchanged).
+- **Visual editors** for the governed kinds, all saving drafts and publishing through the same `/studio/config` endpoints: **Forms designer** (FHIR Questionnaire items + live preview), **Workflows** (states/transitions), **Terminology** (concept tables in the lab catalog shape), **Navigation** (modules-only menu rows), **Branding** (org profile + header preview), **Permissions** (capability × role matrix over `permissions/role-matrix`), **Integration** (key/value connection data).
+- **Advanced (JSON)** — the raw-JSON editor at full capability for any kind/key (incl. cohort), versions and rollback.
+- **Audit** — read-only view of the hash-chained log via the new `GET /studio/audit` (admin/configurator).
+
+Known consumption gaps (editor side is complete; wiring is later-phase work): the app shell does not yet render its own menu/branding from the published navigation/branding config.
+
 ## The customization engine (builds next, before Lab LIS — see sequencing note)
 1. **Form & field designer** — custom forms stored as FHIR `Questionnaire`; responses as `QuestionnaireResponse` (optionally projected to Observations). Field types, order, required rules, value-set bindings — all config. Designer drafts never render for clinicians until published (the Agentic_App rule: only approved + attached items appear in navigation/use).
 2. **Custom fields** — organisation-defined extensions on Patient/Encounter/Observation etc., declared in Studio, validated at write, queryable in search.

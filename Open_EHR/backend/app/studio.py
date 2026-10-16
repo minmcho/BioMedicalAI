@@ -8,12 +8,13 @@ installation itself.
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .audit import append_audit
-from .models import InstallationStatus, ModulePack, PackInstallation, Role, User
+from .models import (AuditLog, InstallationStatus, ModulePack, PackInstallation,
+                     Role, User)
 from .security import get_db, require_roles
 
 router = APIRouter(prefix="/studio", tags=["studio"])
@@ -132,3 +133,23 @@ def list_installations(session: Session = Depends(get_db), user: User = Depends(
     for inst in session.scalars(select(PackInstallation)).all():
         out.append(_installation_out(inst, session.get(ModulePack, inst.pack_id)))
     return out
+
+
+@router.get("/audit")
+def list_audit(limit: int = Query(default=50, ge=1, le=200),
+               session: Session = Depends(get_db),
+               user: User = Depends(require_roles(*STUDIO_ROLES))):
+    """Most recent entries of the hash-chained audit log, newest first.
+
+    One chain covers pack lifecycle actions, Studio config writes and
+    clinical writes (app.audit.append_audit), so this single read surface
+    serves the Studio audit tab. Read-only; admin/configurator only —
+    the chain is governance data, not clinical data."""
+    rows = session.scalars(
+        select(AuditLog).order_by(AuditLog.id.desc()).limit(limit)).all()
+    return [{
+        "id": r.id,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+        "actor": r.actor, "action": r.action, "entity": r.entity,
+        "entry_hash": r.entry_hash, "prev_hash": r.prev_hash,
+    } for r in rows]
