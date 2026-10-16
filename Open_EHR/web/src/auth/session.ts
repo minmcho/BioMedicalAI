@@ -57,7 +57,20 @@ export function saveSession(session: Session | null): void {
 
 // ---- Role capabilities (mirror the server's role gates) ----
 
-export type PageKey = "patients" | "chart" | "inbox" | "scheduling" | "studio" | "portal";
+export type PageKey =
+  | "patients"
+  | "chart"
+  | "inbox"
+  | "scheduling"
+  | "lab"
+  | "pophealth"
+  | "billing"
+  | "pharmacy"
+  | "ed"
+  | "radiology"
+  | "surgery"
+  | "studio"
+  | "portal";
 
 export function canAccess(role: Role, page: PageKey): boolean {
   switch (page) {
@@ -70,6 +83,34 @@ export function canAccess(role: Role, page: PageKey): boolean {
       // /fhir/inbox is staff-only server-side; scheduling transitions are
       // write-role only, so viewers are kept out of the page entirely.
       return role === "admin" || role === "configurator" || role === "clinician";
+    case "lab":
+      // The /lab queues are staff-readable including the viewer (the
+      // server 403s patients); write/verify buttons inside the page are
+      // role-gated there and enforced again server-side.
+      return role === "admin" || role === "configurator" || role === "clinician" || role === "viewer";
+    case "pophealth":
+      // /pophealth + /warehouse/status are admin/clinician on the server
+      // (aggregate analytics + ETL operations); other staff roles get 403.
+      return role === "admin" || role === "clinician";
+    case "billing":
+      // billing.view on the server: admin/configurator/clinician, plus a
+      // patient sees only their own claims (read-only). The viewer is
+      // denied server-side by default, so it gets no nav entry either.
+      return role === "admin" || role === "configurator" || role === "clinician" || role === "patient";
+    case "pharmacy":
+      // /pharmacy reads are staff-wide server-side (patients 403);
+      // dispense/administer actions inside the page are role-gated there
+      // and enforced again server-side by capability.
+      return role === "admin" || role === "configurator" || role === "clinician" || role === "viewer";
+    case "ed":
+    case "radiology":
+    case "surgery":
+      // The Phase 4B boards are staff-only server-side (patients get
+      // 403); board reads include the viewer, and the write actions
+      // inside each page are role-gated there and enforced again
+      // server-side by capability (ed.work / radiology.work /
+      // radiology.verify / surgery.work).
+      return role === "admin" || role === "configurator" || role === "clinician" || role === "viewer";
     case "studio":
       // Pack list is readable by staff, but install/lifecycle actions are
       // admin/configurator only — the page is theirs.
@@ -88,6 +129,13 @@ const NAV: Array<NavItem & { pages: PageKey }> = [
   { key: "patients", label: "Patients", pages: "patients" },
   { key: "inbox", label: "Results inbox", pages: "inbox" },
   { key: "scheduling", label: "Scheduling", pages: "scheduling" },
+  { key: "lab", label: "Laboratory", pages: "lab" },
+  { key: "pophealth", label: "Population health", pages: "pophealth" },
+  { key: "billing", label: "Billing", pages: "billing" },
+  { key: "pharmacy", label: "Pharmacy", pages: "pharmacy" },
+  { key: "ed", label: "ED board", pages: "ed" },
+  { key: "radiology", label: "Radiology", pages: "radiology" },
+  { key: "surgery", label: "Surgery board", pages: "surgery" },
   { key: "studio", label: "Studio packs", pages: "studio" },
   { key: "portal", label: "My results", pages: "portal" },
 ];
