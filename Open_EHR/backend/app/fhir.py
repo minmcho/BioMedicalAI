@@ -2,7 +2,9 @@
 
 Phase 0: Patient, Encounter, Observation. Phase 1 adds Condition, Procedure,
 MedicationRequest, DiagnosticReport, Appointment (with scheduling/ADT status
-transitions), a results inbox, and patient-portal read scoping.
+transitions), a results inbox, and patient-portal read scoping. Phase 2 (Lab
+LIS, app.lab) adds ServiceRequest, Specimen and Task to the generic surface;
+the governed lab workflow itself lives under /lab.
 
 Resources are validated for resourceType + the minimal required fields listed
 in contracts/fhir-resources.md (in the spirit of US Core must-support
@@ -16,6 +18,11 @@ resources whose patient_ref equals their own User.patient_ref. By-id reads of
 another patient's resource return 404 (non-disclosure: we do not confirm the
 resource exists), and a search explicitly naming another patient returns 403.
 Staff roles (admin/configurator/clinician/viewer) are unaffected.
+
+Studio customization engine additions: QuestionnaireResponse (validated
+against the PUBLISHED Studio form it references), the Appointment ADT state
+machine loaded from published workflow config, and write/inbox gates driven
+by capabilities (built-in defaults merged with published permissions config).
 """
 import uuid
 from datetime import datetime, timezone
@@ -25,18 +32,51 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .audit import append_audit
+from .configstore import ADT_WORKFLOW_KEY, published_config
 from .models import FhirResource, Role, User
-from .security import get_db, get_current_user, require_roles
+from .security import get_db, get_current_user, require_capability, require_roles
 
 router = APIRouter(prefix="/fhir", tags=["fhir"])
 portal_router = APIRouter(prefix="/portal", tags=["portal"])
 
 SUPPORTED = ("Patient", "Encounter", "Observation", "Condition", "Procedure",
-             "MedicationRequest", "DiagnosticReport", "Appointment")
+             "MedicationRequest", "DiagnosticReport", "Appointment",
+             "ServiceRequest", "Specimen", "Task",
+             # Phase 4A: billing + pharmacy resources live on the generic
+             # surface too; the governed workflows are app.billing (/billing)
+             # and app.pharmacy (/pharmacy).
+             "Claim", "MedicationDispense", "MedicationAdministration",
+             # Phase 4B: imaging studies; the governed radiology workflow
+             # (study creation, DICOMweb, report verify) is app.boards.
+             "ImagingStudy")
+
+# Lab result visibility (Phase 2): results created by the lab module carry
+# this meta.tag until they are RELEASED through the lab verification flow.
+# Tagged resources are hidden from the results inbox and from every
+# patient-role read path (portal, search, by-id) — draft lab results are
+# visible only through the /lab staff endpoints. Staff FHIR reads other
+# than the inbox are unaffected. See app.lab and contracts/fhir-resources.md.
+LAB_VISIBILITY_SYSTEM = "urn:opencare:visibility"
+LAB_UNRELEASED_CODE = "lab-unreleased"
+LAB_UNRELEASED_TAG = {"system": LAB_VISIBILITY_SYSTEM, "code": LAB_UNRELEASED_CODE}
+
+
+def has_unreleased_tag(body: dict | None) -> bool:
+    if not isinstance(body, dict):
+        return False
+    tags = (body.get("meta") or {}).get("tag") or []
+    return any(isinstance(t, dict) and t.get("system") == LAB_VISIBILITY_SYSTEM
+               and t.get("code") == LAB_UNRELEASED_CODE for t in tags)
+# Built-in defaults for the fhir.write / fhir.inbox capabilities. The live
+# gate is app.security.require_capability, which merges these defaults with
+# any published Studio permissions config (kind=permissions).
 WRITE_ROLES = (Role.admin, Role.configurator, Role.clinician)
 INBOX_ROLES = (Role.admin, Role.configurator, Role.clinician)
 
-# Appointment (ADT) status state machine. fulfilled/cancelled/noshow are
+# Appointment (ADT) status state machine — FALLBACK copy. The live machine
+# is Studio configuration (kind=workflow, key="appointment-adt"), seeded as
+# published v1 at startup with exactly these transitions; this constant is
+# used only if that config has been disabled. fulfilled/cancelled/noshow are
 # terminal. Anything not listed for the current status is illegal -> 409.
 APPOINTMENT_TRANSITIONS = {
     "proposed": {"booked", "cancelled"},
@@ -99,6 +139,41 @@ def _validate(resource_type: str, body: dict) -> None:
                         and p["actor"].get("reference") for p in participants)
         _require(has_actor,
                  "Appointment requires at least one 'participant' with an 'actor.reference'")
+    elif resource_type == "ServiceRequest":
+        _require(bool(body.get("status")), "ServiceRequest requires 'status'")
+        _require(bool(body.get("intent")), "ServiceRequest requires 'intent'")
+        _require(bool(body.get("code")), "ServiceRequest requires 'code'")
+        _require(bool(_subject_ref(body)), "ServiceRequest requires 'subject.reference'")
+    elif resource_type == "Specimen":
+        _require(bool(body.get("status")), "Specimen requires 'status'")
+        _require(bool(_subject_ref(body)), "Specimen requires 'subject.reference'")
+    elif resource_type == "Task":
+        _require(bool(body.get("status")), "Task requires 'status'")
+        _require(bool(body.get("intent")), "Task requires 'intent'")
+    elif resource_type == "Claim":
+        _require(bool(body.get("status")), "Claim requires 'status'")
+        patient = body.get("patient") or {}
+        _require(isinstance(patient, dict) and bool(patient.get("reference")),
+                 "Claim requires 'patient.reference'")
+    elif resource_type == "MedicationDispense":
+        _require(bool(body.get("status")), "MedicationDispense requires 'status'")
+        _require(bool(body.get("medicationCodeableConcept") or body.get("medicationReference")),
+                 "MedicationDispense requires 'medicationCodeableConcept' or 'medicationReference'")
+        _require(bool(_subject_ref(body)), "MedicationDispense requires 'subject.reference'")
+    elif resource_type == "MedicationAdministration":
+        _require(bool(body.get("status")), "MedicationAdministration requires 'status'")
+        _require(bool(body.get("medicationCodeableConcept") or body.get("medicationReference")),
+                 "MedicationAdministration requires 'medicationCodeableConcept' or 'medicationReference'")
+        _require(bool(_subject_ref(body)), "MedicationAdministration requires 'subject.reference'")
+    elif resource_type == "ImagingStudy":
+        _require(bool(body.get("status")), "ImagingStudy requires 'status'")
+        _require(bool(_subject_ref(body)), "ImagingStudy requires 'subject.reference'")
+        identifiers = body.get("identifier") or []
+        has_uid = any(isinstance(i, dict) and i.get("system") == "urn:dicom:uid"
+                      and i.get("value") for i in identifiers)
+        _require(has_uid,
+                 "ImagingStudy requires an 'identifier' with system 'urn:dicom:uid' "
+                 "(the DICOM Study Instance UID)")
 
 
 def _participant_ref(body: dict, prefix: str) -> str | None:
@@ -114,8 +189,17 @@ def _participant_ref(body: dict, prefix: str) -> str | None:
 def _patient_ref(resource_type: str, body: dict, resource_id: str) -> str | None:
     if resource_type == "Patient":
         return f"Patient/{resource_id}"
+    if resource_type == "Claim":
+        # FHIR Claim names the patient in `patient`, not `subject`.
+        patient = body.get("patient") or {}
+        ref = patient.get("reference") if isinstance(patient, dict) else None
+        return ref if ref and ref.startswith("Patient/") else None
     if resource_type == "Appointment":
         return _participant_ref(body, "Patient/")
+    if resource_type == "Task":
+        for_ref = body.get("for") or {}
+        ref = for_ref.get("reference") if isinstance(for_ref, dict) else None
+        return ref if ref and ref.startswith("Patient/") else None
     return _subject_ref(body)
 
 
@@ -204,10 +288,15 @@ def create_resource(resource_type: str, request_body: dict, session: Session, us
 
 def get_resource(resource_type: str, resource_id: str, session: Session, user: User) -> dict:
     row = _get_row(resource_type, resource_id, session)
-    if user.role == Role.patient and row.patient_ref != user.patient_ref:
+    if user.role == Role.patient:
         # Non-disclosure: another patient's resource looks identical to a
-        # missing one. Documented in contracts/fhir-resources.md.
-        raise HTTPException(status_code=404, detail=f"{resource_type}/{resource_id} not found")
+        # missing one. Documented in contracts/fhir-resources.md. The same
+        # applies to the caller's OWN unreleased lab results (Phase 2): a
+        # draft result does not exist as far as the patient is concerned
+        # until the lab releases it.
+        if row.patient_ref != user.patient_ref or has_unreleased_tag(row.body):
+            raise HTTPException(status_code=404,
+                                detail=f"{resource_type}/{resource_id} not found")
     return _render(row)
 
 
@@ -230,23 +319,48 @@ def search_resources(resource_type: str, session: Session, user: User,
     if end:
         stmt = stmt.where(FhirResource.start_at <= _parse_query_dt(end))
     rows = session.scalars(stmt).all()
+    if user.role == Role.patient:
+        rows = [r for r in rows if not has_unreleased_tag(r.body)]
     return _bundle(rows)
 
 
 def results_bundle(session: Session, patient_ref: str, status: str | None = None) -> dict:
-    """Observation + DiagnosticReport for one patient, newest first."""
+    """Observation + DiagnosticReport for one patient, newest first.
+
+    Unreleased lab drafts (Phase 2 visibility tag) are excluded for EVERY
+    caller of this bundle — staff use the /lab verification queue for
+    drafts, so an unreleased result can never leak into the clinician
+    inbox or the patient portal through this path."""
     stmt = (select(FhirResource)
             .where(FhirResource.resource_type.in_(("Observation", "DiagnosticReport")),
                    FhirResource.patient_ref == patient_ref)
             .order_by(FhirResource.created_at.desc(), FhirResource.id.desc()))
     if status:
         stmt = stmt.where(FhirResource.status == status)
-    return _bundle(session.scalars(stmt).all())
+    rows = [r for r in session.scalars(stmt).all() if not has_unreleased_tag(r.body)]
+    return _bundle(rows)
 
 
 # --------------------------------------------------------------------------
-# Appointment ADT transition
+# Appointment ADT transition (state machine loaded from Studio config)
 # --------------------------------------------------------------------------
+
+def _adt_machine(session: Session) -> tuple[dict[str, set[str]], set[str]]:
+    """(transitions map, known states) from the published ADT workflow
+    config; falls back to the hardcoded map when no config is published."""
+    cfg = published_config(session, "workflow", ADT_WORKFLOW_KEY)
+    if cfg is not None:
+        payload = cfg.payload or {}
+        transitions: dict[str, set[str]] = {}
+        for t in payload.get("transitions") or []:
+            if isinstance(t, dict) and t.get("from") and t.get("to"):
+                transitions.setdefault(t["from"], set()).add(t["to"])
+        states = set(payload.get("states") or transitions.keys())
+        for targets in transitions.values():
+            states |= targets
+        return transitions, states
+    return APPOINTMENT_TRANSITIONS, set(APPOINTMENT_TRANSITIONS.keys())
+
 
 def transition_appointment(resource_id: str, payload: dict, session: Session, user: User) -> dict:
     if not isinstance(payload, dict):
@@ -256,9 +370,10 @@ def transition_appointment(resource_id: str, payload: dict, session: Session, us
         raise HTTPException(status_code=422, detail="Transition requires 'to_status'")
     row = _get_row("Appointment", resource_id, session)
     current = (row.body or {}).get("status")
-    if target not in APPOINTMENT_TRANSITIONS:
+    transitions, known_states = _adt_machine(session)
+    if target not in known_states:
         raise HTTPException(status_code=422, detail=f"Unknown Appointment status: {target}")
-    allowed = APPOINTMENT_TRANSITIONS.get(current, set())
+    allowed = transitions.get(current, set())
     if target not in allowed:
         raise HTTPException(
             status_code=409,
@@ -282,7 +397,7 @@ def transition_appointment(resource_id: str, payload: dict, session: Session, us
 
 def _make_routes(resource_type: str):
     async def create(request: Request, session: Session = Depends(get_db),
-                     user: User = Depends(require_roles(*WRITE_ROLES))):
+                     user: User = Depends(require_capability("fhir.write"))):
         return create_resource(resource_type, await request.json(), session, user)
 
     def read(resource_id: str, session: Session = Depends(get_db),
@@ -310,16 +425,76 @@ for _t in SUPPORTED:
 @router.post("/Appointment/{resource_id}/transition")
 async def appointment_transition(resource_id: str, request: Request,
                                  session: Session = Depends(get_db),
-                                 user: User = Depends(require_roles(*WRITE_ROLES))):
+                                 user: User = Depends(require_capability("fhir.write"))):
     return transition_appointment(resource_id, await request.json(), session, user)
 
 
 @router.get("/inbox")
 def inbox(patient: str = Query(...), status: str | None = Query(default=None),
           session: Session = Depends(get_db),
-          user: User = Depends(require_roles(*INBOX_ROLES))):
+          user: User = Depends(require_capability("fhir.inbox"))):
     """Results inbox for staff: one patient's results, newest first."""
     return results_bundle(session, _normalize_patient_ref(patient), status=status)
+
+
+# --------------------------------------------------------------------------
+# QuestionnaireResponse — answers to a Studio form (FHIR Questionnaire)
+# --------------------------------------------------------------------------
+
+def _validate_questionnaire_response(session: Session, body: dict) -> None:
+    """A response is only accepted against a PUBLISHED Studio form, and
+    every form item marked required must carry at least one answer."""
+    if not isinstance(body, dict) or body.get("resourceType") != "QuestionnaireResponse":
+        raise HTTPException(status_code=422,
+                            detail="resourceType must be 'QuestionnaireResponse'")
+    ref = body.get("questionnaire")
+    if not isinstance(ref, str) or not ref.strip():
+        raise HTTPException(
+            status_code=422,
+            detail="QuestionnaireResponse requires 'questionnaire' (the Studio form key)")
+    form_key = ref.rstrip("/").rsplit("/", 1)[-1]  # bare key or Questionnaire/<key>
+    form = published_config(session, "form", form_key)
+    if form is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Referenced form '{form_key}' is not published in Studio")
+    answers: dict[str, dict] = {}
+    for item in body.get("item") or []:
+        if isinstance(item, dict) and item.get("linkId"):
+            answers[item["linkId"]] = item
+    missing = []
+    for form_item in (form.payload or {}).get("item") or []:
+        if not isinstance(form_item, dict) or not form_item.get("required"):
+            continue
+        answer = answers.get(form_item.get("linkId"))
+        if answer is None or not answer.get("answer"):
+            missing.append(form_item.get("linkId"))
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Missing answers for required form items: {', '.join(missing)}")
+
+
+@router.post("/QuestionnaireResponse", status_code=201)
+async def create_questionnaire_response(request: Request,
+                                        session: Session = Depends(get_db),
+                                        user: User = Depends(require_capability("fhir.write"))):
+    body = await request.json()
+    _validate_questionnaire_response(session, body)
+    return create_resource("QuestionnaireResponse", body, session, user)
+
+
+@router.get("/QuestionnaireResponse/{resource_id}")
+def read_questionnaire_response(resource_id: str, session: Session = Depends(get_db),
+                                user: User = Depends(get_current_user)):
+    return get_resource("QuestionnaireResponse", resource_id, session, user)
+
+
+@router.get("/QuestionnaireResponse")
+def search_questionnaire_responses(patient: str | None = Query(default=None),
+                                   session: Session = Depends(get_db),
+                                   user: User = Depends(get_current_user)):
+    return search_resources("QuestionnaireResponse", session, user, patient=patient)
 
 
 @portal_router.get("/my-results")

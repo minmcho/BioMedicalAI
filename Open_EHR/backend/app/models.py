@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -24,6 +24,20 @@ class InstallationStatus(str, enum.Enum):
     approved = "approved"
     attached = "attached"
     enabled = "enabled"
+    disabled = "disabled"
+
+
+class ConfigStatus(str, enum.Enum):
+    """Studio configuration lifecycle (docs/STUDIO_CUSTOMIZATION.md).
+
+    draft -> published; publishing a new version moves the previously
+    published one to superseded (kept for rollback). A published version may
+    be disabled, after which the (kind, key) has no effective config until
+    another version is published.
+    """
+    draft = "draft"
+    published = "published"
+    superseded = "superseded"
     disabled = "disabled"
 
 
@@ -71,6 +85,100 @@ class PackInstallation(Base):
     installed_by: Mapped[str] = mapped_column(String(120), nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class StudioConfig(Base):
+    """One version of one Studio configuration object.
+
+    (kind, key, version) is unique. Payloads are plain JSON (portable across
+    SQLite/PostgreSQL). Published rows are immutable: changing a published
+    config means creating a new draft version. At most one version per
+    (kind, key) is `published` at any time — that row is the effective
+    config every consumer reads.
+    """
+    __tablename__ = "studio_configs"
+    __table_args__ = (UniqueConstraint("kind", "key", "version"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
+    key: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[ConfigStatus] = mapped_column(
+        Enum(ConfigStatus), nullable=False, default=ConfigStatus.draft
+    )
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_by: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    updated_by: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class LabQcRun(Base):
+    """One laboratory QC (quality control) run — Phase 2 (Lab LIS).
+
+    QC is analyser/control-material data, not a patient FHIR resource, so it
+    lives in its own table. `passed` is computed server-side at creation
+    (expected_low <= measured_value <= expected_high) and never accepted
+    from the caller. Release gating reads the LATEST run per analyte: a
+    failed latest run blocks verification/release of patient results for
+    that analyte until a passing run exists after it (app.lab.qc_blockers).
+    """
+    __tablename__ = "lab_qc_runs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    analyte_code: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
+    control_material: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    expected_low: Mapped[float] = mapped_column(Float, nullable=False)
+    expected_high: Mapped[float] = mapped_column(Float, nullable=False)
+    measured_value: Mapped[float] = mapped_column(Float, nullable=False)
+    unit: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    passed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    performed_by: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PharmacyStock(Base):
+    """Pharmacy stock counter — Phase 4A (app.pharmacy).
+
+    One row per stock-tracked formulary medication code. The counter is
+    server-side state, never a FHIR resource: dispensing decrements it in
+    the same transaction as the MedicationDispense write, and dispensing
+    more than the on-hand quantity is refused (409) before any write.
+    Rows are seeded at startup from the published Studio formulary config
+    (concept `initialStock`) when absent; after that the row is the truth.
+    """
+    __tablename__ = "pharmacy_stock"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    medication_code: Mapped[str] = mapped_column(String(60), unique=True,
+                                                 nullable=False, index=True)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow,
+                                                 onupdate=utcnow)
+
+
+class OutboxEvent(Base):
+    """Transactional outbox (Phase 3) — one row per clinical resource
+    create/update, written IN THE SAME TRANSACTION as the resource write
+    itself (see app.outbox for the central flush hook that produces these;
+    no endpoint writes outbox rows by hand).
+
+    The ETL worker (app.etl) drains rows with status='pending' in id order
+    into the OMOP warehouse, then stamps processed_at + status='processed'.
+    A transform failure moves the row to status='dead_letter' with the
+    error text kept on the row — visible via GET /warehouse/status, never
+    silently dropped.
+    """
+    __tablename__ = "outbox_events"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    resource_type: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
+    resource_id: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    # Resource version (meta.versionId) at the moment of the write.
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Full rendered-resource snapshot (body + id + meta.versionId).
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", index=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class FhirResource(Base):
