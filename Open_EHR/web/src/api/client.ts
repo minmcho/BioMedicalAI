@@ -687,5 +687,10 @@ export class ApiClient {
   }
 }
 
+// Same-origin by default: in dev, the Vite proxy (vite.config.ts) forwards
+// the API prefixes to the backend; in the Docker deployment, nginx does.
+// Cross-origin browser calls were the source of a live CORS failure, so an
+// absolute base is now strictly opt-in via VITE_API_BASE (e.g. a hosted
+// deployment where the API has its own origin + CORS configured).
 export const API_BASE: string =
-  (import.meta.env.VITE_API_BASE as string | undefined) ?? "http://localhost:8000";
+  (import.meta.env.VITE_API_BASE as string | undefined) ?? "";
