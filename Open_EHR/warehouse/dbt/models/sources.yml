@@ -1,0 +1,21 @@
+version: 2
+
+sources:
+  - name: omop
+    # The ETL writes the OMOP tables into the warehouse database's
+    # default ("main" on DuckDB) schema — declare it explicitly, or dbt
+    # resolves the source NAME as the schema.
+    schema: main
+    description: >-
+      OMOP CDM subset written by the OpenCare FHIR->OMOP ETL
+      (backend/app/warehouse.py). Tables live in the target database's
+      default schema.
+    tables:
+      - name: person
+      - name: visit_occurrence
+      - name: condition_occurrence
+      - name: measurement
+      - name: observation
+      - name: drug_exposure
+      - name: procedure_occurrence
+      - name: concept_map

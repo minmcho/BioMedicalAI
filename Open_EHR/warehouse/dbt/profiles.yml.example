@@ -1,0 +1,29 @@
+# Example dbt profile for the OpenCare warehouse. Copy to profiles.yml
+# (or a private profiles dir) and adjust the path / connection.
+#
+# DuckDB (local demo): the ETL can write the warehouse straight to a
+# DuckDB file — run it with
+#   WAREHOUSE_DATABASE_URL=duckdb:////absolute/path/warehouse.duckdb \
+#     python -m app.etl run
+# then point `path` below at the same file.
+#
+# PostgreSQL (deployed warehouse): run the ETL with
+#   WAREHOUSE_DATABASE_URL=postgresql+psycopg://user:pass@host:5432/warehouse
+# and use the `prod` target below instead.
+opencare_warehouse:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "warehouse.duckdb"
+      schema: main
+      threads: 1
+    prod:
+      type: postgres
+      host: "localhost"
+      port: 5432
+      user: "opencare"
+      pass: "" # supply via env var / secrets manager in real deployments
+      dbname: "warehouse"
+      schema: "omop"
+      threads: 4

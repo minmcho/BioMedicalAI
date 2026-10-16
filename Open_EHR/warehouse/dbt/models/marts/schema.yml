@@ -1,0 +1,18 @@
+version: 2
+
+models:
+  - name: diabetes_registry
+    description: >-
+      One row per person with Type 2 diabetes, latest HbA1c and in-target
+      flag. Mirrors the Studio cohort config 'diabetes'.
+    columns:
+      - name: person_id
+        tests:
+          - unique
+          - not_null
+  - name: stg_person
+    columns:
+      - name: person_id
+        tests:
+          - unique
+          - not_null

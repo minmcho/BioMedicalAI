@@ -1,0 +1,679 @@
+[0m17:48:15.819183 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'start', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x742b7643a1e0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x742b775a7d70>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x742b772e54f0>]}
+
+
+============================== 17:48:15.826465 | a2c4a5f2-b50a-41c0-a9c4-d47a49757436 ==============================
+[0m17:48:15.826465 [info ] [MainThread]: Running with dbt=1.12.6
+[0m17:48:15.827199 [debug] [MainThread]: running dbt with arguments {'maximum_seed_size_mib': '1', 'write_json': 'True', 'log_format': 'default', 'quiet': 'False', 'log_cache_events': 'False', 'no_print': 'None', 'warn_error': 'None', 'fail_fast': 'False', 'debug': 'False', 'send_anonymous_usage_stats': 'True', 'printer_width': '80', 'hints_enabled': 'True', 'partial_parse': 'True', 'use_experimental_parser': 'False', 'target_path': 'None', 'cache_selected_only': 'False', 'log_path': '/home/hatch/workspace/Open_EHR/warehouse/dbt/logs', 'indirect_selection': 'eager', 'empty': 'False', 'invocation_command': 'dbt build --profiles-dir /tmp/p3_dbt_profiles', 'static_parser': 'True', 'profiles_dir': '/tmp/p3_dbt_profiles', 'version_check': 'True', 'introspect': 'True', 'warn_error_options': 'WarnErrorOptionsV2(error=[], warn=[], silence=[])', 'use_colors': 'True'}
+[0m17:48:16.161795 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'project_id', 'label': 'a2c4a5f2-b50a-41c0-a9c4-d47a49757436', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x742b7615dd00>]}
+[0m17:48:16.248621 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'adapter_info', 'label': 'a2c4a5f2-b50a-41c0-a9c4-d47a49757436', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x742b713c2cf0>]}
+[0m17:48:16.253830 [info ] [MainThread]: Registered adapter: duckdb=1.11.0
+[0m17:48:16.361838 [debug] [MainThread]: checksum: 721482792a07a5b275f7863fe9b888d3d5630cc03fcd2a31973d9ba4275f6409, vars: {}, profile: opencare_warehouse, target: dev, version: 1.12.6
+[0m17:48:16.362774 [info ] [MainThread]: Unable to do partial parsing because saved manifest not found. Starting full parse.
+[0m17:48:16.363239 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'partial_parser', 'label': 'a2c4a5f2-b50a-41c0-a9c4-d47a49757436', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x742b763de8d0>]}
+[0m17:48:18.730521 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'load_project', 'label': 'a2c4a5f2-b50a-41c0-a9c4-d47a49757436', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x742b7041cc80>]}
+[0m17:48:18.861517 [debug] [MainThread]: Wrote artifact WritableManifest to /home/hatch/workspace/Open_EHR/warehouse/dbt/target/manifest.json
+[0m17:48:18.867848 [debug] [MainThread]: Wrote artifact SemanticManifest to /home/hatch/workspace/Open_EHR/warehouse/dbt/target/semantic_manifest.json
+[0m17:48:18.919921 [debug] [MainThread]: Wrote artifact OsiDocument to /home/hatch/workspace/Open_EHR/warehouse/dbt/target/osi_document.json
+[0m17:48:18.976980 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'resource_counts', 'label': 'a2c4a5f2-b50a-41c0-a9c4-d47a49757436', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x742b702701d0>]}
+[0m17:48:18.977717 [info ] [MainThread]: Found 7 models, 4 data tests, 8 sources, 500 macros
+[0m17:48:18.981165 [info ] [MainThread]: 
+[0m17:48:18.981751 [info ] [MainThread]: Concurrency: 1 threads (target='dev')
+[0m17:48:18.982105 [info ] [MainThread]: 
+[0m17:48:18.982788 [debug] [MainThread]: Acquiring new duckdb connection 'master'
+[0m17:48:18.989807 [debug] [ThreadPool]: Acquiring new duckdb connection 'list_p3_wh'
+[0m17:48:19.131028 [debug] [ThreadPool]: Using duckdb connection "list_p3_wh"
+[0m17:48:19.131721 [debug] [ThreadPool]: On list_p3_wh: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "connection_name": "list_p3_wh"} */
+
+    
+    select schema_name
+    from system.information_schema.schemata
+    
+    where lower(catalog_name) = '"p3_wh"'
+    
+  
+  
+[0m17:48:19.132130 [debug] [ThreadPool]: Opening a new connection, currently in state init
+[0m17:48:19.162543 [debug] [ThreadPool]: SQL status: OK in 0.030 seconds
+[0m17:48:19.164852 [debug] [ThreadPool]: On list_p3_wh: Close
+[0m17:48:19.166072 [debug] [ThreadPool]: Re-using an available connection from the pool (formerly list_p3_wh, now create_p3_wh_main)
+[0m17:48:19.166788 [debug] [ThreadPool]: Creating schema "database: "p3_wh"
+schema: "main"
+"
+[0m17:48:19.176741 [debug] [ThreadPool]: Using duckdb connection "create_p3_wh_main"
+[0m17:48:19.177254 [debug] [ThreadPool]: On create_p3_wh_main: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "connection_name": "create_p3_wh_main"} */
+
+    
+        select type from duckdb_databases()
+        where lower(database_name)='p3_wh'
+        and type != 'duckdb'
+    
+  
+[0m17:48:19.177663 [debug] [ThreadPool]: Opening a new connection, currently in state closed
+[0m17:48:19.179104 [debug] [ThreadPool]: SQL status: OK in 0.001 seconds
+[0m17:48:19.180822 [debug] [ThreadPool]: Using duckdb connection "create_p3_wh_main"
+[0m17:48:19.181228 [debug] [ThreadPool]: On create_p3_wh_main: BEGIN
+[0m17:48:19.181889 [debug] [ThreadPool]: SQL status: OK in 0.000 seconds
+[0m17:48:19.182255 [debug] [ThreadPool]: Using duckdb connection "create_p3_wh_main"
+[0m17:48:19.182623 [debug] [ThreadPool]: On create_p3_wh_main: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "connection_name": "create_p3_wh_main"} */
+
+    
+    
+        create schema if not exists "p3_wh"."main"
+    
+[0m17:48:19.183337 [debug] [ThreadPool]: SQL status: OK in 0.000 seconds
+[0m17:48:19.184383 [debug] [ThreadPool]: On create_p3_wh_main: COMMIT
+[0m17:48:19.184777 [debug] [ThreadPool]: Using duckdb connection "create_p3_wh_main"
+[0m17:48:19.185078 [debug] [ThreadPool]: On create_p3_wh_main: COMMIT
+[0m17:48:19.185679 [debug] [ThreadPool]: SQL status: OK in 0.000 seconds
+[0m17:48:19.186074 [debug] [ThreadPool]: On create_p3_wh_main: Close
+[0m17:48:19.188217 [debug] [ThreadPool]: Re-using an available connection from the pool (formerly create_p3_wh_main, now list_p3_wh_main)
+[0m17:48:19.194498 [debug] [ThreadPool]: Using duckdb connection "list_p3_wh_main"
+[0m17:48:19.194992 [debug] [ThreadPool]: On list_p3_wh_main: BEGIN
+[0m17:48:19.195373 [debug] [ThreadPool]: Opening a new connection, currently in state closed
+[0m17:48:19.196159 [debug] [ThreadPool]: SQL status: OK in 0.001 seconds
+[0m17:48:19.196659 [debug] [ThreadPool]: Using duckdb connection "list_p3_wh_main"
+[0m17:48:19.196983 [debug] [ThreadPool]: On list_p3_wh_main: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "connection_name": "list_p3_wh_main"} */
+select
+      'p3_wh' as database,
+      table_name as name,
+      table_schema as schema,
+      CASE table_type
+        WHEN 'BASE TABLE' THEN 'table'
+        WHEN 'VIEW' THEN 'view'
+        WHEN 'LOCAL TEMPORARY' THEN 'table'
+        END as type
+    from system.information_schema.tables
+    where lower(table_schema) = 'main'
+    and lower(table_catalog) = 'p3_wh'
+  
+[0m17:48:19.201717 [debug] [ThreadPool]: SQL status: OK in 0.004 seconds
+[0m17:48:19.203550 [debug] [ThreadPool]: On list_p3_wh_main: ROLLBACK
+[0m17:48:19.204278 [debug] [ThreadPool]: On list_p3_wh_main: Close
+[0m17:48:19.206605 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'runnable_timing', 'label': 'a2c4a5f2-b50a-41c0-a9c4-d47a49757436', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x742b6354e3f0>]}
+[0m17:48:19.207488 [debug] [MainThread]: Using duckdb connection "master"
+[0m17:48:19.207898 [debug] [MainThread]: On master: BEGIN
+[0m17:48:19.208208 [debug] [MainThread]: Opening a new connection, currently in state init
+[0m17:48:19.209259 [debug] [MainThread]: SQL status: OK in 0.001 seconds
+[0m17:48:19.209734 [debug] [MainThread]: On master: COMMIT
+[0m17:48:19.210051 [debug] [MainThread]: Using duckdb connection "master"
+[0m17:48:19.210356 [debug] [MainThread]: On master: COMMIT
+[0m17:48:19.210894 [debug] [MainThread]: SQL status: OK in 0.000 seconds
+[0m17:48:19.211262 [debug] [MainThread]: On master: Close
+[0m17:48:19.215409 [debug] [Thread-1 (]: Began running node model.opencare_warehouse.stg_condition_occurrence
+[0m17:48:19.216175 [info ] [Thread-1 (]: 1 of 11 START sql view model main.stg_condition_occurrence ..................... [RUN]
+[0m17:48:19.216876 [debug] [Thread-1 (]: Re-using an available connection from the pool (formerly list_p3_wh_main, now model.opencare_warehouse.stg_condition_occurrence)
+[0m17:48:19.217394 [debug] [Thread-1 (]: Began compiling node model.opencare_warehouse.stg_condition_occurrence
+[0m17:48:19.227398 [debug] [Thread-1 (]: Writing injected SQL for node "model.opencare_warehouse.stg_condition_occurrence"
+[0m17:48:19.228280 [debug] [Thread-1 (]: Began executing node model.opencare_warehouse.stg_condition_occurrence
+[0m17:48:19.268349 [debug] [Thread-1 (]: Writing runtime sql for node "model.opencare_warehouse.stg_condition_occurrence"
+[0m17:48:19.269394 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_condition_occurrence"
+[0m17:48:19.269886 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_condition_occurrence: BEGIN
+[0m17:48:19.270255 [debug] [Thread-1 (]: Opening a new connection, currently in state closed
+[0m17:48:19.271425 [debug] [Thread-1 (]: SQL status: OK in 0.001 seconds
+[0m17:48:19.271921 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_condition_occurrence"
+[0m17:48:19.272313 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_condition_occurrence: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "node_id": "model.opencare_warehouse.stg_condition_occurrence"} */
+
+  
+  create view "p3_wh"."main"."stg_condition_occurrence__dbt_tmp" as (
+    select
+    condition_occurrence_id,
+    person_id,
+    condition_concept_id,
+    condition_source_value,
+    condition_start_date,
+    condition_start_datetime,
+    visit_occurrence_id,
+    source_condition_id
+from "p3_wh"."main"."condition_occurrence"
+  );
+
+[0m17:48:19.273593 [debug] [Thread-1 (]: SQL status: OK in 0.001 seconds
+[0m17:48:19.280451 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_condition_occurrence"
+[0m17:48:19.281050 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_condition_occurrence: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "node_id": "model.opencare_warehouse.stg_condition_occurrence"} */
+alter view "p3_wh"."main"."stg_condition_occurrence__dbt_tmp" rename to "stg_condition_occurrence"
+[0m17:48:19.282060 [debug] [Thread-1 (]: SQL status: OK in 0.001 seconds
+[0m17:48:19.298119 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_condition_occurrence: COMMIT
+[0m17:48:19.298755 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_condition_occurrence"
+[0m17:48:19.299153 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_condition_occurrence: COMMIT
+[0m17:48:19.300181 [debug] [Thread-1 (]: SQL status: OK in 0.001 seconds
+[0m17:48:19.306141 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_condition_occurrence"
+[0m17:48:19.306714 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_condition_occurrence: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "node_id": "model.opencare_warehouse.stg_condition_occurrence"} */
+
+      drop view if exists "p3_wh"."main"."stg_condition_occurrence__dbt_backup" cascade
+    
+[0m17:48:19.307591 [debug] [Thread-1 (]: SQL status: OK in 0.000 seconds
+[0m17:48:19.310728 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_condition_occurrence: Close
+[0m17:48:19.313057 [debug] [Thread-1 (]: Sending event: {'category': 'dbt', 'action': 'run_model', 'label': 'a2c4a5f2-b50a-41c0-a9c4-d47a49757436', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x742b70b92930>]}
+[0m17:48:19.314088 [info ] [Thread-1 (]: 1 of 11 OK created sql view model main.stg_condition_occurrence ................ [[32mOK[0m in 0.09s]
+[0m17:48:19.314878 [debug] [Thread-1 (]: Finished running node model.opencare_warehouse.stg_condition_occurrence
+[0m17:48:19.315400 [debug] [Thread-1 (]: Began running node model.opencare_warehouse.stg_drug_exposure
+[0m17:48:19.316055 [info ] [Thread-1 (]: 2 of 11 START sql view model main.stg_drug_exposure ............................ [RUN]
+[0m17:48:19.316640 [debug] [Thread-1 (]: Re-using an available connection from the pool (formerly model.opencare_warehouse.stg_condition_occurrence, now model.opencare_warehouse.stg_drug_exposure)
+[0m17:48:19.317053 [debug] [Thread-1 (]: Began compiling node model.opencare_warehouse.stg_drug_exposure
+[0m17:48:19.319696 [debug] [Thread-1 (]: Writing injected SQL for node "model.opencare_warehouse.stg_drug_exposure"
+[0m17:48:19.320396 [debug] [Thread-1 (]: Began executing node model.opencare_warehouse.stg_drug_exposure
+[0m17:48:19.323879 [debug] [Thread-1 (]: Writing runtime sql for node "model.opencare_warehouse.stg_drug_exposure"
+[0m17:48:19.324607 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_drug_exposure"
+[0m17:48:19.325020 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_drug_exposure: BEGIN
+[0m17:48:19.325380 [debug] [Thread-1 (]: Opening a new connection, currently in state closed
+[0m17:48:19.326128 [debug] [Thread-1 (]: SQL status: OK in 0.001 seconds
+[0m17:48:19.326612 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_drug_exposure"
+[0m17:48:19.326983 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_drug_exposure: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "node_id": "model.opencare_warehouse.stg_drug_exposure"} */
+
+  
+  create view "p3_wh"."main"."stg_drug_exposure__dbt_tmp" as (
+    select
+    drug_exposure_id,
+    person_id,
+    drug_concept_id,
+    drug_source_value,
+    drug_exposure_start_date,
+    drug_exposure_start_datetime,
+    source_medication_request_id
+from "p3_wh"."main"."drug_exposure"
+  );
+
+[0m17:48:19.327981 [debug] [Thread-1 (]: SQL status: OK in 0.001 seconds
+[0m17:48:19.330553 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_drug_exposure"
+[0m17:48:19.331003 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_drug_exposure: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "node_id": "model.opencare_warehouse.stg_drug_exposure"} */
+alter view "p3_wh"."main"."stg_drug_exposure__dbt_tmp" rename to "stg_drug_exposure"
+[0m17:48:19.331881 [debug] [Thread-1 (]: SQL status: OK in 0.000 seconds
+[0m17:48:19.333701 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_drug_exposure: COMMIT
+[0m17:48:19.334178 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_drug_exposure"
+[0m17:48:19.334554 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_drug_exposure: COMMIT
+[0m17:48:19.335360 [debug] [Thread-1 (]: SQL status: OK in 0.000 seconds
+[0m17:48:19.337118 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_drug_exposure"
+[0m17:48:19.337536 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_drug_exposure: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "node_id": "model.opencare_warehouse.stg_drug_exposure"} */
+
+      drop view if exists "p3_wh"."main"."stg_drug_exposure__dbt_backup" cascade
+    
+[0m17:48:19.338320 [debug] [Thread-1 (]: SQL status: OK in 0.000 seconds
+[0m17:48:19.339920 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_drug_exposure: Close
+[0m17:48:19.340610 [debug] [Thread-1 (]: Sending event: {'category': 'dbt', 'action': 'run_model', 'label': 'a2c4a5f2-b50a-41c0-a9c4-d47a49757436', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x742b634079e0>]}
+[0m17:48:19.341317 [info ] [Thread-1 (]: 2 of 11 OK created sql view model main.stg_drug_exposure ....................... [[32mOK[0m in 0.02s]
+[0m17:48:19.341951 [debug] [Thread-1 (]: Finished running node model.opencare_warehouse.stg_drug_exposure
+[0m17:48:19.342399 [debug] [Thread-1 (]: Began running node model.opencare_warehouse.stg_measurement
+[0m17:48:19.343127 [info ] [Thread-1 (]: 3 of 11 START sql view model main.stg_measurement .............................. [RUN]
+[0m17:48:19.343683 [debug] [Thread-1 (]: Re-using an available connection from the pool (formerly model.opencare_warehouse.stg_drug_exposure, now model.opencare_warehouse.stg_measurement)
+[0m17:48:19.344067 [debug] [Thread-1 (]: Began compiling node model.opencare_warehouse.stg_measurement
+[0m17:48:19.346495 [debug] [Thread-1 (]: Writing injected SQL for node "model.opencare_warehouse.stg_measurement"
+[0m17:48:19.347197 [debug] [Thread-1 (]: Began executing node model.opencare_warehouse.stg_measurement
+[0m17:48:19.350551 [debug] [Thread-1 (]: Writing runtime sql for node "model.opencare_warehouse.stg_measurement"
+[0m17:48:19.351208 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_measurement"
+[0m17:48:19.351674 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_measurement: BEGIN
+[0m17:48:19.352022 [debug] [Thread-1 (]: Opening a new connection, currently in state closed
+[0m17:48:19.352764 [debug] [Thread-1 (]: SQL status: OK in 0.001 seconds
+[0m17:48:19.353192 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_measurement"
+[0m17:48:19.353593 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_measurement: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "node_id": "model.opencare_warehouse.stg_measurement"} */
+
+  
+  create view "p3_wh"."main"."stg_measurement__dbt_tmp" as (
+    select
+    measurement_id,
+    person_id,
+    measurement_concept_id,
+    measurement_source_value,
+    measurement_date,
+    measurement_datetime,
+    value_as_number,
+    unit_source_value,
+    visit_occurrence_id,
+    source_observation_id
+from "p3_wh"."main"."measurement"
+  );
+
+[0m17:48:19.354663 [debug] [Thread-1 (]: SQL status: OK in 0.001 seconds
+[0m17:48:19.357126 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_measurement"
+[0m17:48:19.357555 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_measurement: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "node_id": "model.opencare_warehouse.stg_measurement"} */
+alter view "p3_wh"."main"."stg_measurement__dbt_tmp" rename to "stg_measurement"
+[0m17:48:19.358503 [debug] [Thread-1 (]: SQL status: OK in 0.000 seconds
+[0m17:48:19.360380 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_measurement: COMMIT
+[0m17:48:19.360840 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_measurement"
+[0m17:48:19.361181 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_measurement: COMMIT
+[0m17:48:19.361975 [debug] [Thread-1 (]: SQL status: OK in 0.000 seconds
+[0m17:48:19.363723 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_measurement"
+[0m17:48:19.364131 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_measurement: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "node_id": "model.opencare_warehouse.stg_measurement"} */
+
+      drop view if exists "p3_wh"."main"."stg_measurement__dbt_backup" cascade
+    
+[0m17:48:19.364954 [debug] [Thread-1 (]: SQL status: OK in 0.000 seconds
+[0m17:48:19.366498 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_measurement: Close
+[0m17:48:19.367123 [debug] [Thread-1 (]: Sending event: {'category': 'dbt', 'action': 'run_model', 'label': 'a2c4a5f2-b50a-41c0-a9c4-d47a49757436', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x742b6359df70>]}
+[0m17:48:19.367827 [info ] [Thread-1 (]: 3 of 11 OK created sql view model main.stg_measurement ......................... [[32mOK[0m in 0.02s]
+[0m17:48:19.368436 [debug] [Thread-1 (]: Finished running node model.opencare_warehouse.stg_measurement
+[0m17:48:19.368883 [debug] [Thread-1 (]: Began running node model.opencare_warehouse.stg_person
+[0m17:48:19.369496 [info ] [Thread-1 (]: 4 of 11 START sql view model main.stg_person ................................... [RUN]
+[0m17:48:19.370070 [debug] [Thread-1 (]: Re-using an available connection from the pool (formerly model.opencare_warehouse.stg_measurement, now model.opencare_warehouse.stg_person)
+[0m17:48:19.370466 [debug] [Thread-1 (]: Began compiling node model.opencare_warehouse.stg_person
+[0m17:48:19.372847 [debug] [Thread-1 (]: Writing injected SQL for node "model.opencare_warehouse.stg_person"
+[0m17:48:19.373493 [debug] [Thread-1 (]: Began executing node model.opencare_warehouse.stg_person
+[0m17:48:19.376927 [debug] [Thread-1 (]: Writing runtime sql for node "model.opencare_warehouse.stg_person"
+[0m17:48:19.377613 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_person"
+[0m17:48:19.378017 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_person: BEGIN
+[0m17:48:19.378365 [debug] [Thread-1 (]: Opening a new connection, currently in state closed
+[0m17:48:19.379088 [debug] [Thread-1 (]: SQL status: OK in 0.001 seconds
+[0m17:48:19.379527 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_person"
+[0m17:48:19.379993 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_person: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "node_id": "model.opencare_warehouse.stg_person"} */
+
+  
+  create view "p3_wh"."main"."stg_person__dbt_tmp" as (
+    select
+    person_id,
+    gender_concept_id,
+    gender_source_value,
+    year_of_birth,
+    month_of_birth,
+    day_of_birth,
+    person_source_value,
+    source_patient_id
+from "p3_wh"."main"."person"
+  );
+
+[0m17:48:19.380995 [debug] [Thread-1 (]: SQL status: OK in 0.001 seconds
+[0m17:48:19.383457 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_person"
+[0m17:48:19.383886 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_person: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "node_id": "model.opencare_warehouse.stg_person"} */
+alter view "p3_wh"."main"."stg_person__dbt_tmp" rename to "stg_person"
+[0m17:48:19.384749 [debug] [Thread-1 (]: SQL status: OK in 0.000 seconds
+[0m17:48:19.386610 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_person: COMMIT
+[0m17:48:19.387029 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_person"
+[0m17:48:19.387390 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_person: COMMIT
+[0m17:48:19.388166 [debug] [Thread-1 (]: SQL status: OK in 0.000 seconds
+[0m17:48:19.389906 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_person"
+[0m17:48:19.390398 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_person: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "node_id": "model.opencare_warehouse.stg_person"} */
+
+      drop view if exists "p3_wh"."main"."stg_person__dbt_backup" cascade
+    
+[0m17:48:19.391167 [debug] [Thread-1 (]: SQL status: OK in 0.000 seconds
+[0m17:48:19.392710 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_person: Close
+[0m17:48:19.393356 [debug] [Thread-1 (]: Sending event: {'category': 'dbt', 'action': 'run_model', 'label': 'a2c4a5f2-b50a-41c0-a9c4-d47a49757436', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x742b63467f80>]}
+[0m17:48:19.394043 [info ] [Thread-1 (]: 4 of 11 OK created sql view model main.stg_person .............................. [[32mOK[0m in 0.02s]
+[0m17:48:19.394675 [debug] [Thread-1 (]: Finished running node model.opencare_warehouse.stg_person
+[0m17:48:19.395174 [debug] [Thread-1 (]: Began running node model.opencare_warehouse.stg_procedure_occurrence
+[0m17:48:19.396157 [info ] [Thread-1 (]: 5 of 11 START sql view model main.stg_procedure_occurrence ..................... [RUN]
+[0m17:48:19.396803 [debug] [Thread-1 (]: Re-using an available connection from the pool (formerly model.opencare_warehouse.stg_person, now model.opencare_warehouse.stg_procedure_occurrence)
+[0m17:48:19.397191 [debug] [Thread-1 (]: Began compiling node model.opencare_warehouse.stg_procedure_occurrence
+[0m17:48:19.399599 [debug] [Thread-1 (]: Writing injected SQL for node "model.opencare_warehouse.stg_procedure_occurrence"
+[0m17:48:19.400283 [debug] [Thread-1 (]: Began executing node model.opencare_warehouse.stg_procedure_occurrence
+[0m17:48:19.403664 [debug] [Thread-1 (]: Writing runtime sql for node "model.opencare_warehouse.stg_procedure_occurrence"
+[0m17:48:19.404326 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_procedure_occurrence"
+[0m17:48:19.404758 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_procedure_occurrence: BEGIN
+[0m17:48:19.405098 [debug] [Thread-1 (]: Opening a new connection, currently in state closed
+[0m17:48:19.405929 [debug] [Thread-1 (]: SQL status: OK in 0.001 seconds
+[0m17:48:19.406373 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_procedure_occurrence"
+[0m17:48:19.406761 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_procedure_occurrence: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "node_id": "model.opencare_warehouse.stg_procedure_occurrence"} */
+
+  
+  create view "p3_wh"."main"."stg_procedure_occurrence__dbt_tmp" as (
+    select
+    procedure_occurrence_id,
+    person_id,
+    procedure_concept_id,
+    procedure_source_value,
+    procedure_date,
+    procedure_datetime,
+    source_procedure_id
+from "p3_wh"."main"."procedure_occurrence"
+  );
+
+[0m17:48:19.407753 [debug] [Thread-1 (]: SQL status: OK in 0.001 seconds
+[0m17:48:19.410188 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_procedure_occurrence"
+[0m17:48:19.410712 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_procedure_occurrence: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "node_id": "model.opencare_warehouse.stg_procedure_occurrence"} */
+alter view "p3_wh"."main"."stg_procedure_occurrence__dbt_tmp" rename to "stg_procedure_occurrence"
+[0m17:48:19.411600 [debug] [Thread-1 (]: SQL status: OK in 0.000 seconds
+[0m17:48:19.413402 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_procedure_occurrence: COMMIT
+[0m17:48:19.413838 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_procedure_occurrence"
+[0m17:48:19.414193 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_procedure_occurrence: COMMIT
+[0m17:48:19.414996 [debug] [Thread-1 (]: SQL status: OK in 0.000 seconds
+[0m17:48:19.416802 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_procedure_occurrence"
+[0m17:48:19.417207 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_procedure_occurrence: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "node_id": "model.opencare_warehouse.stg_procedure_occurrence"} */
+
+      drop view if exists "p3_wh"."main"."stg_procedure_occurrence__dbt_backup" cascade
+    
+[0m17:48:19.418000 [debug] [Thread-1 (]: SQL status: OK in 0.000 seconds
+[0m17:48:19.419798 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_procedure_occurrence: Close
+[0m17:48:19.420487 [debug] [Thread-1 (]: Sending event: {'category': 'dbt', 'action': 'run_model', 'label': 'a2c4a5f2-b50a-41c0-a9c4-d47a49757436', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x742b634755e0>]}
+[0m17:48:19.421252 [info ] [Thread-1 (]: 5 of 11 OK created sql view model main.stg_procedure_occurrence ................ [[32mOK[0m in 0.02s]
+[0m17:48:19.421924 [debug] [Thread-1 (]: Finished running node model.opencare_warehouse.stg_procedure_occurrence
+[0m17:48:19.422379 [debug] [Thread-1 (]: Began running node model.opencare_warehouse.stg_visit_occurrence
+[0m17:48:19.423013 [info ] [Thread-1 (]: 6 of 11 START sql view model main.stg_visit_occurrence ......................... [RUN]
+[0m17:48:19.423529 [debug] [Thread-1 (]: Re-using an available connection from the pool (formerly model.opencare_warehouse.stg_procedure_occurrence, now model.opencare_warehouse.stg_visit_occurrence)
+[0m17:48:19.423927 [debug] [Thread-1 (]: Began compiling node model.opencare_warehouse.stg_visit_occurrence
+[0m17:48:19.426059 [debug] [Thread-1 (]: Writing injected SQL for node "model.opencare_warehouse.stg_visit_occurrence"
+[0m17:48:19.426727 [debug] [Thread-1 (]: Began executing node model.opencare_warehouse.stg_visit_occurrence
+[0m17:48:19.431138 [debug] [Thread-1 (]: Writing runtime sql for node "model.opencare_warehouse.stg_visit_occurrence"
+[0m17:48:19.431818 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_visit_occurrence"
+[0m17:48:19.432215 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_visit_occurrence: BEGIN
+[0m17:48:19.432584 [debug] [Thread-1 (]: Opening a new connection, currently in state closed
+[0m17:48:19.433315 [debug] [Thread-1 (]: SQL status: OK in 0.001 seconds
+[0m17:48:19.433761 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_visit_occurrence"
+[0m17:48:19.434111 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_visit_occurrence: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "node_id": "model.opencare_warehouse.stg_visit_occurrence"} */
+
+  
+  create view "p3_wh"."main"."stg_visit_occurrence__dbt_tmp" as (
+    select
+    visit_occurrence_id,
+    person_id,
+    visit_concept_id,
+    visit_source_value,
+    visit_start_date,
+    visit_start_datetime,
+    visit_end_date,
+    visit_end_datetime,
+    source_encounter_id
+from "p3_wh"."main"."visit_occurrence"
+  );
+
+[0m17:48:19.435108 [debug] [Thread-1 (]: SQL status: OK in 0.001 seconds
+[0m17:48:19.437625 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_visit_occurrence"
+[0m17:48:19.438051 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_visit_occurrence: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "node_id": "model.opencare_warehouse.stg_visit_occurrence"} */
+alter view "p3_wh"."main"."stg_visit_occurrence__dbt_tmp" rename to "stg_visit_occurrence"
+[0m17:48:19.439029 [debug] [Thread-1 (]: SQL status: OK in 0.001 seconds
+[0m17:48:19.440844 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_visit_occurrence: COMMIT
+[0m17:48:19.441323 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_visit_occurrence"
+[0m17:48:19.441697 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_visit_occurrence: COMMIT
+[0m17:48:19.442477 [debug] [Thread-1 (]: SQL status: OK in 0.000 seconds
+[0m17:48:19.444431 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.stg_visit_occurrence"
+[0m17:48:19.444876 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_visit_occurrence: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "node_id": "model.opencare_warehouse.stg_visit_occurrence"} */
+
+      drop view if exists "p3_wh"."main"."stg_visit_occurrence__dbt_backup" cascade
+    
+[0m17:48:19.445681 [debug] [Thread-1 (]: SQL status: OK in 0.000 seconds
+[0m17:48:19.447263 [debug] [Thread-1 (]: On model.opencare_warehouse.stg_visit_occurrence: Close
+[0m17:48:19.447960 [debug] [Thread-1 (]: Sending event: {'category': 'dbt', 'action': 'run_model', 'label': 'a2c4a5f2-b50a-41c0-a9c4-d47a49757436', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x742b634956a0>]}
+[0m17:48:19.448661 [info ] [Thread-1 (]: 6 of 11 OK created sql view model main.stg_visit_occurrence .................... [[32mOK[0m in 0.02s]
+[0m17:48:19.449271 [debug] [Thread-1 (]: Finished running node model.opencare_warehouse.stg_visit_occurrence
+[0m17:48:19.449754 [debug] [Thread-1 (]: Began running node test.opencare_warehouse.not_null_stg_person_person_id.1da8305709
+[0m17:48:19.450143 [info ] [Thread-1 (]: 7 of 11 START test not_null_stg_person_person_id ............................... [RUN]
+[0m17:48:19.450718 [debug] [Thread-1 (]: Re-using an available connection from the pool (formerly model.opencare_warehouse.stg_visit_occurrence, now test.opencare_warehouse.not_null_stg_person_person_id.1da8305709)
+[0m17:48:19.451148 [debug] [Thread-1 (]: Began compiling node test.opencare_warehouse.not_null_stg_person_person_id.1da8305709
+[0m17:48:19.468502 [debug] [Thread-1 (]: Writing injected SQL for node "test.opencare_warehouse.not_null_stg_person_person_id.1da8305709"
+[0m17:48:19.469314 [debug] [Thread-1 (]: Began executing node test.opencare_warehouse.not_null_stg_person_person_id.1da8305709
+[0m17:48:19.490689 [debug] [Thread-1 (]: Writing runtime sql for node "test.opencare_warehouse.not_null_stg_person_person_id.1da8305709"
+[0m17:48:19.491543 [debug] [Thread-1 (]: Using duckdb connection "test.opencare_warehouse.not_null_stg_person_person_id.1da8305709"
+[0m17:48:19.492084 [debug] [Thread-1 (]: On test.opencare_warehouse.not_null_stg_person_person_id.1da8305709: BEGIN
+[0m17:48:19.492465 [debug] [Thread-1 (]: Opening a new connection, currently in state closed
+[0m17:48:19.493270 [debug] [Thread-1 (]: SQL status: OK in 0.001 seconds
+[0m17:48:19.493737 [debug] [Thread-1 (]: Using duckdb connection "test.opencare_warehouse.not_null_stg_person_person_id.1da8305709"
+[0m17:48:19.494096 [debug] [Thread-1 (]: On test.opencare_warehouse.not_null_stg_person_person_id.1da8305709: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "node_id": "test.opencare_warehouse.not_null_stg_person_person_id.1da8305709"} */
+
+    
+    select
+      count(*) as failures,
+      count(*) != 0 as should_warn,
+      count(*) != 0 as should_error
+    from (
+      
+    
+  
+    
+    
+
+
+
+select person_id
+from "p3_wh"."main"."stg_person"
+where person_id is null
+
+
+
+  
+  
+      
+    ) dbt_internal_test
+[0m17:48:19.495753 [debug] [Thread-1 (]: SQL status: OK in 0.001 seconds
+[0m17:48:19.500239 [debug] [Thread-1 (]: On test.opencare_warehouse.not_null_stg_person_person_id.1da8305709: ROLLBACK
+[0m17:48:19.501084 [debug] [Thread-1 (]: On test.opencare_warehouse.not_null_stg_person_person_id.1da8305709: Close
+[0m17:48:19.501911 [info ] [Thread-1 (]: 7 of 11 PASS not_null_stg_person_person_id ..................................... [[32mPASS[0m in 0.05s]
+[0m17:48:19.502623 [debug] [Thread-1 (]: Finished running node test.opencare_warehouse.not_null_stg_person_person_id.1da8305709
+[0m17:48:19.503066 [debug] [Thread-1 (]: Began running node test.opencare_warehouse.unique_stg_person_person_id.ad102e18ad
+[0m17:48:19.503462 [info ] [Thread-1 (]: 8 of 11 START test unique_stg_person_person_id ................................. [RUN]
+[0m17:48:19.504083 [debug] [Thread-1 (]: Re-using an available connection from the pool (formerly test.opencare_warehouse.not_null_stg_person_person_id.1da8305709, now test.opencare_warehouse.unique_stg_person_person_id.ad102e18ad)
+[0m17:48:19.504477 [debug] [Thread-1 (]: Began compiling node test.opencare_warehouse.unique_stg_person_person_id.ad102e18ad
+[0m17:48:19.514959 [debug] [Thread-1 (]: Writing injected SQL for node "test.opencare_warehouse.unique_stg_person_person_id.ad102e18ad"
+[0m17:48:19.516195 [debug] [Thread-1 (]: Began executing node test.opencare_warehouse.unique_stg_person_person_id.ad102e18ad
+[0m17:48:19.518283 [debug] [Thread-1 (]: Writing runtime sql for node "test.opencare_warehouse.unique_stg_person_person_id.ad102e18ad"
+[0m17:48:19.518955 [debug] [Thread-1 (]: Using duckdb connection "test.opencare_warehouse.unique_stg_person_person_id.ad102e18ad"
+[0m17:48:19.519376 [debug] [Thread-1 (]: On test.opencare_warehouse.unique_stg_person_person_id.ad102e18ad: BEGIN
+[0m17:48:19.519883 [debug] [Thread-1 (]: Opening a new connection, currently in state closed
+[0m17:48:19.520696 [debug] [Thread-1 (]: SQL status: OK in 0.001 seconds
+[0m17:48:19.521125 [debug] [Thread-1 (]: Using duckdb connection "test.opencare_warehouse.unique_stg_person_person_id.ad102e18ad"
+[0m17:48:19.521514 [debug] [Thread-1 (]: On test.opencare_warehouse.unique_stg_person_person_id.ad102e18ad: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "node_id": "test.opencare_warehouse.unique_stg_person_person_id.ad102e18ad"} */
+
+    
+    select
+      count(*) as failures,
+      count(*) != 0 as should_warn,
+      count(*) != 0 as should_error
+    from (
+      
+    
+  
+    
+    
+
+select
+    person_id as unique_field,
+    count(*) as n_records
+
+from "p3_wh"."main"."stg_person"
+where person_id is not null
+group by person_id
+having count(*) > 1
+
+
+
+  
+  
+      
+    ) dbt_internal_test
+[0m17:48:19.524122 [debug] [Thread-1 (]: SQL status: OK in 0.002 seconds
+[0m17:48:19.525976 [debug] [Thread-1 (]: On test.opencare_warehouse.unique_stg_person_person_id.ad102e18ad: ROLLBACK
+[0m17:48:19.526790 [debug] [Thread-1 (]: On test.opencare_warehouse.unique_stg_person_person_id.ad102e18ad: Close
+[0m17:48:19.527624 [info ] [Thread-1 (]: 8 of 11 PASS unique_stg_person_person_id ....................................... [[32mPASS[0m in 0.02s]
+[0m17:48:19.528367 [debug] [Thread-1 (]: Finished running node test.opencare_warehouse.unique_stg_person_person_id.ad102e18ad
+[0m17:48:19.529417 [debug] [Thread-1 (]: Began running node model.opencare_warehouse.diabetes_registry
+[0m17:48:19.529993 [info ] [Thread-1 (]: 9 of 11 START sql table model main.diabetes_registry ........................... [RUN]
+[0m17:48:19.530510 [debug] [Thread-1 (]: Re-using an available connection from the pool (formerly test.opencare_warehouse.unique_stg_person_person_id.ad102e18ad, now model.opencare_warehouse.diabetes_registry)
+[0m17:48:19.530905 [debug] [Thread-1 (]: Began compiling node model.opencare_warehouse.diabetes_registry
+[0m17:48:19.533737 [debug] [Thread-1 (]: Writing injected SQL for node "model.opencare_warehouse.diabetes_registry"
+[0m17:48:19.534407 [debug] [Thread-1 (]: Began executing node model.opencare_warehouse.diabetes_registry
+[0m17:48:19.579948 [debug] [Thread-1 (]: Writing runtime sql for node "model.opencare_warehouse.diabetes_registry"
+[0m17:48:19.580779 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.diabetes_registry"
+[0m17:48:19.581226 [debug] [Thread-1 (]: On model.opencare_warehouse.diabetes_registry: BEGIN
+[0m17:48:19.581625 [debug] [Thread-1 (]: Opening a new connection, currently in state closed
+[0m17:48:19.582429 [debug] [Thread-1 (]: SQL status: OK in 0.001 seconds
+[0m17:48:19.582885 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.diabetes_registry"
+[0m17:48:19.583352 [debug] [Thread-1 (]: On model.opencare_warehouse.diabetes_registry: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "node_id": "model.opencare_warehouse.diabetes_registry"} */
+
+    
+
+    create  table
+      "p3_wh"."main"."diabetes_registry__dbt_tmp"
+  
+    
+    as (
+      -- Diabetes registry mart: one row per person with Type 2 diabetes
+-- (OMOP concept 201826, SNOMED source 44054006), with their latest HbA1c
+-- (LOINC 4548-4 / OMOP concept 3000963) and whether it is in target
+-- (< 7.0%). Mirrors the /pophealth diabetes registry definition, which
+-- is Studio cohort config (kind='cohort', key='diabetes').
+with diabetic_persons as (
+    select distinct person_id
+    from "p3_wh"."main"."stg_condition_occurrence"
+    where condition_concept_id = 201826
+       or condition_source_value = '44054006'
+),
+
+ranked_a1c as (
+    select
+        person_id,
+        value_as_number,
+        measurement_datetime,
+        row_number() over (
+            partition by person_id
+            order by measurement_datetime desc nulls last, measurement_id desc
+        ) as rn
+    from "p3_wh"."main"."stg_measurement"
+    where measurement_concept_id = 3000963
+       or measurement_source_value = '4548-4'
+),
+
+latest_a1c as (
+    select person_id, value_as_number, measurement_datetime
+    from ranked_a1c
+    where rn = 1
+)
+
+select
+    p.person_id,
+    p.source_patient_id,
+    p.gender_source_value,
+    p.year_of_birth,
+    a.value_as_number as latest_hba1c,
+    a.measurement_datetime as latest_hba1c_at,
+    case
+        when a.value_as_number is null then null
+        when a.value_as_number < 7.0 then true
+        else false
+    end as hba1c_in_target
+from diabetic_persons d
+inner join "p3_wh"."main"."stg_person" p on p.person_id = d.person_id
+left join latest_a1c a on a.person_id = p.person_id
+    );
+    
+  
+[0m17:48:19.598032 [debug] [Thread-1 (]: SQL status: OK in 0.014 seconds
+[0m17:48:19.600993 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.diabetes_registry"
+[0m17:48:19.601473 [debug] [Thread-1 (]: On model.opencare_warehouse.diabetes_registry: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "node_id": "model.opencare_warehouse.diabetes_registry"} */
+alter table "p3_wh"."main"."diabetes_registry__dbt_tmp" rename to "diabetes_registry"
+[0m17:48:19.602436 [debug] [Thread-1 (]: SQL status: OK in 0.000 seconds
+[0m17:48:19.609115 [debug] [Thread-1 (]: On model.opencare_warehouse.diabetes_registry: COMMIT
+[0m17:48:19.609664 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.diabetes_registry"
+[0m17:48:19.610054 [debug] [Thread-1 (]: On model.opencare_warehouse.diabetes_registry: COMMIT
+[0m17:48:19.611073 [debug] [Thread-1 (]: SQL status: OK in 0.001 seconds
+[0m17:48:19.612918 [debug] [Thread-1 (]: Using duckdb connection "model.opencare_warehouse.diabetes_registry"
+[0m17:48:19.613357 [debug] [Thread-1 (]: On model.opencare_warehouse.diabetes_registry: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "node_id": "model.opencare_warehouse.diabetes_registry"} */
+
+      drop table if exists "p3_wh"."main"."diabetes_registry__dbt_backup" cascade
+    
+[0m17:48:19.614215 [debug] [Thread-1 (]: SQL status: OK in 0.000 seconds
+[0m17:48:19.615854 [debug] [Thread-1 (]: On model.opencare_warehouse.diabetes_registry: Close
+[0m17:48:19.616603 [debug] [Thread-1 (]: Sending event: {'category': 'dbt', 'action': 'run_model', 'label': 'a2c4a5f2-b50a-41c0-a9c4-d47a49757436', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x742b634776b0>]}
+[0m17:48:19.617352 [info ] [Thread-1 (]: 9 of 11 OK created sql table model main.diabetes_registry ...................... [[32mOK[0m in 0.09s]
+[0m17:48:19.617997 [debug] [Thread-1 (]: Finished running node model.opencare_warehouse.diabetes_registry
+[0m17:48:19.619443 [debug] [Thread-1 (]: Began running node test.opencare_warehouse.not_null_diabetes_registry_person_id.c64ef72928
+[0m17:48:19.620264 [info ] [Thread-1 (]: 10 of 11 START test not_null_diabetes_registry_person_id ....................... [RUN]
+[0m17:48:19.621048 [debug] [Thread-1 (]: Re-using an available connection from the pool (formerly model.opencare_warehouse.diabetes_registry, now test.opencare_warehouse.not_null_diabetes_registry_person_id.c64ef72928)
+[0m17:48:19.621542 [debug] [Thread-1 (]: Began compiling node test.opencare_warehouse.not_null_diabetes_registry_person_id.c64ef72928
+[0m17:48:19.631217 [debug] [Thread-1 (]: Writing injected SQL for node "test.opencare_warehouse.not_null_diabetes_registry_person_id.c64ef72928"
+[0m17:48:19.632139 [debug] [Thread-1 (]: Began executing node test.opencare_warehouse.not_null_diabetes_registry_person_id.c64ef72928
+[0m17:48:19.634472 [debug] [Thread-1 (]: Writing runtime sql for node "test.opencare_warehouse.not_null_diabetes_registry_person_id.c64ef72928"
+[0m17:48:19.635195 [debug] [Thread-1 (]: Using duckdb connection "test.opencare_warehouse.not_null_diabetes_registry_person_id.c64ef72928"
+[0m17:48:19.635687 [debug] [Thread-1 (]: On test.opencare_warehouse.not_null_diabetes_registry_person_id.c64ef72928: BEGIN
+[0m17:48:19.636058 [debug] [Thread-1 (]: Opening a new connection, currently in state closed
+[0m17:48:19.637066 [debug] [Thread-1 (]: SQL status: OK in 0.001 seconds
+[0m17:48:19.637588 [debug] [Thread-1 (]: Using duckdb connection "test.opencare_warehouse.not_null_diabetes_registry_person_id.c64ef72928"
+[0m17:48:19.637966 [debug] [Thread-1 (]: On test.opencare_warehouse.not_null_diabetes_registry_person_id.c64ef72928: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "node_id": "test.opencare_warehouse.not_null_diabetes_registry_person_id.c64ef72928"} */
+
+    
+    select
+      count(*) as failures,
+      count(*) != 0 as should_warn,
+      count(*) != 0 as should_error
+    from (
+      
+    
+  
+    
+    
+
+
+
+select person_id
+from "p3_wh"."main"."diabetes_registry"
+where person_id is null
+
+
+
+  
+  
+      
+    ) dbt_internal_test
+[0m17:48:19.639556 [debug] [Thread-1 (]: SQL status: OK in 0.001 seconds
+[0m17:48:19.641641 [debug] [Thread-1 (]: On test.opencare_warehouse.not_null_diabetes_registry_person_id.c64ef72928: ROLLBACK
+[0m17:48:19.642453 [debug] [Thread-1 (]: On test.opencare_warehouse.not_null_diabetes_registry_person_id.c64ef72928: Close
+[0m17:48:19.643262 [info ] [Thread-1 (]: 10 of 11 PASS not_null_diabetes_registry_person_id ............................. [[32mPASS[0m in 0.02s]
+[0m17:48:19.644044 [debug] [Thread-1 (]: Finished running node test.opencare_warehouse.not_null_diabetes_registry_person_id.c64ef72928
+[0m17:48:19.644547 [debug] [Thread-1 (]: Began running node test.opencare_warehouse.unique_diabetes_registry_person_id.587ab10c00
+[0m17:48:19.645127 [info ] [Thread-1 (]: 11 of 11 START test unique_diabetes_registry_person_id ......................... [RUN]
+[0m17:48:19.645711 [debug] [Thread-1 (]: Re-using an available connection from the pool (formerly test.opencare_warehouse.not_null_diabetes_registry_person_id.c64ef72928, now test.opencare_warehouse.unique_diabetes_registry_person_id.587ab10c00)
+[0m17:48:19.646102 [debug] [Thread-1 (]: Began compiling node test.opencare_warehouse.unique_diabetes_registry_person_id.587ab10c00
+[0m17:48:19.655386 [debug] [Thread-1 (]: Writing injected SQL for node "test.opencare_warehouse.unique_diabetes_registry_person_id.587ab10c00"
+[0m17:48:19.656132 [debug] [Thread-1 (]: Began executing node test.opencare_warehouse.unique_diabetes_registry_person_id.587ab10c00
+[0m17:48:19.658339 [debug] [Thread-1 (]: Writing runtime sql for node "test.opencare_warehouse.unique_diabetes_registry_person_id.587ab10c00"
+[0m17:48:19.659050 [debug] [Thread-1 (]: Using duckdb connection "test.opencare_warehouse.unique_diabetes_registry_person_id.587ab10c00"
+[0m17:48:19.659511 [debug] [Thread-1 (]: On test.opencare_warehouse.unique_diabetes_registry_person_id.587ab10c00: BEGIN
+[0m17:48:19.659894 [debug] [Thread-1 (]: Opening a new connection, currently in state closed
+[0m17:48:19.660749 [debug] [Thread-1 (]: SQL status: OK in 0.001 seconds
+[0m17:48:19.661194 [debug] [Thread-1 (]: Using duckdb connection "test.opencare_warehouse.unique_diabetes_registry_person_id.587ab10c00"
+[0m17:48:19.661639 [debug] [Thread-1 (]: On test.opencare_warehouse.unique_diabetes_registry_person_id.587ab10c00: /* {"app": "dbt", "dbt_version": "1.12.6", "profile_name": "opencare_warehouse", "target_name": "dev", "node_id": "test.opencare_warehouse.unique_diabetes_registry_person_id.587ab10c00"} */
+
+    
+    select
+      count(*) as failures,
+      count(*) != 0 as should_warn,
+      count(*) != 0 as should_error
+    from (
+      
+    
+  
+    
+    
+
+select
+    person_id as unique_field,
+    count(*) as n_records
+
+from "p3_wh"."main"."diabetes_registry"
+where person_id is not null
+group by person_id
+having count(*) > 1
+
+
+
+  
+  
+      
+    ) dbt_internal_test
+[0m17:48:19.663626 [debug] [Thread-1 (]: SQL status: OK in 0.002 seconds
+[0m17:48:19.665611 [debug] [Thread-1 (]: On test.opencare_warehouse.unique_diabetes_registry_person_id.587ab10c00: ROLLBACK
+[0m17:48:19.666422 [debug] [Thread-1 (]: On test.opencare_warehouse.unique_diabetes_registry_person_id.587ab10c00: Close
+[0m17:48:19.667220 [info ] [Thread-1 (]: 11 of 11 PASS unique_diabetes_registry_person_id ............................... [[32mPASS[0m in 0.02s]
+[0m17:48:19.667933 [debug] [Thread-1 (]: Finished running node test.opencare_warehouse.unique_diabetes_registry_person_id.587ab10c00
+[0m17:48:19.669963 [debug] [MainThread]: Using duckdb connection "master"
+[0m17:48:19.670664 [debug] [MainThread]: On master: BEGIN
+[0m17:48:19.671023 [debug] [MainThread]: Opening a new connection, currently in state closed
+[0m17:48:19.672016 [debug] [MainThread]: SQL status: OK in 0.001 seconds
+[0m17:48:19.672437 [debug] [MainThread]: On master: COMMIT
+[0m17:48:19.672796 [debug] [MainThread]: Using duckdb connection "master"
+[0m17:48:19.673080 [debug] [MainThread]: On master: COMMIT
+[0m17:48:19.673622 [debug] [MainThread]: SQL status: OK in 0.000 seconds
+[0m17:48:19.673985 [debug] [MainThread]: On master: Close
+[0m17:48:19.674483 [debug] [MainThread]: Connection 'master' was properly closed.
+[0m17:48:19.674899 [debug] [MainThread]: Connection 'test.opencare_warehouse.unique_diabetes_registry_person_id.587ab10c00' was properly closed.
+[0m17:48:19.675340 [info ] [MainThread]: 
+[0m17:48:19.675775 [info ] [MainThread]: Finished running 1 table model, 4 data tests, 6 view models in 0 hours 0 minutes and 0.69 seconds (0.69s).
+[0m17:48:19.677674 [debug] [MainThread]: Command end result
+[0m17:48:19.826874 [debug] [MainThread]: Wrote artifact WritableManifest to /home/hatch/workspace/Open_EHR/warehouse/dbt/target/manifest.json
+[0m17:48:19.830531 [debug] [MainThread]: Wrote artifact SemanticManifest to /home/hatch/workspace/Open_EHR/warehouse/dbt/target/semantic_manifest.json
+[0m17:48:19.833744 [debug] [MainThread]: Wrote artifact OsiDocument to /home/hatch/workspace/Open_EHR/warehouse/dbt/target/osi_document.json
+[0m17:48:19.842711 [debug] [MainThread]: Wrote artifact RunExecutionResult to /home/hatch/workspace/Open_EHR/warehouse/dbt/target/run_results.json
+[0m17:48:19.843185 [info ] [MainThread]: 
+[0m17:48:19.843669 [info ] [MainThread]: [32mCompleted successfully[0m
+[0m17:48:19.844027 [info ] [MainThread]: 
+[0m17:48:19.844406 [info ] [MainThread]: Done. PASS=11 WARN=0 ERROR=0 SKIP=0 NO-OP=0 REUSED=0 TOTAL=11
+[0m17:48:19.846122 [debug] [MainThread]: Resource report: {"command_name": "build", "command_success": true, "command_wall_clock_time": 4.131183, "process_in_blocks": "37680", "process_kernel_time": 0.383202, "process_mem_max_rss": "179812", "process_out_blocks": "4192", "process_user_time": 5.289578}
+[0m17:48:19.846836 [debug] [MainThread]: Command `dbt build` succeeded at 17:48:19.846716 after 4.13 seconds
+[0m17:48:19.847258 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'end', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x742b761a6900>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x742b761a6510>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x742b635de000>]}
+[0m17:48:19.847709 [debug] [MainThread]: Flushing usage events
+[0m17:48:19.978205 [debug] [MainThread]: An error was encountered while trying to flush usage events
