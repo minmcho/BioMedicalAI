@@ -24,6 +24,7 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .configstore import role_allowed
 from .models import Role, User
 
 # token -> user info. Overridable via OPENEHR_DEV_TOKENS as JSON:
@@ -189,5 +190,21 @@ def require_roles(*roles: Role):
     def dep(user: User = Depends(get_current_user)) -> User:
         if user.role not in roles:
             raise HTTPException(status_code=403, detail=f"Role {user.role.value} may not perform this action")
+        return user
+    return dep
+
+
+def require_capability(capability: str):
+    """Role gate driven by Studio configuration: the caller's role must be
+    allowed the capability by the built-in defaults, as overridden by the
+    published permissions config (kind=permissions, key=role-matrix).
+    Enforced here, in the API dependency — the UI hiding a control is never
+    the enforcement. See app.configstore.CAPABILITY_DEFAULTS."""
+    def dep(session: Session = Depends(get_db),
+            user: User = Depends(get_current_user)) -> User:
+        if not role_allowed(session, user.role, capability):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Role {user.role.value} lacks capability '{capability}'")
         return user
     return dep

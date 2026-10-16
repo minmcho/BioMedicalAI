@@ -7,3 +7,7 @@ pytest
 httpx
 pyyaml
 pyjwt[crypto]
+# Phase 3: dbt project (warehouse/dbt) + DuckDB warehouse target for the ETL
+dbt-core
+dbt-duckdb
+duckdb-engine
