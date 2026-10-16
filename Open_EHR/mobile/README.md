@@ -14,10 +14,21 @@ mobile/
 
 **Build status (honest):** this source was authored and validated on a
 Linux VM (syntax + reference-consistency checks — see
-`docs/sqa/PHASE_MOBILE_SQA_REPORT.md`). It has **not been compiled yet**:
-first builds happen in Xcode (MacBook Air) and Android Studio. Expect the
-normal first-build fixes any fresh project needs; the SQA report lists
-exactly what was and was not verified.
+`docs/sqa/PHASE_MOBILE_SQA_REPORT.md`). A full local toolchain is now
+installed on that VM (Temurin JDK 17, Gradle 8.7, Android SDK platform
+34 / build-tools 34) and the Gradle wrapper is committed — but **Gradle
+still cannot run on the VM**: the assistant sandbox denies
+JVM-initiated TCP connections outright (the Gradle client↔daemon
+loopback connection and all Java HTTP are intercepted; the exact
+evidence and the one user-side permission that lifts it —
+Settings → Permissions → Direct network protocols → `other_tcp`:
+Deny → Ask — are recorded in the SQA report). **First real compiles
+therefore run in CI or on Min's machines:** the repo's
+`.github/workflows/mobile.yml` builds the APK on an Ubuntu runner and
+the iOS app on a macOS runner, and the same builds run locally in
+Xcode (MacBook Air) and Android Studio. Expect the normal first-build
+fixes any fresh project needs; the SQA report lists exactly what was
+and was not verified.
 
 ## Backend first (both apps)
 
@@ -35,11 +46,18 @@ the backend's `AUTH_MODE=dev` identities.
 ## iOS — open & build (Xcode, MacBook Air)
 
 1. Open `mobile/ios/OpenCare.xcodeproj` in Xcode.
-2. Pick a team under *Signing & Capabilities* for your device/simulator
-   (bundle ID `org.opencare.ehr`). The target is Universal
-   (`TARGETED_DEVICE_FAMILY = 1,2` — iPhone + iPad).
-3. Run. The app reads its backend URL from the `API_BASE_URL` key in
-   `OpenCare/Info.plist` (default `http://localhost:8000`).
+2. Select the **OpenCare** scheme (it is a shared scheme, committed in
+   the project — it appears automatically; no need to create one) and
+   pick an iPhone or iPad simulator as the destination.
+3. Under *Signing & Capabilities*, pick your team (bundle ID
+   `org.opencare.ehr`) — required for device runs; the target is
+   Universal (`TARGETED_DEVICE_FAMILY = 1,2` — iPhone + iPad).
+4. Run (⌘R). The app reads its backend URL from the `API_BASE_URL` key
+   in `OpenCare/Info.plist` (default `http://localhost:8000`).
+
+The same build runs in CI (macOS runner, unsigned simulator build,
+`CODE_SIGNING_ALLOWED=NO`) — see `.github/workflows/mobile.yml` at the
+repo root.
 
 **URL caveats:** `localhost` works in the **iOS Simulator** (it shares the
 Mac's network). On a **physical device**, `localhost` is the phone itself —
@@ -62,11 +80,24 @@ PortalResults, Schedule. No third-party dependencies.
 
 ## Android — open & build (Android Studio)
 
-1. Open the `mobile/android/` folder in Android Studio and let Gradle sync.
-   (If the Gradle wrapper is missing on first open, generate it once with
-   `gradle wrapper --gradle-version 8.7` or Android Studio's wrapper
-   prompt — the wrapper jar is not committed in this source drop.)
+1. Open the `mobile/android/` folder in Android Studio and let Gradle
+   sync. The Gradle wrapper **is** committed (`gradlew`,
+   `gradle/wrapper/gradle-wrapper.jar` + properties pinned to Gradle
+   8.7, the AGP 8.5.2 minimum), so no wrapper generation step is
+   needed — Android Studio uses it as-is.
 2. Run the `app` configuration on an emulator or device.
+
+**Command-line build (same as CI):** with JDK 17 and the Android SDK
+(platform 34, build-tools 34.0.0) installed and `ANDROID_HOME` set:
+
+```bash
+cd mobile/android
+./gradlew :app:assembleDebug
+# → app/build/outputs/apk/debug/app-debug.apk
+```
+
+CI runs exactly this on an Ubuntu runner — see
+`.github/workflows/mobile.yml` at the repo root.
 
 **URL caveats:** the Android **emulator cannot use your computer's
 `localhost`** — `10.0.2.2` is its alias for the host, so the default base

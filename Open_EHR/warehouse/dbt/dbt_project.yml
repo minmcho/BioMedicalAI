@@ -1,0 +1,27 @@
+# OpenCare warehouse — dbt project (Phase 3).
+#
+# Models sit ON TOP of the OMOP CDM subset produced by the FHIR->OMOP ETL
+# (backend/app/etl.py -> backend/app/warehouse.py). Staging models are
+# views that only rename/expose the OMOP tables; marts are tables built
+# for population-health consumers. See contracts/warehouse.md.
+name: "opencare_warehouse"
+version: "1.0.0"
+config-version: 2
+
+profile: "opencare_warehouse"
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  opencare_warehouse:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table

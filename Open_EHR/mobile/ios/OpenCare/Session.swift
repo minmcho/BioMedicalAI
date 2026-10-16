@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 /// Observable auth state. Dev-mode sign-in stores the role's seeded dev
