@@ -290,6 +290,19 @@ export interface PackInstallation {
 
 export type StudioAction = "approve" | "attach" | "enable" | "disable";
 
+// One entry of the hash-chained audit log — GET /studio/audit
+// (backend/app/studio.py). Covers pack lifecycle, Studio config writes
+// and clinical writes in a single chain.
+export interface AuditEntry {
+  id: number;
+  created_at: string | null;
+  actor: string;
+  action: string;
+  entity: string;
+  entry_hash: string;
+  prev_hash: string;
+}
+
 // Studio customization engine (versioned configuration) —
 // backend/app/studio_config.py + app/configstore.py
 export type ConfigKind =

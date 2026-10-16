@@ -86,6 +86,20 @@ describe("ApiClient studio config methods", () => {
   });
 });
 
+describe("ApiClient studio audit method", () => {
+  it("lists audit entries with the limit as a query param", async () => {
+    const fetchFn = vi.fn(async () => jsonResponse([]));
+    const client = fakeClient(fetchFn);
+    await client.listAudit();
+    await client.listAudit(25);
+    const urls = fetchFn.mock.calls.map((c) => (c as unknown as [string])[0]);
+    expect(urls).toEqual([
+      "http://localhost:8000/studio/audit?limit=50",
+      "http://localhost:8000/studio/audit?limit=25",
+    ]);
+  });
+});
+
 describe("groupConfigs / configActions", () => {
   it("groups versions per object, ascending, objects sorted", () => {
     const groups = groupConfigs([

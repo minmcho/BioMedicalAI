@@ -1,5 +1,6 @@
 import type {
   Appointment,
+  AuditEntry,
   Bundle,
   Claim,
   ConfigConcept,
@@ -311,6 +312,12 @@ export class ApiClient {
 
   installationAction(id: number, action: StudioAction): Promise<PackInstallation> {
     return this.request(`/studio/installations/${id}/${action}`, { method: "POST" });
+  }
+
+  /** GET /studio/audit?limit= — most recent hash-chained audit entries,
+   *  newest first (admin/configurator only on the server). */
+  listAudit(limit = 50): Promise<AuditEntry[]> {
+    return this.request(`/studio/audit?limit=${limit}`);
   }
 
   // ---- Studio configuration (customization engine) ----
