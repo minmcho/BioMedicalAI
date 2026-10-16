@@ -76,3 +76,50 @@ nav { display: flex; flex-direction: column; gap: 0.25rem; }
   .layout { flex-direction: column; }
   .sidebar { width: 100%; flex: none; border-right: none; border-bottom: 1px solid var(--border); }
 }
+
+.config-versions { list-style: none; padding: 0; margin: 0.4rem 0; display: grid; gap: 0.35rem; }
+.config-versions button { border: 1px solid var(--accent); background: #fff; color: var(--accent);
+  border-radius: 6px; padding: 0.2rem 0.6rem; font-weight: 600; }
+.config-versions button:disabled { opacity: 0.55; }
+.config-payload { background: #f6f8f9; border: 1px solid var(--border); border-radius: 8px;
+  padding: 0.7rem; overflow-x: auto; font-size: 0.82rem; }
+.config-editor { display: grid; gap: 0.5rem; max-width: 720px; }
+.config-editor textarea { font-family: ui-monospace, monospace; font-size: 0.85rem;
+  padding: 0.5rem; border: 1px solid var(--border); border-radius: 6px; }
+.config-editor select { font: inherit; padding: 0.4rem 0.55rem; border: 1px solid var(--border);
+  border-radius: 6px; }
+.config-editor button { background: var(--accent); color: #fff; border: none;
+  border-radius: 8px; padding: 0.45rem 1rem; font-weight: 600; }
+.config-editor button:disabled { opacity: 0.55; }
+
+/* Phase 2 — Lab LIS */
+.lab-table { border-collapse: collapse; width: 100%; margin: 0.6rem 0 1.2rem; background: #fff; }
+.lab-table th, .lab-table td { border: 1px solid var(--border); padding: 0.4rem 0.6rem;
+  text-align: left; font-size: 0.92rem; vertical-align: top; }
+.lab-table th { background: #eef3f1; }
+.badge-critical { background: #fde8e8; color: #b42318; }
+.badge-warn { background: #fdf3e0; color: #9a6700; }
+.inline-form select { font: inherit; padding: 0.4rem 0.55rem; border: 1px solid var(--border);
+  border-radius: 6px; }
+.inline-form input { font: inherit; padding: 0.4rem 0.55rem; border: 1px solid var(--border);
+  border-radius: 6px; }
+.field input { font: inherit; padding: 0.4rem 0.55rem; border: 1px solid var(--border);
+  border-radius: 6px; }
+.appt-actions input { font: inherit; padding: 0.3rem 0.45rem; border: 1px solid var(--border);
+  border-radius: 6px; margin-right: 0.3rem; }
+
+/* Phase 4B specialty boards (ED / radiology / surgery) */
+.board-list { list-style: none; padding: 0; margin: 0 0 1rem; display: grid;
+  gap: 0.6rem; }
+.board-card { border: 1px solid var(--border); border-radius: 8px;
+  padding: 0.7rem 0.9rem; background: #fff; }
+.board-card .badge { margin-left: 0.45rem; }
+.row-actions { display: flex; gap: 0.6rem; align-items: end; flex-wrap: wrap;
+  margin-top: 0.55rem; }
+.row-actions button { background: var(--accent); color: #fff; border: none;
+  border-radius: 6px; padding: 0.42rem 0.8rem; font-size: 0.95rem; cursor: pointer; }
+.row-actions button:disabled { opacity: 0.55; cursor: default; }
+.row-actions input, .row-actions select { font: inherit; padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border); border-radius: 6px; }
+.inline-form textarea { font: inherit; padding: 0.4rem 0.55rem;
+  border: 1px solid var(--border); border-radius: 6px; min-width: 22rem; }
