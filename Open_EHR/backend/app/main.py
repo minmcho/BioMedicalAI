@@ -1,4 +1,7 @@
+import os
+
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from . import billing, boards, fhir, lab, outbox, pharmacy, pophealth, studio, studio_config  # noqa: F401
 from .db import Base, make_engine, make_session_factory
@@ -48,6 +51,25 @@ def create_app(database_url: str | None = None) -> FastAPI:
                                "double-booking refused server-side)."))
     app.state.engine = engine
     app.state.session_factory = session_factory
+
+    # Browser clients (web app on the Vite dev origin :5173, the nginx
+    # production origin :8080, the SMART app) are cross-origin to this API.
+    # Without CORS middleware the browser blocks every response even though
+    # the API is up — curl/server-side smokes never see it. Origins are
+    # configurable via CORS_ORIGINS (comma-separated); the defaults cover
+    # local development only.
+    cors_origins = [o.strip() for o in os.environ.get(
+        "CORS_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173,"
+        "http://localhost:8080,http://127.0.0.1:8080,"
+        "http://localhost:5174,http://127.0.0.1:5174").split(",") if o.strip()]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
+    )
 
     @app.get("/health")
     def health():
