@@ -4,6 +4,9 @@ Single source of truth for API shapes. Clients (web TypeScript, Swift,
 Kotlin, Python, Go, Rust) are generated from these — never hand-written.
 
 - `fhir-resources.md` — FHIR R4 resources and profiles used, phase by phase.
+- `warehouse.md` — Phase 3: transactional outbox, OMOP warehouse + concept
+  mapping, ETL semantics, dbt project, and the aggregate-only
+  population-health API (incl. small-cell suppression).
 - `schema.graphql` — GraphQL BFF schema **stub** (frontend aggregation lane
   only; resolvers land in a later phase — there is no GraphQL server yet).
 - `internal.proto` — internal gRPC contract **stub** for service-to-service
