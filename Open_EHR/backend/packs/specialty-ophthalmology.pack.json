@@ -1,0 +1,467 @@
+{
+  "name": "specialty-ophthalmology",
+  "version": "1.0.0",
+  "description": "Specialty operations pack \u2014 ophthalmology, Bascom Palmer pattern (roadmap \u00a74). Imaging-centric exam charting (visual acuity, IOP, OCT/fundus flags), LATERALITY ON EVERY ORDER: the pack publishes the order-type catalogue with an `eye-procedure` type whose required fields make bodySite (eye + OD/OS/OU laterality codings) mandatory at placement. Cataract pathway (biometry -> lens selection -> surgery -> post-op drops) and the high-volume intravitreal injection clinic (bilateral-aware: one order per eye) are order sets; registries: glaucoma + diabetic eye disease with visit-interval recalls.",
+  "modules": [
+    {
+      "id": "ophthalmology-workspace",
+      "name": "Ophthalmology workspace",
+      "enabled": false
+    },
+    {
+      "id": "ophthalmology-registry",
+      "name": "Eye registries",
+      "enabled": false
+    }
+  ],
+  "forms": [
+    {
+      "id": "ophthalmology-exam",
+      "name": "Ophthalmology Exam (imaging-centric)",
+      "fields": [
+        "laterality",
+        "visual-acuity-od",
+        "visual-acuity-os",
+        "iop-od",
+        "iop-os",
+        "oct-performed",
+        "fundus-imaging",
+        "dilated",
+        "findings"
+      ]
+    },
+    {
+      "id": "ophthalmology-flowsheet",
+      "name": "Eye Clinic Flowsheet",
+      "fields": [
+        "iop-od",
+        "iop-os",
+        "visual-acuity-od",
+        "visual-acuity-os"
+      ]
+    }
+  ],
+  "api_endpoints": [],
+  "configuration": [
+    {
+      "kind": "terminology",
+      "key": "order-types",
+      "payload": {
+        "name": "OpenCare order types (CPOE catalogue) + ophthalmology eye-procedure type (specialty-ophthalmology pack)",
+        "system": "urn:opencare:order-type",
+        "concepts": [
+          {
+            "code": "medication",
+            "display": "Medication",
+            "active": true,
+            "resourceType": "MedicationRequest",
+            "requiredFields": [
+              "code"
+            ],
+            "timingDefaults": {
+              "frequencyHours": 24,
+              "windowHours": 2
+            }
+          },
+          {
+            "code": "procedure",
+            "display": "Procedure",
+            "active": true,
+            "resourceType": "ServiceRequest",
+            "requiredFields": [
+              "code"
+            ]
+          },
+          {
+            "code": "consult",
+            "display": "Consultation",
+            "active": true,
+            "resourceType": "ServiceRequest",
+            "requiredFields": [
+              "code",
+              "performerRole"
+            ]
+          },
+          {
+            "code": "imaging",
+            "display": "Imaging",
+            "active": true,
+            "resourceType": "ServiceRequest",
+            "requiredFields": [
+              "code",
+              "modality"
+            ]
+          },
+          {
+            "code": "nursing",
+            "display": "Nursing",
+            "active": true,
+            "resourceType": "ServiceRequest",
+            "requiredFields": [
+              "code"
+            ]
+          },
+          {
+            "code": "diet",
+            "display": "Diet",
+            "active": true,
+            "resourceType": "ServiceRequest",
+            "requiredFields": [
+              "code"
+            ]
+          },
+          {
+            "code": "activity",
+            "display": "Activity",
+            "active": true,
+            "resourceType": "ServiceRequest",
+            "requiredFields": [
+              "code"
+            ]
+          },
+          {
+            "code": "eye-procedure",
+            "display": "Ophthalmology procedure",
+            "active": true,
+            "resourceType": "ServiceRequest",
+            "requiredFields": [
+              "code",
+              "bodySite"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "orderset",
+      "key": "ophthalmology-cataract-pathway",
+      "payload": {
+        "name": "Ophthalmology \u2014 cataract pathway (right eye)",
+        "description": "Cataract pathway for the RIGHT eye: biometry, lens selection, phacoemulsification, post-op drops. Every eye-procedure item carries bodySite with laterality; place the mirrored set (or edit the site) for the left eye.",
+        "orders": [
+          {
+            "type": "eye-procedure",
+            "code": "ophth-biometry",
+            "display": "Optical biometry for lens calculation",
+            "bodySite": {
+              "coding": [
+                {
+                  "system": "http://snomed.info/sct",
+                  "code": "81745001",
+                  "display": "Eye structure"
+                },
+                {
+                  "system": "http://snomed.info/sct",
+                  "code": "24028007",
+                  "display": "Right"
+                }
+              ],
+              "text": "Right eye (OD)"
+            }
+          },
+          {
+            "type": "eye-procedure",
+            "code": "iol-selection",
+            "display": "Intraocular lens selection",
+            "bodySite": {
+              "coding": [
+                {
+                  "system": "http://snomed.info/sct",
+                  "code": "81745001",
+                  "display": "Eye structure"
+                },
+                {
+                  "system": "http://snomed.info/sct",
+                  "code": "24028007",
+                  "display": "Right"
+                }
+              ],
+              "text": "Right eye (OD)"
+            }
+          },
+          {
+            "type": "eye-procedure",
+            "code": "phacoemulsification",
+            "display": "Phacoemulsification with IOL implant",
+            "bodySite": {
+              "coding": [
+                {
+                  "system": "http://snomed.info/sct",
+                  "code": "81745001",
+                  "display": "Eye structure"
+                },
+                {
+                  "system": "http://snomed.info/sct",
+                  "code": "24028007",
+                  "display": "Right"
+                }
+              ],
+              "text": "Right eye (OD)"
+            },
+            "note": "Operating list \u2014 cataract pathway"
+          },
+          {
+            "type": "medication",
+            "code": "postop-drops-demo",
+            "display": "Post-op eye drops bundle (synthetic demo)",
+            "note": "Start day of surgery, 4 weeks"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "orderset",
+      "key": "ophthalmology-injection-clinic",
+      "payload": {
+        "name": "Ophthalmology \u2014 intravitreal injection clinic (bilateral)",
+        "description": "High-volume injection clinic, bilateral-aware: one eye-procedure order PER EYE, each with its own laterality, plus the anti-VEGF medication order.",
+        "orders": [
+          {
+            "type": "eye-procedure",
+            "code": "intravitreal-injection",
+            "display": "Intravitreal injection",
+            "bodySite": {
+              "coding": [
+                {
+                  "system": "http://snomed.info/sct",
+                  "code": "81745001",
+                  "display": "Eye structure"
+                },
+                {
+                  "system": "http://snomed.info/sct",
+                  "code": "24028007",
+                  "display": "Right"
+                }
+              ],
+              "text": "Right eye (OD)"
+            }
+          },
+          {
+            "type": "eye-procedure",
+            "code": "intravitreal-injection",
+            "display": "Intravitreal injection",
+            "bodySite": {
+              "coding": [
+                {
+                  "system": "http://snomed.info/sct",
+                  "code": "81745001",
+                  "display": "Eye structure"
+                },
+                {
+                  "system": "http://snomed.info/sct",
+                  "code": "7771000",
+                  "display": "Left"
+                }
+              ],
+              "text": "Left eye (OS)"
+            }
+          },
+          {
+            "type": "medication",
+            "code": "anti-vegf-demo",
+            "display": "Anti-VEGF agent (synthetic demo)",
+            "note": "Per injection-clinic protocol"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "ophthalmology-exam",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Ophthalmology exam (imaging-centric)",
+        "item": [
+          {
+            "linkId": "laterality",
+            "text": "Eye(s) examined",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "OD",
+                  "display": "Right eye (OD)"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "OS",
+                  "display": "Left eye (OS)"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "OU",
+                  "display": "Both eyes (OU)"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "visual-acuity-od",
+            "text": "Visual acuity \u2014 right eye (decimal)",
+            "type": "decimal",
+            "required": true
+          },
+          {
+            "linkId": "visual-acuity-os",
+            "text": "Visual acuity \u2014 left eye (decimal)",
+            "type": "decimal",
+            "required": true
+          },
+          {
+            "linkId": "iop-od",
+            "text": "IOP \u2014 right eye (mmHg)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "iop-os",
+            "text": "IOP \u2014 left eye (mmHg)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "oct-performed",
+            "text": "OCT imaging performed",
+            "type": "boolean",
+            "required": true
+          },
+          {
+            "linkId": "fundus-imaging",
+            "text": "Fundus imaging performed",
+            "type": "boolean",
+            "required": false
+          },
+          {
+            "linkId": "dilated",
+            "text": "Pupils dilated",
+            "type": "boolean",
+            "required": false
+          },
+          {
+            "linkId": "findings",
+            "text": "Findings",
+            "type": "text",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "ophthalmology-flowsheet",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Eye clinic flowsheet",
+        "item": [
+          {
+            "linkId": "iop-od",
+            "text": "IOP \u2014 right eye (mmHg)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "iop-os",
+            "text": "IOP \u2014 left eye (mmHg)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "visual-acuity-od",
+            "text": "Visual acuity \u2014 right eye (decimal)",
+            "type": "decimal",
+            "required": false
+          },
+          {
+            "linkId": "visual-acuity-os",
+            "text": "Visual acuity \u2014 left eye (decimal)",
+            "type": "decimal",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "ophthalmology-codes",
+      "payload": {
+        "name": "Ophthalmology terminology subset",
+        "system": "http://snomed.info/sct",
+        "concepts": [
+          {
+            "code": "23986001",
+            "display": "Glaucoma",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "4855003",
+            "display": "Diabetic retinopathy",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "193570009",
+            "display": "Cataract",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "420914001",
+            "display": "Age-related macular degeneration",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "cohort",
+      "key": "ophthalmology-registry",
+      "payload": {
+        "name": "Glaucoma + diabetic eye registry",
+        "description": "Persons with glaucoma or diabetic retinopathy \u2014 visit-interval recalls run over this cohort.",
+        "smallCellThreshold": 5,
+        "ageBands": [
+          [
+            0,
+            17,
+            "0-17"
+          ],
+          [
+            18,
+            44,
+            "18-44"
+          ],
+          [
+            45,
+            64,
+            "45-64"
+          ],
+          [
+            65,
+            74,
+            "65-74"
+          ],
+          [
+            75,
+            null,
+            "75+"
+          ]
+        ],
+        "conditionCodes": [
+          {
+            "system": "http://snomed.info/sct",
+            "code": "23986001"
+          },
+          {
+            "system": "http://snomed.info/sct",
+            "code": "4855003"
+          }
+        ]
+      }
+    }
+  ]
+}

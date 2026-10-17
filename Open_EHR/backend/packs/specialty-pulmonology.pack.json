@@ -1,0 +1,329 @@
+{
+  "name": "specialty-pulmonology",
+  "version": "1.0.0",
+  "description": "Specialty operations pack \u2014 pulmonology & lung (roadmap \u00a74). Spirometry/PFT orders with FEV1/FVC results landing on the PFT flowsheet, COPD/asthma action plans, sleep-study pathway, bronchoscopy procedure terminology; registry: COPD + asthma cohort (the lung-nodule tracking registry rides this same cohort mechanism with nodule codes at sites that publish them).",
+  "modules": [
+    {
+      "id": "pulmonology-workspace",
+      "name": "Pulmonology workspace",
+      "enabled": false
+    },
+    {
+      "id": "pulmonology-registry",
+      "name": "Lung registry",
+      "enabled": false
+    }
+  ],
+  "forms": [
+    {
+      "id": "pulmonology-intake",
+      "name": "Pulmonology Intake",
+      "fields": [
+        "mmrc-grade",
+        "pack-years",
+        "exacerbations-last-year",
+        "primary-inhaler"
+      ]
+    },
+    {
+      "id": "pulmonology-pft",
+      "name": "PFT Flowsheet",
+      "fields": [
+        "fev1-litres",
+        "fvc-litres",
+        "fev1-fvc-ratio",
+        "dlco"
+      ]
+    },
+    {
+      "id": "pulmonology-action-plan",
+      "name": "COPD/Asthma Action Plan",
+      "fields": [
+        "usual-state",
+        "rescue-instructions",
+        "escalation-instructions"
+      ]
+    }
+  ],
+  "api_endpoints": [],
+  "configuration": [
+    {
+      "kind": "orderset",
+      "key": "pulmonology-copd-exacerbation",
+      "payload": {
+        "name": "Pulmonology \u2014 COPD exacerbation",
+        "description": "Exacerbation set: bronchodilator, oxygen titration, steroid course (synthetic demo), spirometry when stable.",
+        "orders": [
+          {
+            "type": "medication",
+            "code": "245314",
+            "display": "Albuterol 0.09 MG/ACTUAT Metered Dose Inhaler"
+          },
+          {
+            "type": "nursing",
+            "code": "oxygen-titration",
+            "display": "Oxygen titration to SpO2 88-92%"
+          },
+          {
+            "type": "medication",
+            "code": "prednisone-demo",
+            "display": "Prednisone course (synthetic demo)"
+          },
+          {
+            "type": "procedure",
+            "code": "spirometry",
+            "display": "Spirometry with bronchodilator response"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "orderset",
+      "key": "pulmonology-sleep-study",
+      "payload": {
+        "name": "Pulmonology \u2014 sleep study pathway",
+        "description": "Sleep-study pathway: polysomnography order and pre-study instructions (CPAP titration follows the study report).",
+        "orders": [
+          {
+            "type": "procedure",
+            "code": "polysomnography",
+            "display": "Polysomnography (sleep study)"
+          },
+          {
+            "type": "nursing",
+            "code": "sleep-study-prep",
+            "display": "Sleep-study preparation instructions given"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "pulmonology-intake",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Pulmonology intake",
+        "item": [
+          {
+            "linkId": "mmrc-grade",
+            "text": "mMRC dyspnoea grade (0-4)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "pack-years",
+            "text": "Smoking pack-years",
+            "type": "decimal",
+            "required": false
+          },
+          {
+            "linkId": "exacerbations-last-year",
+            "text": "Exacerbations in the last year",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "primary-inhaler",
+            "text": "Primary inhaler",
+            "type": "choice",
+            "required": false,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "none",
+                  "display": "None"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "saba",
+                  "display": "SABA"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "ics-laba",
+                  "display": "ICS/LABA"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "lama",
+                  "display": "LAMA"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "triple",
+                  "display": "Triple therapy"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "inhaler-technique-checked",
+            "text": "Inhaler technique checked",
+            "type": "boolean",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "pulmonology-pft",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Pulmonary function flowsheet",
+        "item": [
+          {
+            "linkId": "fev1-litres",
+            "text": "FEV1 (L)",
+            "type": "decimal",
+            "required": true
+          },
+          {
+            "linkId": "fvc-litres",
+            "text": "FVC (L)",
+            "type": "decimal",
+            "required": true
+          },
+          {
+            "linkId": "fev1-fvc-ratio",
+            "text": "FEV1/FVC ratio",
+            "type": "decimal",
+            "required": false
+          },
+          {
+            "linkId": "dlco",
+            "text": "DLCO (% predicted)",
+            "type": "decimal",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "pulmonology-action-plan",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "COPD / asthma action plan",
+        "item": [
+          {
+            "linkId": "usual-state",
+            "text": "Usual state",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "stable",
+                  "display": "Stable"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "recovering",
+                  "display": "Recovering"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "rescue-instructions",
+            "text": "Rescue (yellow zone) instructions",
+            "type": "text",
+            "required": true
+          },
+          {
+            "linkId": "escalation-instructions",
+            "text": "Escalation (red zone) instructions",
+            "type": "text",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "pulmonology-codes",
+      "payload": {
+        "name": "Pulmonology terminology subset",
+        "system": "http://snomed.info/sct",
+        "concepts": [
+          {
+            "code": "13645005",
+            "display": "Chronic obstructive pulmonary disease",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "195967001",
+            "display": "Asthma",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "78275009",
+            "display": "Obstructive sleep apnea syndrome",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "233709006",
+            "display": "Pneumonia",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "cohort",
+      "key": "pulmonology-registry",
+      "payload": {
+        "name": "COPD + asthma registry",
+        "description": "Persons with COPD or asthma \u2014 exacerbation and control measures run over this cohort.",
+        "smallCellThreshold": 5,
+        "ageBands": [
+          [
+            0,
+            17,
+            "0-17"
+          ],
+          [
+            18,
+            44,
+            "18-44"
+          ],
+          [
+            45,
+            64,
+            "45-64"
+          ],
+          [
+            65,
+            74,
+            "65-74"
+          ],
+          [
+            75,
+            null,
+            "75+"
+          ]
+        ],
+        "conditionCodes": [
+          {
+            "system": "http://snomed.info/sct",
+            "code": "13645005"
+          },
+          {
+            "system": "http://snomed.info/sct",
+            "code": "195967001"
+          }
+        ]
+      }
+    }
+  ]
+}

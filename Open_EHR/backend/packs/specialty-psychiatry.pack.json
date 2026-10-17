@@ -1,0 +1,400 @@
+{
+  "name": "specialty-psychiatry",
+  "version": "1.0.0",
+  "description": "Specialty operations pack \u2014 psychiatry (roadmap \u00a74). Intake + risk assessment (suicide-risk instrument, safety planning, legal status / involuntary-hold tracking with expiry), the rating-scale battery as a recurring form (PHQ-9, GAD-7, MDQ flag), therapy session terminology, and MEDICATION MONITORING: the pack publishes the formulary extension (clozapine, lithium) and the medication-monitoring rules the pharmacy gate evaluates \u2014 clozapine dispensing BLOCKS without a current ANC >= 1.5 (the Phase 2 QC-gate pattern: a published rule, a hard stop, no silent pass), lithium dispensing FLAGS stale level / creatinine. Registry: severe mental illness cohort.",
+  "modules": [
+    {
+      "id": "psychiatry-workspace",
+      "name": "Psychiatry workspace",
+      "enabled": false
+    },
+    {
+      "id": "psychiatry-registry",
+      "name": "SMI registry",
+      "enabled": false
+    }
+  ],
+  "forms": [
+    {
+      "id": "psychiatry-intake",
+      "name": "Psychiatry Intake & Risk",
+      "fields": [
+        "presenting-problem",
+        "suicide-risk",
+        "safety-plan",
+        "legal-status",
+        "hold-expiry"
+      ]
+    },
+    {
+      "id": "psychiatry-scales",
+      "name": "Rating Scale Battery",
+      "fields": [
+        "phq9",
+        "gad7",
+        "mdq-positive",
+        "sleep-hours"
+      ]
+    }
+  ],
+  "api_endpoints": [],
+  "configuration": [
+    {
+      "kind": "terminology",
+      "key": "formulary",
+      "payload": {
+        "name": "OpenCare formulary (RxNorm, synthetic) + psychiatry high-risk medications (specialty-psychiatry pack)",
+        "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+        "bcmaRights": [
+          "right-dispense",
+          "right-medication",
+          "right-patient"
+        ],
+        "concepts": [
+          {
+            "code": "1049221",
+            "display": "Lisinopril 10 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 120
+          },
+          {
+            "code": "847232",
+            "display": "Metformin hydrochloride 500 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 200
+          },
+          {
+            "code": "1044910",
+            "display": "Atorvastatin 20 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 90
+          },
+          {
+            "code": "1048467",
+            "display": "Sertraline 50 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 60
+          },
+          {
+            "code": "1351886",
+            "display": "Apixaban 5 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 45
+          },
+          {
+            "code": "245314",
+            "display": "Albuterol 0.09 MG/ACTUAT Metered Dose Inhaler",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": false
+          },
+          {
+            "code": "2623",
+            "display": "Clozapine 100 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 30
+          },
+          {
+            "code": "lithium-carbonate",
+            "display": "Lithium carbonate 300 MG Oral Capsule (local synthetic code)",
+            "active": true,
+            "system": "urn:opencare:local-formulary",
+            "stockTracked": true,
+            "initialStock": 60
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "medication-monitoring",
+      "payload": {
+        "name": "Medication monitoring rules (high-risk medications)",
+        "system": "urn:opencare:medication-monitoring",
+        "concepts": [
+          {
+            "code": "2623",
+            "display": "Clozapine \u2014 ANC gating rule",
+            "active": true
+          },
+          {
+            "code": "lithium-carbonate",
+            "display": "Lithium \u2014 level + creatinine flag rule",
+            "active": true
+          }
+        ],
+        "rules": [
+          {
+            "medicationCode": "2623",
+            "medicationDisplay": "Clozapine",
+            "action": "block",
+            "requiredLabs": [
+              {
+                "code": "751-8",
+                "display": "Absolute neutrophil count (ANC)",
+                "minValue": 1.5,
+                "maxAgeDays": 28
+              }
+            ]
+          },
+          {
+            "medicationCode": "lithium-carbonate",
+            "medicationDisplay": "Lithium carbonate",
+            "action": "flag",
+            "requiredLabs": [
+              {
+                "code": "14334-7",
+                "display": "Serum lithium level",
+                "maxValue": 1.5,
+                "maxAgeDays": 90
+              },
+              {
+                "code": "2160-0",
+                "display": "Serum creatinine",
+                "maxAgeDays": 90
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "orderset",
+      "key": "psychiatry-admission",
+      "payload": {
+        "name": "Psychiatry \u2014 admission bundle",
+        "description": "Admission: psychiatry review, safety observations, milieu checks.",
+        "orders": [
+          {
+            "type": "consult",
+            "code": "psychiatry-review",
+            "display": "Psychiatry review \u2014 admission",
+            "performerRole": "clinician"
+          },
+          {
+            "type": "nursing",
+            "code": "safety-observations",
+            "display": "Safety observations every 15 minutes"
+          },
+          {
+            "type": "nursing",
+            "code": "milieu-checks",
+            "display": "Milieu / environment safety check each shift"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "psychiatry-intake",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Psychiatry intake & risk assessment",
+        "item": [
+          {
+            "linkId": "presenting-problem",
+            "text": "Presenting problem",
+            "type": "text",
+            "required": true
+          },
+          {
+            "linkId": "suicide-risk",
+            "text": "Suicide risk",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "none",
+                  "display": "None reported"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "passive",
+                  "display": "Passive ideation"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "active-no-plan",
+                  "display": "Active ideation, no plan"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "active-plan",
+                  "display": "Active ideation with plan"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "safety-plan",
+            "text": "Safety plan completed",
+            "type": "boolean",
+            "required": true
+          },
+          {
+            "linkId": "legal-status",
+            "text": "Legal status",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "voluntary",
+                  "display": "Voluntary"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "involuntary-hold",
+                  "display": "Involuntary hold"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "hold-expiry",
+            "text": "Hold expiry (when involuntary)",
+            "type": "dateTime",
+            "required": false
+          },
+          {
+            "linkId": "substance-use",
+            "text": "Substance use history",
+            "type": "text",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "psychiatry-scales",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Rating scale battery (PHQ-9 / GAD-7 / MDQ)",
+        "item": [
+          {
+            "linkId": "phq9",
+            "text": "PHQ-9 total (0-27)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "gad7",
+            "text": "GAD-7 total (0-21)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "mdq-positive",
+            "text": "MDQ screen positive",
+            "type": "boolean",
+            "required": false
+          },
+          {
+            "linkId": "sleep-hours",
+            "text": "Sleep (hours, last night)",
+            "type": "decimal",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "psychiatry-codes",
+      "payload": {
+        "name": "Psychiatry terminology subset",
+        "system": "http://snomed.info/sct",
+        "concepts": [
+          {
+            "code": "58214004",
+            "display": "Schizophrenia",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "35489007",
+            "display": "Depressive disorder",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "13746004",
+            "display": "Bipolar disorder",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "197480006",
+            "display": "Anxiety disorder",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "cohort",
+      "key": "psychiatry-registry",
+      "payload": {
+        "name": "Severe mental illness registry",
+        "description": "Persons with schizophrenia or bipolar disorder \u2014 the SMI cohort for monitoring-protocol recall.",
+        "smallCellThreshold": 5,
+        "ageBands": [
+          [
+            0,
+            17,
+            "0-17"
+          ],
+          [
+            18,
+            44,
+            "18-44"
+          ],
+          [
+            45,
+            64,
+            "45-64"
+          ],
+          [
+            65,
+            74,
+            "65-74"
+          ],
+          [
+            75,
+            null,
+            "75+"
+          ]
+        ],
+        "conditionCodes": [
+          {
+            "system": "http://snomed.info/sct",
+            "code": "58214004"
+          },
+          {
+            "system": "http://snomed.info/sct",
+            "code": "13746004"
+          }
+        ]
+      }
+    }
+  ]
+}

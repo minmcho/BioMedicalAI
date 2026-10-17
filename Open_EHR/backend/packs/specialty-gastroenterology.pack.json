@@ -1,0 +1,349 @@
+{
+  "name": "specialty-gastroenterology",
+  "version": "1.0.0",
+  "description": "Specialty operations pack \u2014 gastroenterology (roadmap \u00a74). Endoscopy workflow (prep order set -> procedure report form with prep quality + pathology linkage fields), IBD clinic with a disease-activity flowsheet (Harvey-Bradshaw-shaped), liver clinic terminology; registry: IBD cohort. Colonoscopy quality measures (adenoma detection, prep quality) are Phase 9 measure configs over the procedure data.",
+  "modules": [
+    {
+      "id": "gi-workspace",
+      "name": "Gastroenterology workspace",
+      "enabled": false
+    },
+    {
+      "id": "gi-registry",
+      "name": "IBD registry",
+      "enabled": false
+    }
+  ],
+  "forms": [
+    {
+      "id": "gi-intake",
+      "name": "GI Intake",
+      "fields": [
+        "main-symptom",
+        "symptom-duration",
+        "rectal-bleeding",
+        "weight-loss"
+      ]
+    },
+    {
+      "id": "gi-endoscopy-report",
+      "name": "Endoscopy Report",
+      "fields": [
+        "prep-quality",
+        "findings",
+        "polyps-removed",
+        "pathology-sent"
+      ]
+    },
+    {
+      "id": "gi-ibd-flowsheet",
+      "name": "IBD Activity Flowsheet",
+      "fields": [
+        "stool-frequency",
+        "blood-in-stool",
+        "abdominal-pain",
+        "general-wellbeing"
+      ]
+    }
+  ],
+  "api_endpoints": [],
+  "configuration": [
+    {
+      "kind": "orderset",
+      "key": "gi-endoscopy-prep",
+      "payload": {
+        "name": "GI \u2014 endoscopy preparation",
+        "description": "Colonoscopy day pathway: bowel prep, clear-liquid diet, the procedure itself.",
+        "orders": [
+          {
+            "type": "medication",
+            "code": "bowel-prep-demo",
+            "display": "Bowel preparation (polyethylene glycol, synthetic demo)"
+          },
+          {
+            "type": "diet",
+            "code": "clear-liquid-diet",
+            "display": "Clear liquids from midnight"
+          },
+          {
+            "type": "nursing",
+            "code": "prep-instructions",
+            "display": "Bowel-prep instruction check (patient taught back)"
+          },
+          {
+            "type": "procedure",
+            "code": "73761001",
+            "display": "Colonoscopy",
+            "system": "http://snomed.info/sct"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "orderset",
+      "key": "gi-ibd-flare",
+      "payload": {
+        "name": "GI \u2014 IBD flare",
+        "description": "IBD flare set: GI consult, symptom monitoring, steroid course (synthetic demo).",
+        "orders": [
+          {
+            "type": "consult",
+            "code": "gi-consult",
+            "display": "Gastroenterology consult \u2014 IBD flare",
+            "performerRole": "clinician"
+          },
+          {
+            "type": "medication",
+            "code": "prednisone-demo",
+            "display": "Prednisone taper (synthetic demo)"
+          },
+          {
+            "type": "nursing",
+            "code": "stool-chart",
+            "display": "Stool chart each shift (feeds the IBD flowsheet)"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "gi-intake",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "GI intake",
+        "item": [
+          {
+            "linkId": "main-symptom",
+            "text": "Main symptom",
+            "type": "text",
+            "required": true
+          },
+          {
+            "linkId": "symptom-duration",
+            "text": "Duration (weeks)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "rectal-bleeding",
+            "text": "Rectal bleeding",
+            "type": "boolean",
+            "required": false
+          },
+          {
+            "linkId": "weight-loss",
+            "text": "Unintentional weight loss",
+            "type": "boolean",
+            "required": false
+          },
+          {
+            "linkId": "family-history",
+            "text": "Family history of GI cancer/IBD",
+            "type": "boolean",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "gi-endoscopy-report",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Endoscopy report",
+        "item": [
+          {
+            "linkId": "prep-quality",
+            "text": "Bowel prep quality",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "excellent",
+                  "display": "Excellent"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "good",
+                  "display": "Good"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "fair",
+                  "display": "Fair"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "poor",
+                  "display": "Poor"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "findings",
+            "text": "Findings",
+            "type": "text",
+            "required": true
+          },
+          {
+            "linkId": "polyps-removed",
+            "text": "Polyps removed",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "pathology-sent",
+            "text": "Specimens sent to pathology",
+            "type": "boolean",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "gi-ibd-flowsheet",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "IBD activity flowsheet",
+        "item": [
+          {
+            "linkId": "stool-frequency",
+            "text": "Stools per day",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "blood-in-stool",
+            "text": "Blood in stool",
+            "type": "choice",
+            "required": false,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "none",
+                  "display": "None"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "trace",
+                  "display": "Trace"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "obvious",
+                  "display": "Obvious"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "abdominal-pain",
+            "text": "Abdominal pain (0-3)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "general-wellbeing",
+            "text": "General well-being (0-4)",
+            "type": "integer",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "gi-codes",
+      "payload": {
+        "name": "Gastroenterology terminology subset",
+        "system": "http://snomed.info/sct",
+        "concepts": [
+          {
+            "code": "34064006",
+            "display": "Crohn's disease",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "64766004",
+            "display": "Ulcerative colitis",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "24526004",
+            "display": "Inflammatory bowel disease",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "19943007",
+            "display": "Cirrhosis of liver",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "373720002",
+            "display": "Hepatitis B",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "cohort",
+      "key": "gi-ibd-registry",
+      "payload": {
+        "name": "IBD registry",
+        "description": "Persons with Crohn's disease or ulcerative colitis.",
+        "smallCellThreshold": 5,
+        "ageBands": [
+          [
+            0,
+            17,
+            "0-17"
+          ],
+          [
+            18,
+            44,
+            "18-44"
+          ],
+          [
+            45,
+            64,
+            "45-64"
+          ],
+          [
+            65,
+            74,
+            "65-74"
+          ],
+          [
+            75,
+            null,
+            "75+"
+          ]
+        ],
+        "conditionCodes": [
+          {
+            "system": "http://snomed.info/sct",
+            "code": "34064006"
+          },
+          {
+            "system": "http://snomed.info/sct",
+            "code": "64766004"
+          }
+        ]
+      }
+    }
+  ]
+}

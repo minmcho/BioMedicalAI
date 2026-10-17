@@ -1,0 +1,432 @@
+{
+  "name": "specialty-oncology",
+  "version": "1.0.0",
+  "description": "Specialty operations pack \u2014 cancer (roadmap \u00a74). Diagnosis/staging charting (TNM + ECOG), chemotherapy REGIMENS as cycle/day order-set data (regimen -> cycle -> day: the cycle/day structure rides each order-set item's note onto the placed order), antiemetic/supportive-care bundles, toxicity flowsheets (CTCAE-style grades), tumour-board documentation with a trial-screening flag, and the cancer registry cohort. All content is Studio configuration applied at pack enable; the regimen adherence measures a site wants are Phase 9 measure configs over the same data.",
+  "modules": [
+    {
+      "id": "oncology-workspace",
+      "name": "Oncology workspace",
+      "enabled": false
+    },
+    {
+      "id": "oncology-registry",
+      "name": "Cancer registry",
+      "enabled": false
+    }
+  ],
+  "forms": [
+    {
+      "id": "oncology-intake",
+      "name": "Oncology Intake & Staging",
+      "fields": [
+        "primary-site",
+        "histology",
+        "stage",
+        "tnm-t",
+        "tnm-n",
+        "tnm-m",
+        "ecog",
+        "treatment-intent",
+        "allergies-reviewed"
+      ]
+    },
+    {
+      "id": "oncology-toxicity",
+      "name": "Oncology Toxicity Flowsheet",
+      "fields": [
+        "cycle-number",
+        "nausea-grade",
+        "fatigue-grade",
+        "neuropathy-grade",
+        "pain-score",
+        "weight-kg"
+      ]
+    },
+    {
+      "id": "oncology-tumour-board",
+      "name": "Tumour Board Review",
+      "fields": [
+        "case-summary",
+        "board-recommendation",
+        "trial-screening-flag",
+        "survivorship-plan"
+      ]
+    }
+  ],
+  "api_endpoints": [],
+  "configuration": [
+    {
+      "kind": "orderset",
+      "key": "oncology-regimen-cycle",
+      "payload": {
+        "name": "Oncology \u2014 chemotherapy cycle (regimen set)",
+        "description": "One cycle of a synthetic two-drug regimen expressed as order-set data: pre-medications, day-1 chemotherapy, hydration and monitoring. Cycle/day rides each item's note onto the placed order.",
+        "orders": [
+          {
+            "type": "medication",
+            "code": "anti-vegf-demo",
+            "display": "Antiemetic premedication (ondansetron, synthetic demo)",
+            "note": "Cycle 1 Day 1 \u2014 premedication, 30 min before chemotherapy"
+          },
+          {
+            "type": "medication",
+            "code": "chemo-agent-a-demo",
+            "display": "Cytotoxic agent A (synthetic demo regimen)",
+            "note": "Cycle 1 Day 1 \u2014 chemotherapy"
+          },
+          {
+            "type": "medication",
+            "code": "chemo-agent-b-demo",
+            "display": "Cytotoxic agent B (synthetic demo regimen)",
+            "note": "Cycle 1 Day 1 \u2014 chemotherapy"
+          },
+          {
+            "type": "nursing",
+            "code": "iv-hydration",
+            "display": "IV hydration pre/post chemotherapy",
+            "note": "Cycle 1 Day 1"
+          },
+          {
+            "type": "nursing",
+            "code": "infusion-monitoring",
+            "display": "Infusion chair monitoring every 15 minutes",
+            "note": "Cycle 1 Day 1 \u2014 infusion chair"
+          },
+          {
+            "type": "medication",
+            "code": "antiemetic-takehome-demo",
+            "display": "Take-home antiemetic bundle (synthetic demo)",
+            "note": "Cycle 1 Days 2-4 \u2014 supportive care"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "orderset",
+      "key": "oncology-supportive-care",
+      "payload": {
+        "name": "Oncology \u2014 supportive care bundle",
+        "description": "Supportive-care bundle: growth-factor support, pain control review, nutrition consult.",
+        "orders": [
+          {
+            "type": "medication",
+            "code": "growth-factor-demo",
+            "display": "Growth factor support (synthetic demo)",
+            "note": "Day 2 post-chemotherapy"
+          },
+          {
+            "type": "consult",
+            "code": "dietitian-consult",
+            "display": "Dietitian consult \u2014 oncology nutrition",
+            "performerRole": "clinician"
+          },
+          {
+            "type": "nursing",
+            "code": "pain-review",
+            "display": "Pain review each shift"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "oncology-intake",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Oncology intake & staging",
+        "item": [
+          {
+            "linkId": "primary-site",
+            "text": "Primary tumour site",
+            "type": "string",
+            "required": true
+          },
+          {
+            "linkId": "histology",
+            "text": "Histology",
+            "type": "string",
+            "required": false
+          },
+          {
+            "linkId": "stage",
+            "text": "Stage",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "I",
+                  "display": "Stage I"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "II",
+                  "display": "Stage II"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "III",
+                  "display": "Stage III"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "IV",
+                  "display": "Stage IV"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "unknown",
+                  "display": "Unknown"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "tnm-t",
+            "text": "TNM \u2014 T",
+            "type": "string",
+            "required": false
+          },
+          {
+            "linkId": "tnm-n",
+            "text": "TNM \u2014 N",
+            "type": "string",
+            "required": false
+          },
+          {
+            "linkId": "tnm-m",
+            "text": "TNM \u2014 M",
+            "type": "string",
+            "required": false
+          },
+          {
+            "linkId": "ecog",
+            "text": "ECOG performance status (0-4)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "treatment-intent",
+            "text": "Treatment intent",
+            "type": "choice",
+            "required": false,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "curative",
+                  "display": "Curative"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "adjuvant",
+                  "display": "Adjuvant"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "neoadjuvant",
+                  "display": "Neoadjuvant"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "palliative",
+                  "display": "Palliative"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "allergies-reviewed",
+            "text": "Allergies reviewed",
+            "type": "boolean",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "oncology-toxicity",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Oncology toxicity flowsheet",
+        "item": [
+          {
+            "linkId": "cycle-number",
+            "text": "Cycle number",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "nausea-grade",
+            "text": "Nausea grade (0-4)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "fatigue-grade",
+            "text": "Fatigue grade (0-4)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "neuropathy-grade",
+            "text": "Neuropathy grade (0-4)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "pain-score",
+            "text": "Pain score (0-10)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "weight-kg",
+            "text": "Weight (kg)",
+            "type": "decimal",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "oncology-tumour-board",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Tumour board review",
+        "item": [
+          {
+            "linkId": "case-summary",
+            "text": "Case summary",
+            "type": "text",
+            "required": true
+          },
+          {
+            "linkId": "board-recommendation",
+            "text": "Board recommendation",
+            "type": "text",
+            "required": true
+          },
+          {
+            "linkId": "trial-screening-flag",
+            "text": "Flagged for clinical-trial screening",
+            "type": "boolean",
+            "required": false
+          },
+          {
+            "linkId": "survivorship-plan",
+            "text": "Survivorship care plan notes",
+            "type": "text",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "oncology-codes",
+      "payload": {
+        "name": "Oncology terminology subset",
+        "system": "http://snomed.info/sct",
+        "concepts": [
+          {
+            "code": "363346000",
+            "display": "Malignant neoplastic disease",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "254837009",
+            "display": "Malignant neoplasm of breast",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "363358000",
+            "display": "Malignant neoplasm of lung",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "363406005",
+            "display": "Malignant neoplasm of colon",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "399068003",
+            "display": "Malignant neoplasm of prostate",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "cohort",
+      "key": "oncology-registry",
+      "payload": {
+        "name": "Cancer registry",
+        "description": "Persons with a malignant neoplastic disease diagnosis \u2014 the cancer registry cohort (regimen adherence measures are Phase 9 measure configs over this population).",
+        "smallCellThreshold": 5,
+        "ageBands": [
+          [
+            0,
+            17,
+            "0-17"
+          ],
+          [
+            18,
+            44,
+            "18-44"
+          ],
+          [
+            45,
+            64,
+            "45-64"
+          ],
+          [
+            65,
+            74,
+            "65-74"
+          ],
+          [
+            75,
+            null,
+            "75+"
+          ]
+        ],
+        "conditionCodes": [
+          {
+            "system": "http://snomed.info/sct",
+            "code": "363346000"
+          },
+          {
+            "system": "http://snomed.info/sct",
+            "code": "254837009"
+          },
+          {
+            "system": "http://snomed.info/sct",
+            "code": "363358000"
+          },
+          {
+            "system": "http://snomed.info/sct",
+            "code": "363406005"
+          },
+          {
+            "system": "http://snomed.info/sct",
+            "code": "399068003"
+          }
+        ]
+      }
+    }
+  ]
+}

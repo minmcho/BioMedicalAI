@@ -1,0 +1,326 @@
+{
+  "name": "specialty-diabetes-endo",
+  "version": "1.0.0",
+  "description": "Specialty operations pack \u2014 diabetes & endocrinology (roadmap \u00a74). Builds ON the Phase 5 seeded `diabetes-admission` order set (referenced, NOT duplicated): this pack adds the insulin titration set, the annual screening bundle (foot / eye / kidney recalls), the endocrine clinic intake, and a clinic flowsheet with hypoglycaemia event capture. CGM/pump device ingest is NOT part of this pack (no device interface exists \u2014 flowsheet entry is the capture path, stated plainly). Registry: the A1c-driven diabetes + endocrine cohort (T1 + T2), complementing the seeded Phase 3 diabetes registry.",
+  "modules": [
+    {
+      "id": "diabetes-workspace",
+      "name": "Diabetes & Endocrinology workspace",
+      "enabled": false
+    },
+    {
+      "id": "diabetes-registry",
+      "name": "Diabetes registry (endo)",
+      "enabled": false
+    }
+  ],
+  "forms": [
+    {
+      "id": "diabetes-intake",
+      "name": "Diabetes & Endocrine Intake",
+      "fields": [
+        "diabetes-type",
+        "diagnosis-year",
+        "insulin-use",
+        "cgm-use",
+        "pump-use",
+        "hypo-episodes"
+      ]
+    },
+    {
+      "id": "diabetes-flowsheet",
+      "name": "Diabetes Clinic Flowsheet",
+      "fields": [
+        "glucose-reading",
+        "hypo-event",
+        "foot-check",
+        "weight-kg"
+      ]
+    }
+  ],
+  "api_endpoints": [],
+  "configuration": [
+    {
+      "kind": "orderset",
+      "key": "diabetes-insulin-titration",
+      "payload": {
+        "name": "Diabetes \u2014 insulin titration",
+        "description": "Titration set used alongside the Phase 5 diabetes-admission set: basal insulin, continued oral agent, glucose monitoring and the hypoglycaemia protocol.",
+        "orders": [
+          {
+            "type": "medication",
+            "code": "insulin-glargine-demo",
+            "display": "Insulin glargine 100 UNT/ML (synthetic demo)",
+            "note": "Titrate per clinic protocol on the flowsheet"
+          },
+          {
+            "type": "medication",
+            "code": "847232",
+            "display": "Metformin hydrochloride 500 MG Oral Tablet"
+          },
+          {
+            "type": "nursing",
+            "code": "glucose-monitoring",
+            "display": "Point-of-care glucose before meals and at bedtime"
+          },
+          {
+            "type": "nursing",
+            "code": "hypoglycaemia-protocol",
+            "display": "Hypoglycaemia protocol: 15 g fast glucose, recheck in 15 minutes"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "orderset",
+      "key": "diabetes-screening-bundle",
+      "payload": {
+        "name": "Diabetes \u2014 annual screening bundle",
+        "description": "Annual complication screening with auto-recall intent: dilated eye exam referral, foot examination, kidney screening collection (the urine ACR itself is a lab order in the LIS).",
+        "orders": [
+          {
+            "type": "consult",
+            "code": "eye-screening-referral",
+            "display": "Diabetic eye screening referral",
+            "performerRole": "clinician"
+          },
+          {
+            "type": "procedure",
+            "code": "diabetic-foot-exam",
+            "display": "Diabetic foot examination"
+          },
+          {
+            "type": "nursing",
+            "code": "urine-acr-collection",
+            "display": "Collect urine for albumin/creatinine ratio (order the ACR in the laboratory)"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "diabetes-intake",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Diabetes & endocrine intake",
+        "item": [
+          {
+            "linkId": "diabetes-type",
+            "text": "Diabetes type",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "type-1",
+                  "display": "Type 1"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "type-2",
+                  "display": "Type 2"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "other",
+                  "display": "Other / secondary"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "diagnosis-year",
+            "text": "Year of diagnosis",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "insulin-use",
+            "text": "Currently using insulin",
+            "type": "boolean",
+            "required": false
+          },
+          {
+            "linkId": "cgm-use",
+            "text": "Uses a continuous glucose monitor",
+            "type": "boolean",
+            "required": false
+          },
+          {
+            "linkId": "pump-use",
+            "text": "Uses an insulin pump",
+            "type": "boolean",
+            "required": false
+          },
+          {
+            "linkId": "hypo-episodes",
+            "text": "Hypoglycaemia episodes in the last month",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "foot-ulcer-history",
+            "text": "History of foot ulcer",
+            "type": "boolean",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "diabetes-flowsheet",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Diabetes clinic flowsheet",
+        "item": [
+          {
+            "linkId": "glucose-reading",
+            "text": "Glucose reading (mg/dL)",
+            "type": "decimal",
+            "required": true
+          },
+          {
+            "linkId": "hypo-event",
+            "text": "Hypoglycaemia event since last visit",
+            "type": "boolean",
+            "required": true
+          },
+          {
+            "linkId": "foot-check",
+            "text": "Foot check",
+            "type": "choice",
+            "required": false,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "normal",
+                  "display": "Normal"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "callus",
+                  "display": "Callus"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "ulcer",
+                  "display": "Ulcer"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "not-done",
+                  "display": "Not done"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "weight-kg",
+            "text": "Weight (kg)",
+            "type": "decimal",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "diabetes-codes",
+      "payload": {
+        "name": "Diabetes & endocrinology terminology subset",
+        "system": "http://snomed.info/sct",
+        "concepts": [
+          {
+            "code": "44054006",
+            "display": "Diabetes mellitus type 2",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "46635009",
+            "display": "Diabetes mellitus type 1",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "73211009",
+            "display": "Diabetes mellitus",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "409300002",
+            "display": "Hypothyroidism",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "237602007",
+            "display": "Thyroiditis",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "cohort",
+      "key": "diabetes-endo-registry",
+      "payload": {
+        "name": "Diabetes registry (endocrinology)",
+        "description": "Persons with type 1 or type 2 diabetes; latest HbA1c tracked like the Phase 3 diabetes registry.",
+        "smallCellThreshold": 5,
+        "ageBands": [
+          [
+            0,
+            17,
+            "0-17"
+          ],
+          [
+            18,
+            44,
+            "18-44"
+          ],
+          [
+            45,
+            64,
+            "45-64"
+          ],
+          [
+            65,
+            74,
+            "65-74"
+          ],
+          [
+            75,
+            null,
+            "75+"
+          ]
+        ],
+        "conditionCodes": [
+          {
+            "system": "http://snomed.info/sct",
+            "code": "44054006"
+          },
+          {
+            "system": "http://snomed.info/sct",
+            "code": "46635009"
+          }
+        ],
+        "lab": {
+          "system": "http://loinc.org",
+          "code": "4548-4",
+          "comparator": "<",
+          "threshold": 7.0,
+          "windowDays": 365
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,390 @@
+{
+  "name": "specialty-obgyn",
+  "version": "1.0.0",
+  "description": "Specialty operations pack \u2014 obstetrics & gynaecology (roadmap \u00a74). Prenatal visit flowsheet (fundal height, fetal heart, GBS/glucose screening fields keyed by gestational age), labour & delivery record form, postpartum check set, gynae procedure terminology; registry: prenatal cohort. Well-woman screening recalls ride the Phase 3 cohort mechanism.",
+  "modules": [
+    {
+      "id": "obgyn-workspace",
+      "name": "OB/GYN workspace",
+      "enabled": false
+    },
+    {
+      "id": "obgyn-registry",
+      "name": "Prenatal registry",
+      "enabled": false
+    }
+  ],
+  "forms": [
+    {
+      "id": "obgyn-intake",
+      "name": "OB/GYN Intake",
+      "fields": [
+        "gravida",
+        "para",
+        "lmp",
+        "edd",
+        "risk-level"
+      ]
+    },
+    {
+      "id": "obgyn-prenatal",
+      "name": "Prenatal Visit Flowsheet",
+      "fields": [
+        "gestational-age-weeks",
+        "fundal-height-cm",
+        "fetal-heart-rate",
+        "systolic",
+        "diastolic",
+        "gbs-status",
+        "glucose-screening"
+      ]
+    },
+    {
+      "id": "obgyn-delivery",
+      "name": "Delivery Record",
+      "fields": [
+        "delivery-type",
+        "blood-loss-ml",
+        "apgar-1",
+        "apgar-5"
+      ]
+    }
+  ],
+  "api_endpoints": [],
+  "configuration": [
+    {
+      "kind": "orderset",
+      "key": "obgyn-prenatal-visit",
+      "payload": {
+        "name": "OB/GYN \u2014 prenatal visit bundle",
+        "description": "Routine prenatal visit: ultrasound when due, prenatal flowsheet observations, obstetric review.",
+        "orders": [
+          {
+            "type": "procedure",
+            "code": "ob-ultrasound",
+            "display": "Obstetric ultrasound"
+          },
+          {
+            "type": "nursing",
+            "code": "prenatal-observations",
+            "display": "Fundal height + fetal heart (prenatal flowsheet)"
+          },
+          {
+            "type": "consult",
+            "code": "obstetric-review",
+            "display": "Obstetric review",
+            "performerRole": "clinician"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "orderset",
+      "key": "obgyn-postpartum",
+      "payload": {
+        "name": "OB/GYN \u2014 postpartum checks",
+        "description": "Postpartum set: observations, perineal/wound check, feeding support.",
+        "orders": [
+          {
+            "type": "nursing",
+            "code": "postpartum-observations",
+            "display": "Postpartum observations every 4 hours"
+          },
+          {
+            "type": "nursing",
+            "code": "feeding-support",
+            "display": "Infant feeding support and assessment"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "obgyn-intake",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "OB/GYN intake",
+        "item": [
+          {
+            "linkId": "gravida",
+            "text": "Gravida",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "para",
+            "text": "Para",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "lmp",
+            "text": "Last menstrual period",
+            "type": "date",
+            "required": false
+          },
+          {
+            "linkId": "edd",
+            "text": "Estimated due date",
+            "type": "date",
+            "required": false
+          },
+          {
+            "linkId": "risk-level",
+            "text": "Pregnancy risk",
+            "type": "choice",
+            "required": false,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "low",
+                  "display": "Low"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "moderate",
+                  "display": "Moderate"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "high",
+                  "display": "High"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "obgyn-prenatal",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Prenatal visit flowsheet",
+        "item": [
+          {
+            "linkId": "gestational-age-weeks",
+            "text": "Gestational age (weeks)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "fundal-height-cm",
+            "text": "Fundal height (cm)",
+            "type": "decimal",
+            "required": true
+          },
+          {
+            "linkId": "fetal-heart-rate",
+            "text": "Fetal heart rate (bpm)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "systolic",
+            "text": "Systolic BP (mmHg)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "diastolic",
+            "text": "Diastolic BP (mmHg)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "gbs-status",
+            "text": "GBS status",
+            "type": "choice",
+            "required": false,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "unknown",
+                  "display": "Unknown"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "negative",
+                  "display": "Negative"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "positive",
+                  "display": "Positive"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "glucose-screening",
+            "text": "Glucose screening",
+            "type": "choice",
+            "required": false,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "not-due",
+                  "display": "Not due"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "done-normal",
+                  "display": "Done \u2014 normal"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "done-abnormal",
+                  "display": "Done \u2014 abnormal"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "obgyn-delivery",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Delivery record",
+        "item": [
+          {
+            "linkId": "delivery-type",
+            "text": "Delivery type",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "vaginal",
+                  "display": "Vaginal"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "instrumental",
+                  "display": "Instrumental"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "caesarean",
+                  "display": "Caesarean"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "blood-loss-ml",
+            "text": "Estimated blood loss (mL)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "apgar-1",
+            "text": "Apgar at 1 minute",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "apgar-5",
+            "text": "Apgar at 5 minutes",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "complications",
+            "text": "Complications",
+            "type": "text",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "obgyn-codes",
+      "payload": {
+        "name": "OB/GYN terminology subset",
+        "system": "http://snomed.info/sct",
+        "concepts": [
+          {
+            "code": "77386006",
+            "display": "Pregnant",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "11687002",
+            "display": "Gestational diabetes mellitus",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "398254007",
+            "display": "Pre-eclampsia",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "289256000",
+            "display": "Normal delivery",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "cohort",
+      "key": "obgyn-prenatal-registry",
+      "payload": {
+        "name": "Prenatal registry",
+        "description": "Persons with a current pregnancy \u2014 screening-schedule recalls run over this cohort.",
+        "smallCellThreshold": 5,
+        "ageBands": [
+          [
+            0,
+            17,
+            "0-17"
+          ],
+          [
+            18,
+            44,
+            "18-44"
+          ],
+          [
+            45,
+            64,
+            "45-64"
+          ],
+          [
+            65,
+            74,
+            "65-74"
+          ],
+          [
+            75,
+            null,
+            "75+"
+          ]
+        ],
+        "conditionCodes": [
+          {
+            "system": "http://snomed.info/sct",
+            "code": "77386006"
+          }
+        ]
+      }
+    }
+  ]
+}

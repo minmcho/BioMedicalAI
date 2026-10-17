@@ -1,0 +1,379 @@
+{
+  "name": "specialty-rehabilitation",
+  "version": "1.0.0",
+  "description": "Specialty operations pack \u2014 rehabilitation, Shirley Ryan AbilityLab pattern (roadmap \u00a74). Admission functional assessment + goal setting on a FIM/CARE-item-shaped instrument (1 = total assist .. 7 = complete independence) collected as a flowsheet, therapy scheduling + DELIVERED-MINUTES tracking (PT/OT/speech) as a flowsheet, interdisciplinary team-conference form, equipment/prosthetics orders, discharge functional-outcome scoring on the same instrument; registry: outcome-by-diagnosis cohorts (functional gain, length of stay).",
+  "modules": [
+    {
+      "id": "rehabilitation-workspace",
+      "name": "Rehabilitation workspace",
+      "enabled": false
+    },
+    {
+      "id": "rehabilitation-registry",
+      "name": "Rehab outcomes registry",
+      "enabled": false
+    }
+  ],
+  "forms": [
+    {
+      "id": "rehab-functional-assessment",
+      "name": "Functional Assessment (FIM-shaped)",
+      "fields": [
+        "fim-eating",
+        "fim-grooming",
+        "fim-bathing",
+        "fim-dressing-upper",
+        "fim-toileting",
+        "fim-bladder",
+        "fim-bowel",
+        "fim-transfers-bed",
+        "fim-transfers-toilet",
+        "fim-locomotion",
+        "fim-stairs",
+        "fim-comprehension",
+        "fim-expression",
+        "fim-problem-solving",
+        "fim-memory"
+      ]
+    },
+    {
+      "id": "rehab-therapy-minutes",
+      "name": "Therapy Minutes Flowsheet",
+      "fields": [
+        "therapy-day",
+        "pt-minutes",
+        "ot-minutes",
+        "speech-minutes"
+      ]
+    },
+    {
+      "id": "rehab-team-conference",
+      "name": "Team Conference",
+      "fields": [
+        "goals",
+        "barriers",
+        "discharge-plan",
+        "equipment-needs"
+      ]
+    }
+  ],
+  "api_endpoints": [],
+  "configuration": [
+    {
+      "kind": "orderset",
+      "key": "rehab-admission",
+      "payload": {
+        "name": "Rehabilitation \u2014 admission bundle",
+        "description": "Rehab admission: therapy evaluations (PT/OT/speech), functional assessment on the flowsheet, team conference scheduled.",
+        "orders": [
+          {
+            "type": "consult",
+            "code": "pt-evaluation",
+            "display": "Physical therapy evaluation",
+            "performerRole": "clinician"
+          },
+          {
+            "type": "consult",
+            "code": "ot-evaluation",
+            "display": "Occupational therapy evaluation",
+            "performerRole": "clinician"
+          },
+          {
+            "type": "consult",
+            "code": "speech-evaluation",
+            "display": "Speech therapy evaluation",
+            "performerRole": "clinician"
+          },
+          {
+            "type": "nursing",
+            "code": "functional-assessment",
+            "display": "Admission functional assessment (rehab-functional-assessment flowsheet)"
+          },
+          {
+            "type": "procedure",
+            "code": "team-conference",
+            "display": "Interdisciplinary team conference"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "orderset",
+      "key": "rehab-equipment",
+      "payload": {
+        "name": "Rehabilitation \u2014 equipment & prosthetics",
+        "description": "Equipment orders for discharge planning.",
+        "orders": [
+          {
+            "type": "procedure",
+            "code": "wheelchair-assessment",
+            "display": "Wheelchair / seating assessment"
+          },
+          {
+            "type": "procedure",
+            "code": "prosthetics-assessment",
+            "display": "Prosthetics / orthotics assessment"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "rehab-functional-assessment",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Functional assessment (FIM-shaped, 1-7 per item)",
+        "item": [
+          {
+            "linkId": "fim-eating",
+            "text": "Eating (1-7)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "fim-grooming",
+            "text": "Grooming (1-7)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "fim-bathing",
+            "text": "Bathing (1-7)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "fim-dressing-upper",
+            "text": "Dressing \u2014 upper body (1-7)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "fim-toileting",
+            "text": "Toileting (1-7)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "fim-bladder",
+            "text": "Bladder management (1-7)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "fim-bowel",
+            "text": "Bowel management (1-7)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "fim-transfers-bed",
+            "text": "Transfers \u2014 bed/chair (1-7)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "fim-transfers-toilet",
+            "text": "Transfers \u2014 toilet (1-7)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "fim-locomotion",
+            "text": "Locomotion (walk / wheelchair) (1-7)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "fim-stairs",
+            "text": "Stairs (1-7)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "fim-comprehension",
+            "text": "Comprehension (1-7)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "fim-expression",
+            "text": "Expression (1-7)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "fim-problem-solving",
+            "text": "Problem solving (1-7)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "fim-memory",
+            "text": "Memory (1-7)",
+            "type": "integer",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "rehab-therapy-minutes",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Therapy minutes (delivered)",
+        "item": [
+          {
+            "linkId": "therapy-day",
+            "text": "Therapy day number",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "pt-minutes",
+            "text": "PT minutes delivered",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "ot-minutes",
+            "text": "OT minutes delivered",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "speech-minutes",
+            "text": "Speech minutes delivered",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "notes",
+            "text": "Therapy notes",
+            "type": "text",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "rehab-team-conference",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Interdisciplinary team conference",
+        "item": [
+          {
+            "linkId": "goals",
+            "text": "Functional goals",
+            "type": "text",
+            "required": true
+          },
+          {
+            "linkId": "barriers",
+            "text": "Barriers to discharge",
+            "type": "text",
+            "required": false
+          },
+          {
+            "linkId": "discharge-plan",
+            "text": "Discharge / community reintegration plan",
+            "type": "text",
+            "required": true
+          },
+          {
+            "linkId": "equipment-needs",
+            "text": "Equipment / prosthetics needs",
+            "type": "text",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "rehab-codes",
+      "payload": {
+        "name": "Rehabilitation terminology subset",
+        "system": "http://snomed.info/sct",
+        "concepts": [
+          {
+            "code": "230690007",
+            "display": "Stroke",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "90584004",
+            "display": "Spinal cord injury",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "127295002",
+            "display": "Traumatic brain injury",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "26929004",
+            "display": "Amputation",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "cohort",
+      "key": "rehab-outcomes-registry",
+      "payload": {
+        "name": "Rehabilitation outcomes registry",
+        "description": "Persons admitted for rehabilitation after stroke, spinal cord injury or brain injury \u2014 functional gain and length-of-stay outcomes run over this cohort.",
+        "smallCellThreshold": 5,
+        "ageBands": [
+          [
+            0,
+            17,
+            "0-17"
+          ],
+          [
+            18,
+            44,
+            "18-44"
+          ],
+          [
+            45,
+            64,
+            "45-64"
+          ],
+          [
+            65,
+            74,
+            "65-74"
+          ],
+          [
+            75,
+            null,
+            "75+"
+          ]
+        ],
+        "conditionCodes": [
+          {
+            "system": "http://snomed.info/sct",
+            "code": "230690007"
+          },
+          {
+            "system": "http://snomed.info/sct",
+            "code": "90584004"
+          },
+          {
+            "system": "http://snomed.info/sct",
+            "code": "127295002"
+          }
+        ]
+      }
+    }
+  ]
+}

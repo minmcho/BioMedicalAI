@@ -1,0 +1,301 @@
+{
+  "name": "specialty-orthopedics",
+  "version": "1.0.0",
+  "description": "Specialty operations pack \u2014 orthopedics (roadmap \u00a74). Fracture clinic workflow, joint-replacement pathway (pre-op -> OR -> implant record -> PT milestones), cast/splint documentation, bone-health screening (DEXA + fracture-risk on the intake), and PROMs as a recurring flowsheet; registry: joint (osteoarthritis) cohort.",
+  "modules": [
+    {
+      "id": "orthopedics-workspace",
+      "name": "Orthopedics workspace",
+      "enabled": false
+    },
+    {
+      "id": "orthopedics-registry",
+      "name": "Joint registry",
+      "enabled": false
+    }
+  ],
+  "forms": [
+    {
+      "id": "ortho-intake",
+      "name": "Orthopedics Intake",
+      "fields": [
+        "joint",
+        "injury-mechanism",
+        "pain-score",
+        "prior-surgery",
+        "fracture-risk-screen"
+      ]
+    },
+    {
+      "id": "ortho-prom",
+      "name": "Orthopedics PROM Flowsheet",
+      "fields": [
+        "prom-pain",
+        "prom-function",
+        "prom-mobility"
+      ]
+    }
+  ],
+  "api_endpoints": [],
+  "configuration": [
+    {
+      "kind": "orderset",
+      "key": "ortho-joint-replacement",
+      "payload": {
+        "name": "Orthopedics \u2014 joint replacement pathway",
+        "description": "Joint pathway: pre-op optimisation, the procedure, implant record step, PT milestones.",
+        "orders": [
+          {
+            "type": "procedure",
+            "code": "preop-optimisation",
+            "display": "Pre-op optimisation (joint pathway)"
+          },
+          {
+            "type": "procedure",
+            "code": "joint-replacement",
+            "display": "Joint replacement (record implant in the procedure note)"
+          },
+          {
+            "type": "consult",
+            "code": "pt-milestones",
+            "display": "Physiotherapy milestones \u2014 post joint replacement",
+            "performerRole": "clinician"
+          },
+          {
+            "type": "nursing",
+            "code": "mobility-goals",
+            "display": "Daily mobility goals on the ward board"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "orderset",
+      "key": "ortho-fracture-clinic",
+      "payload": {
+        "name": "Orthopedics \u2014 fracture clinic",
+        "description": "Fracture clinic: imaging, cast/splint, review.",
+        "orders": [
+          {
+            "type": "imaging",
+            "code": "xray-limb",
+            "display": "X-ray \u2014 injured limb",
+            "modality": "CR"
+          },
+          {
+            "type": "procedure",
+            "code": "cast-application",
+            "display": "Cast / splint application"
+          },
+          {
+            "type": "nursing",
+            "code": "neurovascular-checks",
+            "display": "Neurovascular checks post cast"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "ortho-intake",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Orthopedics intake",
+        "item": [
+          {
+            "linkId": "joint",
+            "text": "Joint / site",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "hip",
+                  "display": "Hip"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "knee",
+                  "display": "Knee"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "shoulder",
+                  "display": "Shoulder"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "spine",
+                  "display": "Spine"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "other",
+                  "display": "Other"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "injury-mechanism",
+            "text": "Injury mechanism / history",
+            "type": "text",
+            "required": true
+          },
+          {
+            "linkId": "pain-score",
+            "text": "Pain score (0-10)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "prior-surgery",
+            "text": "Prior surgery at this site",
+            "type": "boolean",
+            "required": false
+          },
+          {
+            "linkId": "fracture-risk-screen",
+            "text": "Bone-health screen done (DEXA recommended if indicated)",
+            "type": "boolean",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "ortho-prom",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Patient-reported outcomes (PROM) flowsheet",
+        "item": [
+          {
+            "linkId": "prom-pain",
+            "text": "PROM pain (0-10)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "prom-function",
+            "text": "PROM function (0-100)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "prom-mobility",
+            "text": "Mobility",
+            "type": "choice",
+            "required": false,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "independent",
+                  "display": "Independent"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "aid",
+                  "display": "With aid"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "assisted",
+                  "display": "Assisted"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "wheelchair",
+                  "display": "Wheelchair"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "ortho-codes",
+      "payload": {
+        "name": "Orthopedics terminology subset",
+        "system": "http://snomed.info/sct",
+        "concepts": [
+          {
+            "code": "239873007",
+            "display": "Osteoarthritis",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "125605004",
+            "display": "Fracture of bone",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "64859006",
+            "display": "Osteoporosis",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "417746004",
+            "display": "Traumatic injury",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "cohort",
+      "key": "ortho-joint-registry",
+      "payload": {
+        "name": "Joint registry (osteoarthritis)",
+        "description": "Persons with osteoarthritis \u2014 the joint-replacement registry population.",
+        "smallCellThreshold": 5,
+        "ageBands": [
+          [
+            0,
+            17,
+            "0-17"
+          ],
+          [
+            18,
+            44,
+            "18-44"
+          ],
+          [
+            45,
+            64,
+            "45-64"
+          ],
+          [
+            65,
+            74,
+            "65-74"
+          ],
+          [
+            75,
+            null,
+            "75+"
+          ]
+        ],
+        "conditionCodes": [
+          {
+            "system": "http://snomed.info/sct",
+            "code": "239873007"
+          }
+        ]
+      }
+    }
+  ]
+}

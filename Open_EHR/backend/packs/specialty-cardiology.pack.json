@@ -1,0 +1,457 @@
+{
+  "name": "specialty-cardiology",
+  "version": "1.0.0",
+  "description": "Specialty operations pack \u2014 cardiology (roadmap \u00a74). Chest-pain/ACS pathway order set (timed troponin protocol carried on the pathway form), heart-failure clinic order set + GDMT flowsheet, HEART-score risk form, structured echocardiography report form, device-clinic terminology; registry: heart-failure + post-MI cohort. Timeliness measures (door-to-balloon style) are Phase 9 measure configs over ADT/order timestamps.",
+  "modules": [
+    {
+      "id": "cardiology-workspace",
+      "name": "Cardiology workspace",
+      "enabled": false
+    },
+    {
+      "id": "cardiology-registry",
+      "name": "Cardiology registry",
+      "enabled": false
+    }
+  ],
+  "forms": [
+    {
+      "id": "cardiology-intake",
+      "name": "Cardiology Intake",
+      "fields": [
+        "pain-onset",
+        "pain-character",
+        "radiation",
+        "prior-mi",
+        "device-type"
+      ]
+    },
+    {
+      "id": "cardiology-risk-score",
+      "name": "HEART Score",
+      "fields": [
+        "heart-history",
+        "heart-ecg",
+        "heart-age",
+        "heart-risk-factors",
+        "heart-troponin"
+      ]
+    },
+    {
+      "id": "cardiology-echo",
+      "name": "Echocardiogram Report",
+      "fields": [
+        "ejection-fraction",
+        "wall-motion",
+        "valve-findings"
+      ]
+    },
+    {
+      "id": "cardiology-hf-flowsheet",
+      "name": "Heart Failure Flowsheet",
+      "fields": [
+        "weight-kg",
+        "breathlessness",
+        "oedema-grade",
+        "fluid-intake-ml"
+      ]
+    }
+  ],
+  "api_endpoints": [],
+  "configuration": [
+    {
+      "kind": "orderset",
+      "key": "cardiology-acs-pathway",
+      "payload": {
+        "name": "Cardiology \u2014 chest pain / ACS pathway",
+        "description": "ACS pathway: ECG, antiplatelet + statin loading, cardiac monitoring, cardiology consult. Troponin timing (0h/2h) is a laboratory protocol \u2014 the timed draws are placed in the LIS; the pathway form records the protocol times.",
+        "orders": [
+          {
+            "type": "procedure",
+            "code": "93005",
+            "display": "Electrocardiogram (12-lead)"
+          },
+          {
+            "type": "medication",
+            "code": "1191",
+            "display": "Aspirin 325 MG Oral Tablet (synthetic demo)",
+            "note": "Chewed loading dose per ACS pathway"
+          },
+          {
+            "type": "medication",
+            "code": "1044910",
+            "display": "Atorvastatin 20 MG Oral Tablet"
+          },
+          {
+            "type": "nursing",
+            "code": "cardiac-monitoring",
+            "display": "Continuous cardiac monitoring"
+          },
+          {
+            "type": "consult",
+            "code": "cardiology-consult",
+            "display": "Cardiology consult \u2014 ACS pathway",
+            "performerRole": "clinician"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "orderset",
+      "key": "cardiology-hf-clinic",
+      "payload": {
+        "name": "Cardiology \u2014 heart failure clinic",
+        "description": "HF clinic set: GDMT titration, daily weights, low-sodium diet education.",
+        "orders": [
+          {
+            "type": "medication",
+            "code": "1049221",
+            "display": "Lisinopril 10 MG Oral Tablet"
+          },
+          {
+            "type": "nursing",
+            "code": "daily-weights",
+            "display": "Daily weights, same scale, charted on HF flowsheet"
+          },
+          {
+            "type": "diet",
+            "code": "low-sodium-diet",
+            "display": "Low-sodium diet education"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "cardiology-intake",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Cardiology intake",
+        "item": [
+          {
+            "linkId": "pain-onset",
+            "text": "Chest pain onset (date/time)",
+            "type": "dateTime",
+            "required": false
+          },
+          {
+            "linkId": "pain-character",
+            "text": "Pain character",
+            "type": "choice",
+            "required": false,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "pressure",
+                  "display": "Pressure"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "sharp",
+                  "display": "Sharp"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "burning",
+                  "display": "Burning"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "tearing",
+                  "display": "Tearing"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "radiation",
+            "text": "Radiation to arm/jaw/back",
+            "type": "boolean",
+            "required": false
+          },
+          {
+            "linkId": "prior-mi",
+            "text": "Prior myocardial infarction",
+            "type": "boolean",
+            "required": false
+          },
+          {
+            "linkId": "device-type",
+            "text": "Cardiac device",
+            "type": "choice",
+            "required": false,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "none",
+                  "display": "None"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "ppm",
+                  "display": "Pacemaker"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "icd",
+                  "display": "ICD"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "crt",
+                  "display": "CRT"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "cardiology-risk-score",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "HEART score",
+        "item": [
+          {
+            "linkId": "heart-history",
+            "text": "History (0-2)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "heart-ecg",
+            "text": "ECG (0-2)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "heart-age",
+            "text": "Age (0-2)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "heart-risk-factors",
+            "text": "Risk factors (0-2)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "heart-troponin",
+            "text": "Troponin (0-2)",
+            "type": "integer",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "cardiology-echo",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Echocardiogram report",
+        "item": [
+          {
+            "linkId": "ejection-fraction",
+            "text": "Ejection fraction (%)",
+            "type": "decimal",
+            "required": true
+          },
+          {
+            "linkId": "wall-motion",
+            "text": "Wall motion",
+            "type": "choice",
+            "required": false,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "normal",
+                  "display": "Normal"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "hypokinesis",
+                  "display": "Hypokinesis"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "akinesis",
+                  "display": "Akinesis"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "dyskinesis",
+                  "display": "Dyskinesis"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "valve-findings",
+            "text": "Valve findings",
+            "type": "text",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "cardiology-hf-flowsheet",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Heart failure clinic flowsheet",
+        "item": [
+          {
+            "linkId": "weight-kg",
+            "text": "Weight (kg)",
+            "type": "decimal",
+            "required": true
+          },
+          {
+            "linkId": "breathlessness",
+            "text": "Breathlessness",
+            "type": "choice",
+            "required": false,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "none",
+                  "display": "None"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "exertion",
+                  "display": "On exertion"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "rest",
+                  "display": "At rest"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "orthopnoea",
+                  "display": "Orthopnoea"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "oedema-grade",
+            "text": "Oedema grade (0-4)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "fluid-intake-ml",
+            "text": "Fluid intake (mL/24h)",
+            "type": "integer",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "cardiology-codes",
+      "payload": {
+        "name": "Cardiology terminology subset",
+        "system": "http://snomed.info/sct",
+        "concepts": [
+          {
+            "code": "84114007",
+            "display": "Heart failure",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "22298006",
+            "display": "Myocardial infarction",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "53741008",
+            "display": "Coronary arteriosclerosis",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "49436004",
+            "display": "Atrial fibrillation",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "230690007",
+            "display": "Stroke",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "cohort",
+      "key": "cardiology-registry",
+      "payload": {
+        "name": "Heart failure + post-MI registry",
+        "description": "Persons with heart failure or a prior myocardial infarction.",
+        "smallCellThreshold": 5,
+        "ageBands": [
+          [
+            0,
+            17,
+            "0-17"
+          ],
+          [
+            18,
+            44,
+            "18-44"
+          ],
+          [
+            45,
+            64,
+            "45-64"
+          ],
+          [
+            65,
+            74,
+            "65-74"
+          ],
+          [
+            75,
+            null,
+            "75+"
+          ]
+        ],
+        "conditionCodes": [
+          {
+            "system": "http://snomed.info/sct",
+            "code": "84114007"
+          },
+          {
+            "system": "http://snomed.info/sct",
+            "code": "22298006"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,309 @@
+{
+  "name": "specialty-geriatrics",
+  "version": "1.0.0",
+  "description": "Specialty operations pack \u2014 geriatrics (roadmap \u00a74). Comprehensive geriatric assessment (cognition, ADL/IADL, falls, frailty, polypharmacy with a deprescribing flag, advance care planning, caregiver strain), delirium screening flowsheet, falls-precaution order set; registry: frail-elderly cohort (dementia + osteoporosis markers) for falls/readmission measures.",
+  "modules": [
+    {
+      "id": "geriatrics-workspace",
+      "name": "Geriatrics workspace",
+      "enabled": false
+    },
+    {
+      "id": "geriatrics-registry",
+      "name": "Frail elderly registry",
+      "enabled": false
+    }
+  ],
+  "forms": [
+    {
+      "id": "geriatrics-cga",
+      "name": "Comprehensive Geriatric Assessment",
+      "fields": [
+        "cognition-score",
+        "adl-score",
+        "iadl-score",
+        "falls-last-year",
+        "frailty",
+        "medication-count",
+        "deprescribing-flag",
+        "advance-care-plan"
+      ]
+    },
+    {
+      "id": "geriatrics-delirium",
+      "name": "Delirium Screening Flowsheet",
+      "fields": [
+        "cam-positive",
+        "orientation",
+        "agitation-score"
+      ]
+    }
+  ],
+  "api_endpoints": [],
+  "configuration": [
+    {
+      "kind": "orderset",
+      "key": "geriatrics-admission",
+      "payload": {
+        "name": "Geriatrics \u2014 admission bundle",
+        "description": "Frail-elderly admission: geriatrics consult, falls precautions, delirium screening on the flowsheet.",
+        "orders": [
+          {
+            "type": "consult",
+            "code": "geriatrics-consult",
+            "display": "Geriatrics consult \u2014 frailty assessment",
+            "performerRole": "clinician"
+          },
+          {
+            "type": "nursing",
+            "code": "falls-precautions",
+            "display": "Falls precautions: bed low, call bell in reach, night checks"
+          },
+          {
+            "type": "nursing",
+            "code": "delirium-screening",
+            "display": "Delirium screening each shift (CAM, flowsheet)"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "geriatrics-cga",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Comprehensive geriatric assessment",
+        "item": [
+          {
+            "linkId": "cognition-score",
+            "text": "Cognition score (MoCA-shaped, 0-30)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "adl-score",
+            "text": "ADL score (0-6)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "iadl-score",
+            "text": "IADL score (0-8)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "falls-last-year",
+            "text": "Falls in the last year",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "frailty",
+            "text": "Frailty",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "fit",
+                  "display": "Fit"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "pre-frail",
+                  "display": "Pre-frail"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "frail",
+                  "display": "Frail"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "medication-count",
+            "text": "Medication count (polypharmacy review)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "deprescribing-flag",
+            "text": "Deprescribing review recommended",
+            "type": "boolean",
+            "required": false
+          },
+          {
+            "linkId": "advance-care-plan",
+            "text": "Advance care plan discussed/documented",
+            "type": "boolean",
+            "required": true
+          },
+          {
+            "linkId": "caregiver-strain",
+            "text": "Caregiver strain",
+            "type": "choice",
+            "required": false,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "none",
+                  "display": "None"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "mild",
+                  "display": "Mild"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "moderate",
+                  "display": "Moderate"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "severe",
+                  "display": "Severe"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "geriatrics-delirium",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Delirium screening flowsheet",
+        "item": [
+          {
+            "linkId": "cam-positive",
+            "text": "CAM positive",
+            "type": "boolean",
+            "required": true
+          },
+          {
+            "linkId": "orientation",
+            "text": "Orientation",
+            "type": "choice",
+            "required": false,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "oriented",
+                  "display": "Oriented x4"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "partial",
+                  "display": "Partially oriented"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "disoriented",
+                  "display": "Disoriented"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "agitation-score",
+            "text": "Agitation score (0-7)",
+            "type": "integer",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "geriatrics-codes",
+      "payload": {
+        "name": "Geriatrics terminology subset",
+        "system": "http://snomed.info/sct",
+        "concepts": [
+          {
+            "code": "52448006",
+            "display": "Dementia",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "64859006",
+            "display": "Osteoporosis",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "386661006",
+            "display": "Fever",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "84229001",
+            "display": "Fatigue",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "cohort",
+      "key": "geriatrics-registry",
+      "payload": {
+        "name": "Frail elderly registry",
+        "description": "Persons with dementia or osteoporosis \u2014 the frail-elderly cohort tracked for falls and readmission measures.",
+        "smallCellThreshold": 5,
+        "ageBands": [
+          [
+            0,
+            17,
+            "0-17"
+          ],
+          [
+            18,
+            44,
+            "18-44"
+          ],
+          [
+            45,
+            64,
+            "45-64"
+          ],
+          [
+            65,
+            74,
+            "65-74"
+          ],
+          [
+            75,
+            null,
+            "75+"
+          ]
+        ],
+        "conditionCodes": [
+          {
+            "system": "http://snomed.info/sct",
+            "code": "52448006"
+          },
+          {
+            "system": "http://snomed.info/sct",
+            "code": "64859006"
+          }
+        ]
+      }
+    }
+  ]
+}
