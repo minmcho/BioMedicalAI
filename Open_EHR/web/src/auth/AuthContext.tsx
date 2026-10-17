@@ -1,5 +1,6 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 import { API_BASE, ApiClient } from "../api/client";
+import { RuntimeConfigProvider } from "./runtimeConfig";
 import { loadSession, saveSession, type Session } from "./session";
 
 interface AuthContextValue {
@@ -31,7 +32,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [session]);
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      <RuntimeConfigProvider client={value.client} session={session}>
+        {children}
+      </RuntimeConfigProvider>
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth(): AuthContextValue {
