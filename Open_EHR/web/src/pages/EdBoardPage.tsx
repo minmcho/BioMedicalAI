@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ApiError, type ApiClient } from "../api/client";
 import { refLabel } from "../api/display";
 import type { EdBoardEntry, EdState, Role } from "../api/types";
+import { useRuntimeConfig } from "../auth/runtimeConfig";
 import { Empty, ErrorView, Loading } from "../components/StatusViews";
 import { useAsync } from "../hooks";
 
@@ -30,8 +31,99 @@ const NEXT_ACTION: Partial<Record<EdState, { to: EdState; label: string }>> = {
   "in-treatment": { to: "disposition", label: "To disposition" },
 };
 
+const NEXT_LABELS: Record<string, string> = {
+  "in-treatment": "Start treatment",
+  "disposition": "To disposition",
+};
+
+interface EdMachine {
+  columns: Array<{ key: EdState; label: string }>;
+  nextAction: Partial<Record<string, { to: EdState; label: string }>>;
+  esiRange: number[];
+}
+
+/** Derive board columns, next-step buttons and the ESI option range
+ *  from the published ed-flow workflow + ed-triage terminology
+ *  payloads. Governed targets (admitted/departed) never become buttons
+ *  — they keep their dedicated actions — and waiting -> triage keeps
+ *  its ESI-select flow. */
+export function edMachineFromPayloads(
+  workflowPayload: unknown,
+  triagePayload: unknown,
+): EdMachine | null {
+  if (!workflowPayload || typeof workflowPayload !== "object" || Array.isArray(workflowPayload)) {
+    return null;
+  }
+  const p = workflowPayload as Record<string, unknown>;
+  const governed = new Set(
+    Array.isArray(p.governedStates) ? (p.governedStates as string[]) : ["admitted", "departed"],
+  );
+  const labels: Record<string, string> = {
+    waiting: "Waiting", triage: "Triage",
+    "in-treatment": "In treatment", disposition: "Disposition",
+  };
+  const active = Array.isArray(p.activeStates)
+    ? (p.activeStates as unknown[]).filter((s): s is string => typeof s === "string")
+    : [];
+  const columns = (active.length > 0
+    ? active
+    : STATE_ORDER.map((s) => s.key as string)
+  ).map((key) => ({ key: key as EdState, label: labels[key] ?? key }));
+  const nextAction: EdMachine["nextAction"] = {};
+  if (Array.isArray(p.transitions)) {
+    for (const t of p.transitions) {
+      if (!t || typeof t !== "object") continue;
+      const { from, to } = t as { from?: unknown; to?: unknown };
+      if (typeof from !== "string" || typeof to !== "string") continue;
+      if (governed.has(to) || to === "triage") continue;
+      if (nextAction[from]) continue;
+      nextAction[from] = {
+        to: to as EdState,
+        label: NEXT_LABELS[to] ?? `Move to ${to}`,
+      };
+    }
+  }
+  let esiRange = [1, 2, 3, 4, 5];
+  if (triagePayload && typeof triagePayload === "object" && !Array.isArray(triagePayload)) {
+    const tp = triagePayload as Record<string, unknown>;
+    const min = tp.min;
+    const max = tp.max;
+    if (typeof min === "number" && typeof max === "number" && min <= max) {
+      esiRange = Array.from({ length: max - min + 1 }, (_, i) => min + i);
+    }
+  }
+  return { columns, nextAction, esiRange };
+}
+
+const DEFAULT_ED_MACHINE: EdMachine = {
+  columns: STATE_ORDER,
+  nextAction: NEXT_ACTION,
+  esiRange: [1, 2, 3, 4, 5],
+};
+
 export function EdBoardPage({ client, role }: Props) {
-  const canWork = role === "admin" || role === "configurator" || role === "clinician";
+  const { permissions } = useRuntimeConfig();
+  const canWork = permissions["ed.work"]?.[role] === true;
+  const [machine, setMachine] = useState<EdMachine>(DEFAULT_ED_MACHINE);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        if (typeof client.effectiveConfig !== "function") return;
+        const [wf, tri] = await Promise.all([
+          client.effectiveConfig("workflow", "ed-flow"),
+          client.effectiveConfig("terminology", "ed-triage").catch(() => null),
+        ]);
+        const built = edMachineFromPayloads(wf?.payload, tri?.payload);
+        if (!cancelled && built) setMachine(built);
+      } catch {
+        // keep the built-in board shape
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
   const [tick, setTick] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -61,7 +153,7 @@ export function EdBoardPage({ client, role }: Props) {
   function renderEntry(entry: EdBoardEntry) {
     const id = entry.encounter.id as string;
     const state = entry.state as EdState;
-    const next = NEXT_ACTION[state];
+    const next = machine.nextAction[state];
     return (
       <li key={id} className="board-card">
         <div>
@@ -85,7 +177,7 @@ export function EdBoardPage({ client, role }: Props) {
                 onChange={(e) =>
                   setAcuities((prev) => ({ ...prev, [id]: e.target.value }))}
               >
-                {[1, 2, 3, 4, 5].map((n) => (
+                {machine.esiRange.map((n) => (
                   <option key={n} value={n}>{n}</option>
                 ))}
               </select>
@@ -141,7 +233,8 @@ export function EdBoardPage({ client, role }: Props) {
         Live ED census by tracking state (waiting → triage → in-treatment →
         disposition), driven by the published Studio workflow config
         (workflow/ed-flow). Wait times are computed on the server from the
-        recorded arrival time. Triage records the ESI acuity (1–5). Admit
+        recorded arrival time. Triage records the ESI acuity (the
+        published ed-triage range; 1–5 by default). Admit
         creates a linked inpatient encounter; Depart closes the visit —
         both are governed exits, not bare status flips.
       </p>
@@ -196,7 +289,7 @@ export function EdBoardPage({ client, role }: Props) {
       {board && board.counts.total === 0 && (
         <Empty label="The department is empty — no active ED encounters." />
       )}
-      {board && STATE_ORDER.map(({ key, label }) => {
+      {board && machine.columns.map(({ key, label }) => {
         const entries = board.groups[key] ?? [];
         if (entries.length === 0) return null;
         return (

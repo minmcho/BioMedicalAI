@@ -39,8 +39,9 @@ const SEED_NAV = {
     { module: "ed", label: "ED board", roles: ["admin", "configurator", "clinician", "viewer"], order: 8, visible: true },
     { module: "radiology", label: "Radiology", roles: ["admin", "configurator", "clinician", "viewer"], order: 9, visible: true },
     { module: "surgery", label: "Surgery board", roles: ["admin", "configurator", "clinician", "viewer"], order: 10, visible: true },
-    { module: "studio", label: "System Studio", roles: ["admin", "configurator"], order: 11, visible: true },
-    { module: "portal", label: "My results", roles: ["patient"], order: 12, visible: true },
+    { module: "beds", label: "Bed board", roles: ["admin", "configurator", "clinician", "viewer"], order: 11, visible: true },
+    { module: "studio", label: "System Studio", roles: ["admin", "configurator"], order: 12, visible: true },
+    { module: "portal", label: "My results", roles: ["patient"], order: 13, visible: true },
   ],
 };
 
@@ -92,7 +93,7 @@ describe("canAccessWith", () => {
   it("matches the legacy canAccess for every role/page pair under the default matrix", () => {
     const pages = [
       "patients", "chart", "inbox", "scheduling", "lab", "pophealth",
-      "billing", "pharmacy", "ed", "radiology", "surgery", "studio", "portal",
+      "billing", "pharmacy", "ed", "radiology", "surgery", "beds", "studio", "portal",
     ] as const;
     for (const role of ALL_ROLES) {
       for (const page of pages) {

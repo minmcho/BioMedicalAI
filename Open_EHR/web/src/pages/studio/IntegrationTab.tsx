@@ -1,5 +1,6 @@
 import type { ApiClient } from "../../api/client";
 import { ConfigEditorShell } from "./ConfigEditorShell";
+import { InterfacesPanel } from "./InterfacesPanel";
 import {
   emptyIntegration,
   parseIntegration,
@@ -79,15 +80,18 @@ function IntegrationEditor({
 
 export function IntegrationTab({ client }: { client: ApiClient }) {
   return (
-    <ConfigEditorShell<IntegrationModel>
-      client={client}
-      kind="integration"
-      newKeyHint="e.g. dicom-viewer"
-      parse={parseIntegration}
-      serialize={serializeIntegration}
-      empty={emptyIntegration}
-    >
-      {(model, setModel) => <IntegrationEditor model={model} setModel={setModel} />}
-    </ConfigEditorShell>
+    <div>
+      <ConfigEditorShell<IntegrationModel>
+        client={client}
+        kind="integration"
+        newKeyHint="e.g. dicom-viewer"
+        parse={parseIntegration}
+        serialize={serializeIntegration}
+        empty={emptyIntegration}
+      >
+        {(model, setModel) => <IntegrationEditor model={model} setModel={setModel} />}
+      </ConfigEditorShell>
+      <InterfacesPanel client={client} />
+    </div>
   );
 }

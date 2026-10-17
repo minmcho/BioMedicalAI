@@ -17,7 +17,7 @@ describe("role-based nav", () => {
     const keys = navItemsFor("clinician").map((i) => i.key);
     expect(keys).toEqual([
       "patients", "inbox", "scheduling", "lab", "pophealth", "billing", "pharmacy",
-      "ed", "radiology", "surgery",
+      "ed", "radiology", "surgery", "beds",
     ]);
     expect(canAccess("clinician", "studio")).toBe(false);
     expect(canAccess("clinician", "pophealth")).toBe(true);
@@ -36,6 +36,7 @@ describe("role-based nav", () => {
       "ed",
       "radiology",
       "surgery",
+      "beds",
       "studio",
     ]);
     expect(homePageFor("admin")).toBe("patients");
@@ -52,6 +53,7 @@ describe("role-based nav", () => {
       "ed",
       "radiology",
       "surgery",
+      "beds",
       "studio",
     ]);
     expect(canAccess("configurator", "pophealth")).toBe(false);
@@ -60,7 +62,7 @@ describe("role-based nav", () => {
 
   it("viewer is read-only: patients + lab + pharmacy + the specialty boards, no inbox/scheduling/studio/portal/billing", () => {
     expect(navItemsFor("viewer").map((i) => i.key)).toEqual([
-      "patients", "lab", "pharmacy", "ed", "radiology", "surgery",
+      "patients", "lab", "pharmacy", "ed", "radiology", "surgery", "beds",
     ]);
     expect(canAccess("viewer", "ed")).toBe(true);
     expect(canAccess("viewer", "radiology")).toBe(true);
@@ -68,6 +70,9 @@ describe("role-based nav", () => {
     expect(canAccess("patient", "ed")).toBe(false);
     expect(canAccess("patient", "radiology")).toBe(false);
     expect(canAccess("patient", "surgery")).toBe(false);
+    // Phase 6: the bed board is staff-only, like the other boards.
+    expect(canAccess("viewer", "beds")).toBe(true);
+    expect(canAccess("patient", "beds")).toBe(false);
     expect(canAccess("viewer", "inbox")).toBe(false);
     expect(canAccess("viewer", "scheduling")).toBe(false);
     expect(canAccess("viewer", "studio")).toBe(false);

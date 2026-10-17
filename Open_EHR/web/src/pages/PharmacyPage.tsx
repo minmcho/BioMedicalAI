@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ApiError, type ApiClient } from "../api/client";
 import { codeLabel, refLabel } from "../api/display";
 import type { MedicationAdministration, Role } from "../api/types";
+import { useRuntimeConfig } from "../auth/runtimeConfig";
 import { Empty, ErrorView, Loading } from "../components/StatusViews";
 import { useAsync } from "../hooks";
 
@@ -16,8 +17,9 @@ function errorText(err: unknown): string {
 }
 
 export function PharmacyPage({ client, role }: Props) {
-  const canDispense = role === "admin" || role === "configurator" || role === "clinician";
-  const canAdminister = role === "admin" || role === "clinician";
+  const { permissions } = useRuntimeConfig();
+  const canDispense = permissions["pharmacy.dispense"]?.[role] === true;
+  const canAdminister = permissions["pharmacy.administer"]?.[role] === true;
   const [tick, setTick] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);

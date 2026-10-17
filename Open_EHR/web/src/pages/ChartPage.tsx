@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { ApiClient } from "../api/client";
 import { codeLabel, observationValue, patientName, refLabel, resourceDate, resourceStatus } from "../api/display";
 import type {
@@ -8,9 +9,16 @@ import type {
   Observation,
   Patient,
   Procedure,
+  Role,
 } from "../api/types";
+import { useRuntimeConfig } from "../auth/runtimeConfig";
 import { Empty, ErrorView, Loading } from "../components/StatusViews";
 import { useAsync } from "../hooks";
+import { AdmissionTab } from "./chart/AdmissionTab";
+import { FlowsheetTab } from "./chart/FlowsheetTab";
+import { MarTab } from "./chart/MarTab";
+import { NotesTab } from "./chart/NotesTab";
+import { OrdersTab } from "./chart/OrdersTab";
 
 interface ChartData {
   patient: Patient;
@@ -25,11 +33,32 @@ interface ChartData {
 interface Props {
   client: ApiClient;
   patientId: string;
+  role?: Role;
 }
 
+type ChartTab = "overview" | "orders" | "notes" | "flowsheet" | "mar" | "admission";
+
+const TABS: { key: ChartTab; label: string }[] = [
+  { key: "overview", label: "Overview" },
+  { key: "orders", label: "Orders" },
+  { key: "notes", label: "Notes" },
+  { key: "flowsheet", label: "Flowsheet" },
+  { key: "mar", label: "MAR" },
+  { key: "admission", label: "Admission" },
+];
+
 /** Patient chart — the patient plus every chart section loaded with the
- *  real FHIR search endpoints, scoped with ?patient=<id>. */
-export function ChartPage({ client, patientId }: Props) {
+ *  real FHIR search endpoints, scoped with ?patient=<id>. Phase 5 adds
+ *  tabs for orders, notes, flowsheets and the MAR; each tab loads its
+ *  own data only when opened, and write actions follow the runtime
+ *  permissions matrix for the signed-in role. */
+export function ChartPage({ client, patientId, role }: Props) {
+  const [tab, setTab] = useState<ChartTab>("overview");
+  const { permissions } = useRuntimeConfig();
+  const canPlaceOrders = role ? permissions["orders.place"]?.[role] === true : false;
+  const canWriteNotes = role ? permissions["notes.write"]?.[role] === true : false;
+  const canWorkInpatient = role ? permissions["inpatient.work"]?.[role] === true : false;
+
   const { data, loading, error } = useAsync<ChartData>(async () => {
     const patient = await client.get<Patient>("Patient", patientId);
     const params = { patient: patientId };
@@ -60,6 +89,37 @@ export function ChartPage({ client, patientId }: Props) {
         {patient.birthDate ? ` · born ${patient.birthDate}` : ""}
       </p>
 
+      <div className="studio-tabs" role="tablist" aria-label="Chart sections">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.key}
+            className={tab === t.key ? "studio-tab active" : "studio-tab"}
+            onClick={() => setTab(t.key)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "orders" && (
+        <OrdersTab client={client} patientId={patientId} canPlace={canPlaceOrders} />
+      )}
+      {tab === "notes" && (
+        <NotesTab client={client} patientId={patientId} canWrite={canWriteNotes} />
+      )}
+      {tab === "flowsheet" && (
+        <FlowsheetTab client={client} patientId={patientId} canWrite={canWriteNotes} />
+      )}
+      {tab === "mar" && <MarTab client={client} patientId={patientId} />}
+      {tab === "admission" && (
+        <AdmissionTab client={client} patientId={patientId} canWork={canWorkInpatient} />
+      )}
+
+      {tab === "overview" && (
+        <>
       <h3>Conditions</h3>
       {data.conditions.length === 0 ? (
         <Empty label="No conditions recorded." />
@@ -143,6 +203,8 @@ export function ChartPage({ client, patientId }: Props) {
             </li>
           ))}
         </ul>
+      )}
+        </>
       )}
     </section>
   );

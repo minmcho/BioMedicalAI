@@ -69,6 +69,7 @@ export type PageKey =
   | "ed"
   | "radiology"
   | "surgery"
+  | "beds"
   | "studio"
   | "portal";
 
@@ -105,11 +106,13 @@ export function canAccess(role: Role, page: PageKey): boolean {
     case "ed":
     case "radiology":
     case "surgery":
-      // The Phase 4B boards are staff-only server-side (patients get
-      // 403); board reads include the viewer, and the write actions
-      // inside each page are role-gated there and enforced again
-      // server-side by capability (ed.work / radiology.work /
-      // radiology.verify / surgery.work).
+    case "beds":
+      // The Phase 4B boards and the Phase 6 bed board are staff-only
+      // server-side (patients get 403); board reads include the
+      // viewer, and the write actions inside each page are role-gated
+      // there and enforced again server-side by capability (ed.work /
+      // radiology.work / radiology.verify / surgery.work /
+      // inpatient.work).
       return role === "admin" || role === "configurator" || role === "clinician" || role === "viewer";
     case "studio":
       // Pack list is readable by staff, but install/lifecycle actions are
@@ -140,6 +143,7 @@ export const PAGE_CAPABILITY: Partial<Record<PageKey, string>> = {
   ed: "boards.read",
   radiology: "boards.read",
   surgery: "boards.read",
+  beds: "inpatient.read",
   // The Studio page is the configurators' surface: its write actions
   // are studio.manage on the server, so page access follows it too
   // (NOT studio.read, which staff roles hold for config reads).
@@ -183,6 +187,7 @@ const NAV: Array<NavItem & { pages: PageKey }> = [
   { key: "ed", label: "ED board", pages: "ed" },
   { key: "radiology", label: "Radiology", pages: "radiology" },
   { key: "surgery", label: "Surgery board", pages: "surgery" },
+  { key: "beds", label: "Bed board", pages: "beds" },
   { key: "studio", label: "System Studio", pages: "studio" },
   { key: "portal", label: "My results", pages: "portal" },
 ];

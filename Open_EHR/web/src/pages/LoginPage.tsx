@@ -1,12 +1,17 @@
 import { useAuth } from "../auth/AuthContext";
+import { useRuntimeConfig } from "../auth/runtimeConfig";
 import { AUTH_MODE, DEV_ACCOUNTS } from "../auth/session";
 
 export function LoginPage() {
   const { signIn } = useAuth();
+  // Pre-login there is no session, so the runtime config is the
+  // built-in default branding; a signed-in shell re-renders with the
+  // published branding after sign-in.
+  const { branding } = useRuntimeConfig();
 
   return (
     <main className="login">
-      <h1>OpenCare</h1>
+      <h1>{branding.orgName}</h1>
       <p className="tagline">Open-source, FHIR-native electronic health record.</p>
 
       {AUTH_MODE === "oidc" ? (

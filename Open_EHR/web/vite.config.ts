@@ -26,6 +26,12 @@ const apiPrefixes = [
   "/radiology",
   "/dicomweb",
   "/surgery",
+  "/orders",
+  "/notes",
+  "/flowsheets",
+  "/inpatient",
+  "/access",
+  "/interop",
 ];
 const apiProxy = Object.fromEntries(
   apiPrefixes.map((prefix) => [prefix, { target: apiTarget, changeOrigin: true }]),

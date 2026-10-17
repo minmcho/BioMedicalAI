@@ -1,7 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ApiError, type ApiClient } from "../api/client";
 import { codeLabel, refLabel } from "../api/display";
-import type { Role, SurgeryCaseEntry } from "../api/types";
+import type {
+  FormDefinition,
+  QuestionnaireAnswerItem,
+  Role,
+  SurgeryCaseEntry,
+  SurgeryCaseRecord,
+} from "../api/types";
+import { useRuntimeConfig } from "../auth/runtimeConfig";
+import { FormRenderer } from "../components/FormRenderer";
 import { Empty, ErrorView, Loading } from "../components/StatusViews";
 import { useAsync } from "../hooks";
 
@@ -31,8 +39,203 @@ const NEXT_STATES: Record<string, string[]> = {
 
 const TERMINAL = new Set(["done", "cancelled"]);
 
+/** Derive the offered next-states from a published surgery-flow
+ *  payload; null when unusable (caller keeps the built-in map). */
+export function nextStatesFromPayload(
+  payload: unknown,
+): Record<string, string[]> | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const transitions = (payload as { transitions?: unknown }).transitions;
+  if (!Array.isArray(transitions)) return null;
+  const derived: Record<string, string[]> = {};
+  for (const t of transitions) {
+    if (!t || typeof t !== "object") continue;
+    const { from, to } = t as { from?: unknown; to?: unknown };
+    if (typeof from !== "string" || typeof to !== "string") continue;
+    (derived[from] ??= []).push(to);
+  }
+  return Object.keys(derived).length > 0 ? derived : null;
+}
+
+type RecordFormKey = "preop-checklist" | "anaesthesia-record" | "anaesthesia-vitals";
+
+const RECORD_FORMS: Array<{ key: RecordFormKey; label: string }> = [
+  { key: "preop-checklist", label: "Pre-op checklist" },
+  { key: "anaesthesia-record", label: "Anaesthesia record" },
+  { key: "anaesthesia-vitals", label: "Anaesthesia vitals" },
+];
+
+/** Phase 6 perioperative record for one case: the server-timestamped
+ *  case timeline, the attached pre-op checklist + anaesthesia record
+ *  (published Studio forms, rendered by the shared FormRenderer), and
+ *  the anaesthesia vitals series. */
+function CaseRecordPanel({
+  client,
+  caseId,
+  canWork,
+}: {
+  client: ApiClient;
+  caseId: string;
+  canWork: boolean;
+}) {
+  const [record, setRecord] = useState<SurgeryCaseRecord | null>(null);
+  const [recordError, setRecordError] = useState<string | null>(null);
+  const [openForm, setOpenForm] = useState<RecordFormKey | null>(null);
+  const [formDef, setFormDef] = useState<FormDefinition | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [reloadTick, setReloadTick] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    client
+      .surgeryCaseRecord(caseId)
+      .then((rec) => {
+        if (!cancelled) setRecord(rec);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setRecordError(errorText(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, caseId, reloadTick]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setFormDef(null);
+    if (!openForm || typeof client.effectiveConfig !== "function") return;
+    client
+      .effectiveConfig("form", openForm)
+      .then((cfg) => {
+        if (!cancelled) setFormDef(cfg.payload as unknown as FormDefinition);
+      })
+      .catch(() => {
+        if (!cancelled) setFormDef(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, openForm]);
+
+  async function submitForm(answers: QuestionnaireAnswerItem[]) {
+    if (!openForm) return;
+    if (openForm === "preop-checklist") {
+      await client.submitPreopChecklist(caseId, answers);
+    } else if (openForm === "anaesthesia-record") {
+      await client.submitAnaesthesia(caseId, answers);
+    } else {
+      await client.submitAnaesthesiaVitals(caseId, answers);
+    }
+    setNotice(`${RECORD_FORMS.find((f) => f.key === openForm)?.label} recorded.`);
+    setOpenForm(null);
+    setReloadTick((t) => t + 1);
+  }
+
+  const timeline = record?.case.timeline ?? [];
+  const vitals = record?.anaesthesia_vitals;
+  return (
+    <div className="case-record">
+      {recordError && (
+        <div className="state state-error" role="alert">{recordError}</div>
+      )}
+      {notice && (
+        <p className="state state-empty" role="status">{notice}</p>
+      )}
+      {timeline.length > 0 && (
+        <ol className="case-timeline" aria-label={`Timeline for ${caseId}`}>
+          {timeline.map((event, i) => (
+            <li key={i}>
+              <strong>{event.event}</strong>{" "}
+              <span className="hint">
+                {event.at ? new Date(event.at).toLocaleString() : ""}
+                {event.by ? ` · ${event.by}` : ""}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+      {record?.preop_checklist && (
+        <p className="hint">
+          Pre-op checklist completed
+          {record.preop_checklist.meta.completedAt
+            ? ` ${new Date(String(record.preop_checklist.meta.completedAt)).toLocaleString()}`
+            : ""}
+          .
+        </p>
+      )}
+      {record?.anaesthesia && (
+        <p className="hint">
+          Anaesthesia record on file
+          {record.anaesthesia.meta.summary?.agents
+            ? ` — agents: ${String(record.anaesthesia.meta.summary.agents)}`
+            : ""}
+          .
+        </p>
+      )}
+      {vitals && vitals.entries.length > 0 && (
+        <div>
+          <strong>Anaesthesia vitals ({vitals.entries.length})</strong>
+          <ul>
+            {vitals.entries.map((entry) => (
+              <li key={entry.id} className="hint">
+                {entry.authored ? new Date(entry.authored).toLocaleTimeString() : ""}{" "}
+                {Object.entries(entry.answers)
+                  .map(([k, v]) => `${k}: ${String(v.value)}`)
+                  .join(" · ")}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {canWork && (
+        <div className="row-actions">
+          {RECORD_FORMS.map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              onClick={() => setOpenForm(openForm === f.key ? null : f.key)}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {canWork && openForm && (
+        formDef ? (
+          <FormRenderer
+            form={formDef}
+            submitLabel={`Submit ${RECORD_FORMS.find((f) => f.key === openForm)?.label}`}
+            onSubmit={submitForm}
+          />
+        ) : (
+          <p className="hint">Loading the published form…</p>
+        )
+      )}
+    </div>
+  );
+}
+
 export function SurgeryBoardPage({ client, role }: Props) {
-  const canWork = role === "admin" || role === "configurator" || role === "clinician";
+  const { permissions } = useRuntimeConfig();
+  const canWork = permissions["surgery.work"]?.[role] === true;
+  const [nextStates, setNextStates] =
+    useState<Record<string, string[]>>(NEXT_STATES);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        if (typeof client.effectiveConfig !== "function") return;
+        const cfg = await client.effectiveConfig("workflow", "surgery-flow");
+        const built = nextStatesFromPayload(cfg?.payload);
+        if (!cancelled && built) setNextStates(built);
+      } catch {
+        // keep the built-in map
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
   const [tick, setTick] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -42,6 +245,7 @@ export function SurgeryBoardPage({ client, role }: Props) {
   const [form, setForm] = useState({
     patientId: "", code: "", display: "", room: "OR-1", start: "", end: "",
   });
+  const [openRecord, setOpenRecord] = useState<string | null>(null);
 
   const boardState = useAsync(() => client.surgeryBoard(date), [client, date, tick]);
   const roomsState = useAsync(() => client.surgeryRooms(), [client]);
@@ -66,7 +270,7 @@ export function SurgeryBoardPage({ client, role }: Props) {
   function renderCase(entry: SurgeryCaseEntry) {
     const caseId = entry.case.id as string;
     const state = entry.state ?? entry.case.status ?? "";
-    const nextStates = NEXT_STATES[state] ?? [];
+    const caseNextStates = nextStates[state] ?? [];
     const move = moves[caseId] ?? { start: "", end: "" };
     return (
       <li key={caseId} className="board-card">
@@ -79,9 +283,28 @@ export function SurgeryBoardPage({ client, role }: Props) {
           {entry.end ? new Date(entry.end).toLocaleTimeString() : "—"} · Patient{" "}
           {refLabel(entry.case.subject)}
         </div>
-        {canWork && nextStates.length > 0 && (
+        {entry.timeline && entry.timeline.length > 0 && (
+          <div className="hint">
+            Timeline:{" "}
+            {entry.timeline
+              .map((e) => `${e.event}${e.at ? ` ${new Date(e.at).toLocaleTimeString()}` : ""}`)
+              .join(" → ")}
+          </div>
+        )}
+        <div className="row-actions">
+          <button
+            type="button"
+            onClick={() => setOpenRecord(openRecord === caseId ? null : caseId)}
+          >
+            {openRecord === caseId ? "Hide record" : "Case record"}
+          </button>
+        </div>
+        {openRecord === caseId && (
+          <CaseRecordPanel client={client} caseId={caseId} canWork={canWork} />
+        )}
+        {canWork && caseNextStates.length > 0 && (
           <div className="row-actions">
-            {nextStates.map((target) => (
+            {caseNextStates.map((target) => (
               <button
                 key={target}
                 type="button"

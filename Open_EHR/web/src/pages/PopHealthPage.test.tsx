@@ -2,7 +2,12 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
 import {
+  fixtureCohortExport,
+  fixtureCohortSnapshots,
   fixtureDiabetesSummary,
+  fixtureMeasureResultSuppressed,
+  fixtureMeasureResultVisible,
+  fixtureQualityMeasures,
   fixtureRegistryList,
   fixtureWarehouseStatus,
 } from "../test/fixtures";
@@ -23,6 +28,18 @@ function stubClient(overrides: Record<string, unknown> = {}): ApiClient {
       suppressed: true,
     })),
     runEtl: vi.fn(async () => ({ processed: 3, no_target: 0, dead_letter: 0, by_type: {} })),
+    qualityMeasures: vi.fn(async () => ({
+      measures: fixtureQualityMeasures,
+      total: fixtureQualityMeasures.length,
+    })),
+    qualityMeasureResult: vi.fn(async (key: string) =>
+      key === "asthma-review"
+        ? fixtureMeasureResultSuppressed
+        : fixtureMeasureResultVisible,
+    ),
+    registrySnapshots: vi.fn(async () => fixtureCohortSnapshots),
+    takeRegistrySnapshot: vi.fn(async () => fixtureCohortSnapshots.snapshots[1]),
+    exportRegistry: vi.fn(async () => fixtureCohortExport),
     ...overrides,
   } as unknown as ApiClient;
 }
@@ -72,5 +89,47 @@ describe("PopHealthPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Run ETL now" }));
     await waitFor(() => expect(client.runEtl).toHaveBeenCalled());
     expect(await screen.findByText(/ETL run complete: 3 events processed/)).toBeTruthy();
+  });
+
+  it("quality measures render rates and honest suppressed states", async () => {
+    render(<PopHealthPage client={stubClient()} role="clinician" />);
+    // visible measure: rate + numerator/denominator
+    expect(await screen.findByText(/60%/)).toBeTruthy();
+    expect(screen.getByText(/6 of 10 persons/)).toBeTruthy();
+    // suppressed measure: no rate, explicit suppression explanation
+    expect(await screen.findByText(/a rate would reveal the suppressed numerator/)).toBeTruthy();
+    expect(screen.getByText("Diabetes — HbA1c control (< 8.0)")).toBeTruthy();
+    expect(screen.getByText("Asthma — annual review")).toBeTruthy();
+  });
+
+  it("registry snapshots render, and snapshot/export actions are capability-shaped", async () => {
+    const client = stubClient();
+    render(<PopHealthPage client={client} role="clinician" />);
+    await screen.findByText("Diabetes registry");
+    // snapshot history renders with counts + definition version
+    expect(await screen.findByText(/10 in cohort · definition v1/)).toBeTruthy();
+    expect(screen.getByText(/12 in cohort · definition v1/)).toBeTruthy();
+    // a clinician holds neither pophealth.run nor pophealth.export in
+    // the default matrix, so neither action button renders
+    expect(screen.queryByRole("button", { name: "Take snapshot" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Export aggregates" })).toBeNull();
+  });
+
+  it("admin can snapshot and export a registry", async () => {
+    // jsdom has no URL.createObjectURL; stub it so the download link
+    // the page builds for the export can render.
+    (URL as unknown as { createObjectURL: unknown }).createObjectURL =
+      vi.fn(() => "blob:mock-export");
+    const client = stubClient();
+    render(<PopHealthPage client={client} role="admin" />);
+    await screen.findByText("Diabetes registry");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Take snapshot" }));
+    await waitFor(() => expect(client.takeRegistrySnapshot).toHaveBeenCalledWith("diabetes"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Export aggregates" }));
+    await waitFor(() => expect(client.exportRegistry).toHaveBeenCalledWith("diabetes"));
+    expect(await screen.findByText(/No patient-level rows exist in this export/)).toBeTruthy();
+    expect(screen.getByText(/Download export JSON/)).toBeTruthy();
   });
 });

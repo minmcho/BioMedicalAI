@@ -1,12 +1,22 @@
 import type {
   Appointment,
   AuditEntry,
+  BloodHold,
+  BloodUnit,
   Bundle,
   Claim,
+  CollectionWorklist,
   ConfigConcept,
   ConfigKind,
   CriticalNotification,
   DiagnosticReport,
+  EqaRecord,
+  FormDefinition,
+  InstrumentLogEntry,
+  LabInstrument,
+  LeveyJennings,
+  MicroTerminology,
+  TatStats,
   DispenseOutcome,
   DispenseQueueItem,
   EdAdmitOutcome,
@@ -24,9 +34,34 @@ import type {
   LabResultInput,
   LabResultsOutcome,
   LabTransitionOutcome,
+  ClinicalNote,
+  FlowsheetView,
+  AdmissionDetail,
+  AdmitOutcome,
+  AdtEventsResponse,
+  BedEntry,
+  CarePlanResponse,
+  Census,
+  DischargePlan,
+  DispositionsResponse,
+  ExpectedDischargesResponse,
+  LocationsResponse,
+  QuestionnaireResponse,
+  SurgeryCaseRecord,
+  Task,
+  MarDueResponse,
   ModalitiesResponse,
   ModulePack,
+  NotesListResponse,
+  NoteTypesResponse,
+  OrdersListResponse,
+  OrderSetsResponse,
+  OrderTypesResponse,
   PackInstallation,
+  PlaceOrderOutcome,
+  PlaceOrderSetOutcome,
+  PlacedOrder,
+  QuestionnaireAnswerItem,
   QcRun,
   QcStatus,
   RadiologyStudiesResponse,
@@ -34,6 +69,17 @@ import type {
   RadiologyStudyItem,
   RegistryListEntry,
   RegistrySummary,
+  QualityMeasureEntry,
+  QualityMeasureResult,
+  CohortSnapshot,
+  CohortSnapshotsResponse,
+  CohortExport,
+  MessageThreadSummary,
+  MessageThreadDetail,
+  PortalMessage,
+  TelehealthWorkspace,
+  SelfSchedulingConfig,
+  AppointmentRequestOutcome,
   RoomsResponse,
   ServiceRequest,
   Specimen,
@@ -41,9 +87,32 @@ import type {
   StudioAction,
   StudioConfigObject,
   SurgeryBoard,
+  SurgeryCaseEntry,
   SurgeryCaseOutcome,
   VerificationQueue,
   WarehouseStatus,
+  CodingQueueItem,
+  CodingRecord,
+  DenialItem,
+  DenialsResponse,
+  EligibilityCheckResult,
+  PatientPaymentRecord,
+  PatientStatement,
+  InteropEndpointsResponse,
+  InteropMessagesResponse,
+  InteropDeadLettersResponse,
+  InteropMessage,
+  DispatchStats,
+  PayersResponse,
+  PriorAuth,
+  Referral,
+  ReferralDetail,
+  RemittanceBatchSummary,
+  RemittanceExceptionItem,
+  RemittanceIngestResult,
+  WaitlistAcceptResult,
+  WaitlistEntry,
+  WaitlistOfferResult,
 } from "./types";
 
 // API client for the real OpenCare backend. There is deliberately no mock
@@ -169,6 +238,16 @@ export class ApiClient {
     return this.request(`/fhir/${resourceType}/${encodeURIComponent(id)}`);
   }
 
+  /** POST /fhir/{Type} — create a resource through the generic FHIR
+   *  surface (server-validated; e.g. a QuestionnaireResponse is only
+   *  accepted against a published Studio form). */
+  create<T extends FhirResource>(resourceType: string, body: Record<string, unknown>): Promise<T> {
+    return this.request(`/fhir/${resourceType}`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
   /** GET /fhir/inbox?patient=... — staff roles only on the server. */
   async inbox(patient: string, status?: string): Promise<FhirResource[]> {
     const qs = new URLSearchParams({ patient });
@@ -224,15 +303,48 @@ export class ApiClient {
     return this.request(`/lab/orders/${encodeURIComponent(id)}`);
   }
 
-  /** POST /lab/orders/{id}/transition { to_status, reason?, specimen_type? } */
+  /** POST /lab/orders/{id}/transition { to_status, reason?, reason_code?, specimen_type? } */
   transitionLabOrder(
     id: string,
     toStatus: string,
-    extra: { reason?: string; specimen_type?: string } = {},
+    extra: { reason?: string; reason_code?: string; specimen_type?: string } = {},
   ): Promise<LabTransitionOutcome> {
     return this.request(`/lab/orders/${encodeURIComponent(id)}/transition`, {
       method: "POST",
       body: JSON.stringify({ to_status: toStatus, ...extra }),
+    });
+  }
+
+  /** GET /lab/collection-worklist — orders in "ordered" state grouped by
+   *  patient + collection location, sorted by collection priority from
+   *  the published catalog (Phase 6B pre-analytical). */
+  collectionWorklist(): Promise<CollectionWorklist> {
+    return this.request("/lab/collection-worklist");
+  }
+
+  /** POST /lab/orders/{id}/recollect — rejected orders only: back to
+   *  "ordered" with the rejection history preserved (Phase 6B). */
+  recollectLabOrder(id: string): Promise<LabTransitionOutcome> {
+    return this.request(`/lab/orders/${encodeURIComponent(id)}/recollect`, {
+      method: "POST",
+    });
+  }
+
+  /** POST /lab/reports/{id}/amend { reason, results? } — amend a
+   *  RELEASED report with a mandatory reason: a new version (FHIR
+   *  status "amended") supersedes it; the original is preserved and
+   *  linked, never rewritten (Phase 6B). */
+  amendLabReport(
+    id: string,
+    input: { reason: string; results?: LabResultInput[] },
+  ): Promise<{
+    report: DiagnosticReport;
+    order: ServiceRequest;
+    original_report_id: string;
+  }> {
+    return this.request(`/lab/reports/${encodeURIComponent(id)}/amend`, {
+      method: "POST",
+      body: JSON.stringify(input),
     });
   }
 
@@ -244,11 +356,21 @@ export class ApiClient {
     });
   }
 
-  /** POST /lab/ingest { format: "hl7" | "csv", content } — analyser ingest. */
-  ingestLab(format: "hl7" | "csv", content: string): Promise<LabIngestOutcome> {
+  /** POST /lab/ingest { format: "hl7" | "csv", content, instrument_id? }
+   *  — analyser ingest. When named, the instrument must exist in the
+   *  registry (server records it as report metadata). */
+  ingestLab(
+    format: "hl7" | "csv",
+    content: string,
+    instrumentId?: string,
+  ): Promise<LabIngestOutcome & { instrument_id?: string | null }> {
     return this.request("/lab/ingest", {
       method: "POST",
-      body: JSON.stringify({ format, content }),
+      body: JSON.stringify({
+        format,
+        content,
+        ...(instrumentId ? { instrument_id: instrumentId } : {}),
+      }),
     });
   }
 
@@ -310,7 +432,8 @@ export class ApiClient {
     return this.request(`/lab/qc${qs}`);
   }
 
-  /** POST /lab/qc — record a QC run; pass/fail is computed server-side. */
+  /** POST /lab/qc — record a QC run; pass/fail + Westgard-style flags
+   *  are computed server-side (Phase 6B QC programme). */
   createQcRun(input: {
     analyte_code: string;
     control_material: string;
@@ -318,8 +441,197 @@ export class ApiClient {
     expected_high: number;
     measured_value: number;
     unit?: string;
+    level?: string;
   }): Promise<QcRun> {
     return this.request("/lab/qc", { method: "POST", body: JSON.stringify(input) });
+  }
+
+  /** GET /lab/qc/levey-jennings — run series + server-computed mean/SD
+   *  for a Levey-Jennings chart (Phase 6B). */
+  leveyJennings(analyteCode: string, controlMaterial: string): Promise<LeveyJennings> {
+    return this.request(
+      `/lab/qc/levey-jennings?analyte_code=${encodeURIComponent(analyteCode)}&control_material=${encodeURIComponent(controlMaterial)}`,
+    );
+  }
+
+  // ---- Phase 6B: microbiology bench ----
+  microTerminology(): Promise<MicroTerminology> {
+    return this.request("/lab/micro/terminology");
+  }
+
+  microPreliminary(
+    orderId: string,
+    text: string,
+  ): Promise<{ report: DiagnosticReport; order: ServiceRequest }> {
+    return this.request(`/lab/micro/orders/${encodeURIComponent(orderId)}/preliminary`, {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    });
+  }
+
+  microOrganism(
+    orderId: string,
+    organismCode: string,
+  ): Promise<{ report: DiagnosticReport; order: ServiceRequest }> {
+    return this.request(`/lab/micro/orders/${encodeURIComponent(orderId)}/organism`, {
+      method: "POST",
+      body: JSON.stringify({ organism_code: organismCode }),
+    });
+  }
+
+  microSusceptibility(
+    orderId: string,
+    results: Array<{ antibiotic: string; interpretation: string }>,
+  ): Promise<{ report: DiagnosticReport; order: ServiceRequest; observations: string[] }> {
+    return this.request(`/lab/micro/orders/${encodeURIComponent(orderId)}/susceptibility`, {
+      method: "POST",
+      body: JSON.stringify({ results }),
+    });
+  }
+
+  microFinalize(
+    orderId: string,
+  ): Promise<{ report: DiagnosticReport; order: ServiceRequest }> {
+    return this.request(`/lab/micro/orders/${encodeURIComponent(orderId)}/finalize`, {
+      method: "POST",
+    });
+  }
+
+  // ---- Phase 6B: blood bank / transfusion ----
+  bloodUnits(status?: string): Promise<BloodUnit[]> {
+    const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+    return this.request(`/lab/blood-bank/units${qs}`);
+  }
+
+  createBloodUnit(input: {
+    unit_id: string;
+    product_type: string;
+    blood_group: string;
+    expiry_date: string;
+  }): Promise<BloodUnit> {
+    return this.request("/lab/blood-bank/units", { method: "POST", body: JSON.stringify(input) });
+  }
+
+  issueBloodUnit(unitId: string, orderId: string): Promise<BloodUnit> {
+    return this.request(`/lab/blood-bank/units/${encodeURIComponent(unitId)}/issue`, {
+      method: "POST",
+      body: JSON.stringify({ order_id: orderId }),
+    });
+  }
+
+  returnBloodUnit(unitId: string, transfused: boolean): Promise<BloodUnit> {
+    return this.request(`/lab/blood-bank/units/${encodeURIComponent(unitId)}/return`, {
+      method: "POST",
+      body: JSON.stringify({ transfused }),
+    });
+  }
+
+  recordTransfusion(input: {
+    unit_id: string;
+    performed_at?: string;
+  }): Promise<{ transfusion: FhirResource; unit: BloodUnit }> {
+    return this.request("/lab/blood-bank/transfusions", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  reportTransfusionReaction(
+    unitId: string,
+    symptoms: string,
+  ): Promise<{ unit: BloodUnit; hold: BloodHold | null; transfusion_id: string | null }> {
+    return this.request(`/lab/blood-bank/units/${encodeURIComponent(unitId)}/reaction`, {
+      method: "POST",
+      body: JSON.stringify({ symptoms }),
+    });
+  }
+
+  bloodHolds(): Promise<BloodHold[]> {
+    return this.request("/lab/blood-bank/holds");
+  }
+
+  clearBloodHold(patientId: string): Promise<BloodHold> {
+    return this.request(`/lab/blood-bank/holds/${encodeURIComponent(patientId)}/clear`, {
+      method: "POST",
+    });
+  }
+
+  // ---- Phase 6B: anatomic pathology ----
+  pathologySynopticForm(): Promise<{ form: FormDefinition; version: number }> {
+    return this.request("/lab/pathology/synoptic-form");
+  }
+
+  pathologyReport(
+    orderId: string,
+    answers: QuestionnaireAnswerItem[],
+  ): Promise<{ report: DiagnosticReport; order: ServiceRequest; questionnaire_response: unknown }> {
+    return this.request(`/lab/pathology/orders/${encodeURIComponent(orderId)}/report`, {
+      method: "POST",
+      body: JSON.stringify({ answers }),
+    });
+  }
+
+  pathologySign(
+    reportId: string,
+  ): Promise<{ report: DiagnosticReport; order: ServiceRequest }> {
+    return this.request(`/lab/pathology/reports/${encodeURIComponent(reportId)}/sign`, {
+      method: "POST",
+    });
+  }
+
+  // ---- Phase 6B: laboratory operations ----
+  eqaRecords(): Promise<EqaRecord[]> {
+    return this.request("/lab/eqa");
+  }
+
+  createEqa(input: {
+    event: string;
+    analyte_code: string;
+    reported_value: number;
+    acceptable_low: number;
+    acceptable_high: number;
+  }): Promise<EqaRecord> {
+    return this.request("/lab/eqa", { method: "POST", body: JSON.stringify(input) });
+  }
+
+  instruments(): Promise<LabInstrument[]> {
+    return this.request("/lab/instruments");
+  }
+
+  createInstrument(input: {
+    instrument_id: string;
+    name: string;
+    bench?: string;
+    status?: string;
+  }): Promise<LabInstrument> {
+    return this.request("/lab/instruments", { method: "POST", body: JSON.stringify(input) });
+  }
+
+  setInstrumentStatus(instrumentId: string, status: string): Promise<LabInstrument> {
+    return this.request(`/lab/instruments/${encodeURIComponent(instrumentId)}/status`, {
+      method: "POST",
+      body: JSON.stringify({ status }),
+    });
+  }
+
+  instrumentLog(instrumentId: string): Promise<InstrumentLogEntry[]> {
+    return this.request(`/lab/instruments/${encodeURIComponent(instrumentId)}/log`);
+  }
+
+  addInstrumentLog(
+    instrumentId: string,
+    input: { kind: string; note?: string },
+  ): Promise<InstrumentLogEntry> {
+    return this.request(`/lab/instruments/${encodeURIComponent(instrumentId)}/log`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** GET /lab/tat — per-bench/per-analyte turnaround percentiles,
+   *  live-computed from custody timestamps (Phase 6B). */
+  tatStats(): Promise<TatStats> {
+    return this.request("/lab/tat");
   }
 
   /** GET /lab/qc/status?analyte_code= — is this analyte QC-blocked? */
@@ -510,6 +822,351 @@ export class ApiClient {
    *  only; a draft is a 409 on the server). */
   export837(id: string): Promise<string> {
     return this.requestText(`/billing/claims/${encodeURIComponent(id)}/export/837`);
+  }
+
+  // ---- Phase 7: access (/access) — referrals, prior authorisations,
+  // eligibility, waitlist. Payers/services/slot types and the three
+  // lifecycles are Studio configuration on the server. ----
+
+  /** GET /access/payers — the published payer terminology (eligibility
+   *  figures + auth-required services ride on the concepts). */
+  payers(): Promise<PayersResponse> {
+    return this.request("/access/payers");
+  }
+
+  /** POST /access/referrals — inbound referral intake (access.work). */
+  createReferral(input: {
+    patient: string;
+    service_code: string;
+    referring_organization: string;
+    referring_provider?: string;
+    reason?: string;
+    payer?: string;
+    priority?: string;
+    note?: string;
+  }): Promise<{ referral: Referral; task: unknown }> {
+    return this.request("/access/referrals", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** GET /access/referrals/queue — referrals awaiting triage. */
+  async referralQueue(): Promise<Referral[]> {
+    const res = await this.request<{ items: Referral[] }>("/access/referrals/queue");
+    return res.items;
+  }
+
+  /** GET /access/referrals[?status=][?patient=] */
+  async referrals(params: { status?: string; patient?: string } = {}): Promise<Referral[]> {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set("status", params.status);
+    if (params.patient) qs.set("patient", params.patient);
+    const query = qs.toString();
+    const res = await this.request<{ items: Referral[] }>(
+      `/access/referrals${query ? `?${query}` : ""}`);
+    return res.items;
+  }
+
+  /** GET /access/referrals/{id} — referral + triage task + linked auths. */
+  getReferral(id: string): Promise<ReferralDetail> {
+    return this.request(`/access/referrals/${encodeURIComponent(id)}`);
+  }
+
+  /** POST /access/referrals/{id}/transition { to_status, note? } */
+  transitionReferral(id: string, toStatus: string, note?: string): Promise<Referral> {
+    return this.request(`/access/referrals/${encodeURIComponent(id)}/transition`, {
+      method: "POST",
+      body: JSON.stringify({ to_status: toStatus, ...(note ? { note } : {}) }),
+    });
+  }
+
+  /** POST /access/authorisations — open a prior-auth request. */
+  createAuthorisation(input: {
+    patient: string;
+    payer: string;
+    service_code: string;
+    referral_id?: string;
+    approved_units?: number;
+    valid_from?: string;
+    valid_to?: string;
+    auth_number?: string;
+    note?: string;
+  }): Promise<PriorAuth> {
+    return this.request("/access/authorisations", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** GET /access/authorisations[?patient=][?status=][?service_code=] */
+  async authorisations(params: {
+    patient?: string;
+    status?: string;
+    service_code?: string;
+  } = {}): Promise<PriorAuth[]> {
+    const qs = new URLSearchParams();
+    if (params.patient) qs.set("patient", params.patient);
+    if (params.status) qs.set("status", params.status);
+    if (params.service_code) qs.set("service_code", params.service_code);
+    const query = qs.toString();
+    const res = await this.request<{ items: PriorAuth[] }>(
+      `/access/authorisations${query ? `?${query}` : ""}`);
+    return res.items;
+  }
+
+  /** POST /access/authorisations/{id}/transition — decision data
+   *  (auth_number, approved_units, validity) may ride along. */
+  transitionAuthorisation(
+    id: string,
+    toStatus: string,
+    extra: Record<string, unknown> = {},
+  ): Promise<PriorAuth> {
+    return this.request(`/access/authorisations/${encodeURIComponent(id)}/transition`, {
+      method: "POST",
+      body: JSON.stringify({ to_status: toStatus, ...extra }),
+    });
+  }
+
+  /** POST /access/eligibility/check — a RECORDED local-config
+   *  eligibility evaluation (no live payer connection exists). */
+  checkEligibility(input: {
+    patient: string;
+    payer: string;
+    service_code?: string;
+    service_date?: string;
+  }): Promise<EligibilityCheckResult> {
+    return this.request("/access/eligibility/check", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** GET /access/eligibility/checks[?patient=] — recorded checks. */
+  async eligibilityChecks(patient?: string): Promise<EligibilityCheckResult[]> {
+    const query = patient ? `?patient=${encodeURIComponent(patient)}` : "";
+    const res = await this.request<{ items: EligibilityCheckResult[] }>(
+      `/access/eligibility/checks${query}`);
+    return res.items;
+  }
+
+  /** POST /access/waitlist — request a slot type (staff for any
+   *  patient; a patient caller only for themselves). */
+  joinWaitlist(input: {
+    patient: string;
+    slot_type: string;
+    priority?: number;
+    note?: string;
+  }): Promise<WaitlistEntry> {
+    return this.request("/access/waitlist", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** GET /access/waitlist[?status=][?patient=][?slot_type=] — queue
+   *  order (priority, then oldest) is the server's. */
+  async waitlist(params: {
+    status?: string;
+    patient?: string;
+    slot_type?: string;
+  } = {}): Promise<WaitlistEntry[]> {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set("status", params.status);
+    if (params.patient) qs.set("patient", params.patient);
+    if (params.slot_type) qs.set("slot_type", params.slot_type);
+    const query = qs.toString();
+    const res = await this.request<{ items: WaitlistEntry[] }>(
+      `/access/waitlist${query ? `?${query}` : ""}`);
+    return res.items;
+  }
+
+  /** POST /access/waitlist/offers { appointment_id } — offer the
+   *  freed (cancelled) slot to the first matching waiting entry. */
+  offerWaitlistSlot(appointmentId: string): Promise<WaitlistOfferResult> {
+    return this.request("/access/waitlist/offers", {
+      method: "POST",
+      body: JSON.stringify({ appointment_id: appointmentId }),
+    });
+  }
+
+  /** POST /access/waitlist/{id}/transition { to_status } */
+  transitionWaitlist(id: string, toStatus: string): Promise<WaitlistEntry> {
+    return this.request(`/access/waitlist/${encodeURIComponent(id)}/transition`, {
+      method: "POST",
+      body: JSON.stringify({ to_status: toStatus }),
+    });
+  }
+
+  /** POST /access/waitlist/{id}/accept { start, end?, practitioner? } —
+   *  books a real Appointment and marks the entry booked. */
+  acceptWaitlistOffer(
+    id: string,
+    input: { start: string; end?: string; practitioner?: string },
+  ): Promise<WaitlistAcceptResult> {
+    return this.request(`/access/waitlist/${encodeURIComponent(id)}/accept`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  // ---- Phase 7: revenue completion (/billing, app.revenue) — HIM
+  // coding, 835 remittance, denials, statements + payments. ----
+
+  /** GET /billing/coding/queue — finished / signed-note encounters
+   *  with no coding record yet. */
+  async codingQueue(): Promise<CodingQueueItem[]> {
+    const res = await this.request<{ items: CodingQueueItem[] }>("/billing/coding/queue");
+    return res.items;
+  }
+
+  /** POST /billing/coding/{encounterId} { diagnoses, procedures } —
+   *  codes validate against the published ICD-10/CPT value sets. */
+  assignCodes(
+    encounterId: string,
+    input: { diagnoses: Array<{ code: string }>; procedures?: Array<{ code: string }> },
+  ): Promise<CodingRecord> {
+    return this.request(`/billing/coding/${encodeURIComponent(encounterId)}`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** PUT /billing/coding/{encounterId} — amend an existing record. */
+  amendCodes(
+    encounterId: string,
+    input: { diagnoses: Array<{ code: string }>; procedures?: Array<{ code: string }> },
+  ): Promise<CodingRecord> {
+    return this.request(`/billing/coding/${encodeURIComponent(encounterId)}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** GET /billing/coding/{encounterId} */
+  getCodes(encounterId: string): Promise<CodingRecord> {
+    return this.request(`/billing/coding/${encodeURIComponent(encounterId)}`);
+  }
+
+  /** POST /billing/remittances — ingest one X12 835 file as raw text.
+   *  A malformed file is a 422 and posts nothing; unpostable CLP loops
+   *  come back as batch exceptions, never silently dropped. */
+  async ingest835(text: string): Promise<RemittanceIngestResult> {
+    const headers = new Headers();
+    const token = this.getToken();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    headers.set("Content-Type", "text/plain");
+    let response: Response;
+    try {
+      response = await this.fetchFn(`${this.baseUrl}/billing/remittances`, {
+        method: "POST",
+        headers,
+        body: text,
+      });
+    } catch {
+      throw new ApiError(0, `Cannot reach the OpenCare API at ${this.baseUrl}. Is the backend running?`);
+    }
+    const raw = await response.text();
+    let data: unknown = undefined;
+    if (raw) {
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        data = undefined;
+      }
+    }
+    if (!response.ok) {
+      const detail =
+        (data as { detail?: string } | undefined)?.detail ??
+        `${response.status} ${response.statusText}`;
+      throw new ApiError(response.status, detail);
+    }
+    return data as RemittanceIngestResult;
+  }
+
+  /** GET /billing/remittances — ingested batch history. */
+  async remittanceBatches(): Promise<RemittanceBatchSummary[]> {
+    const res = await this.request<{ items: RemittanceBatchSummary[] }>(
+      "/billing/remittances");
+    return res.items;
+  }
+
+  /** GET /billing/remittances/exceptions — unpostable CLP loops. */
+  async remittanceExceptions(): Promise<RemittanceExceptionItem[]> {
+    const res = await this.request<{ items: RemittanceExceptionItem[] }>(
+      "/billing/remittances/exceptions");
+    return res.items;
+  }
+
+  /** GET /billing/denials[?include_resolved=] — the denials
+   *  workqueue (denied / partially-paid claims with their reasons). */
+  denials(includeResolved = false): Promise<DenialsResponse> {
+    const query = includeResolved ? "?include_resolved=true" : "";
+    return this.request(`/billing/denials${query}`);
+  }
+
+  /** POST /billing/denials/{claimId}/assign { assignee } */
+  assignDenial(claimId: string, assignee: string): Promise<DenialItem> {
+    return this.request(`/billing/denials/${encodeURIComponent(claimId)}/assign`, {
+      method: "POST",
+      body: JSON.stringify({ assignee }),
+    });
+  }
+
+  /** POST /billing/denials/{claimId}/note { note } */
+  noteDenial(claimId: string, note: string): Promise<DenialItem> {
+    return this.request(`/billing/denials/${encodeURIComponent(claimId)}/note`, {
+      method: "POST",
+      body: JSON.stringify({ note }),
+    });
+  }
+
+  /** POST /billing/denials/{claimId}/resolve { outcome, outcome_claim_id? } */
+  resolveDenial(
+    claimId: string,
+    outcome: string,
+    outcomeClaimId?: string,
+  ): Promise<DenialItem> {
+    return this.request(`/billing/denials/${encodeURIComponent(claimId)}/resolve`, {
+      method: "POST",
+      body: JSON.stringify({
+        outcome,
+        ...(outcomeClaimId ? { outcome_claim_id: outcomeClaimId } : {}),
+      }),
+    });
+  }
+
+  /** POST /billing/claims/{id}/rebill — a NEW corrected claim linked
+   *  to the denied/partially-paid original (which is preserved). */
+  rebillClaim(id: string): Promise<Claim> {
+    return this.request(`/billing/claims/${encodeURIComponent(id)}/rebill`, {
+      method: "POST",
+    });
+  }
+
+  /** GET /billing/statements/{patient} — per-claim money view +
+   *  totals (a patient caller only ever gets their own). */
+  statement(patient: string): Promise<PatientStatement> {
+    return this.request(`/billing/statements/${encodeURIComponent(patient)}`);
+  }
+
+  /** POST /billing/claims/{id}/patient-payments { amount, method } —
+   *  RECORDS a payment the practice took (no payment gateway). */
+  recordPatientPayment(
+    claimId: string,
+    amount: number,
+    method: string,
+  ): Promise<PatientPaymentRecord> {
+    return this.request(
+      `/billing/claims/${encodeURIComponent(claimId)}/patient-payments`,
+      { method: "POST", body: JSON.stringify({ amount, method }) });
+  }
+
+  /** GET /billing/claims/{id}/patient-payments */
+  async patientPayments(claimId: string): Promise<PatientPaymentRecord[]> {
+    const res = await this.request<{ items: PatientPaymentRecord[] }>(
+      `/billing/claims/${encodeURIComponent(claimId)}/patient-payments`);
+    return res.items;
   }
 
   // ---- Phase 4A: pharmacy (/pharmacy) ----
@@ -731,6 +1388,531 @@ export class ApiClient {
       method: "POST",
       body: JSON.stringify({ start, end }),
     });
+  }
+
+  // ---- Phase 5: general orders (/orders) ----
+  // Order types and order sets are published Studio config; the
+  // lifecycle is the published workflow/order-flow machine on the
+  // server. Allergy conflicts are a 422 naming the allergen unless an
+  // override reason is supplied (recorded on the order server-side).
+
+  /** GET /orders/types — the published order-type catalogue. */
+  orderTypes(): Promise<OrderTypesResponse> {
+    return this.request("/orders/types");
+  }
+
+  /** GET /orders/sets — the published order sets. */
+  orderSets(): Promise<OrderSetsResponse> {
+    return this.request("/orders/sets");
+  }
+
+  /** POST /orders — place one order (starts in draft). */
+  placeOrder(input: {
+    type: string;
+    code: string;
+    display?: string;
+    patient: string;
+    performerRole?: string;
+    modality?: string;
+    encounter?: string;
+    instructions?: string;
+    allergyOverrideReason?: string;
+    dosageInstruction?: Record<string, unknown>[];
+  }): Promise<PlaceOrderOutcome> {
+    return this.request("/orders", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** POST /orders/from-set — expand a published order set into
+   *  individual draft orders (validated as a whole server-side). */
+  placeOrderSet(input: { set: string; patient: string }): Promise<PlaceOrderSetOutcome> {
+    return this.request("/orders/from-set", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** GET /orders?patient= — the patient's orders (all states). */
+  orders(patient: string, params: { type?: string; status?: string } = {}): Promise<OrdersListResponse> {
+    const qs = new URLSearchParams({ patient });
+    if (params.type) qs.set("type", params.type);
+    if (params.status) qs.set("status", params.status);
+    return this.request(`/orders?${qs.toString()}`);
+  }
+
+  /** POST /orders/{id}/transition { to_status, ... } — sign / activate /
+   *  complete / discontinue / cancel through the published workflow. */
+  transitionOrder(
+    id: string,
+    toStatus: string,
+    extra: { allergyOverrideReason?: string } = {},
+  ): Promise<PlacedOrder> {
+    return this.request(`/orders/${encodeURIComponent(id)}/transition`, {
+      method: "POST",
+      body: JSON.stringify({ to_status: toStatus, ...extra }),
+    });
+  }
+
+  /** GET /orders/mar/due — the computed MAR for a window: scheduled
+   *  doses from signed/active medication orders, classified given /
+   *  due / missed / scheduled against BCMA administration records. */
+  marDue(patient: string, from: string, to: string): Promise<MarDueResponse> {
+    const qs = new URLSearchParams({ patient, from, to });
+    return this.request(`/orders/mar/due?${qs.toString()}`);
+  }
+
+  // ---- Phase 5: clinical documentation (/notes, /flowsheets) ----
+
+  /** GET /notes/types — the published note-type catalogue. */
+  noteTypes(): Promise<NoteTypesResponse> {
+    return this.request("/notes/types");
+  }
+
+  /** POST /notes — author a note (preliminary). Template answers are
+   *  validated server-side against the type's published form. */
+  createNote(input: {
+    patient: string;
+    noteType: string;
+    text?: string;
+    encounter?: string;
+    answers?: QuestionnaireAnswerItem[];
+  }): Promise<ClinicalNote> {
+    return this.request("/notes", {
+      method: "POST",
+      body: JSON.stringify({
+        patient: input.patient,
+        note_type: input.noteType,
+        ...(input.text ? { text: input.text } : {}),
+        ...(input.encounter ? { encounter: input.encounter } : {}),
+        ...(input.answers ? { answers: input.answers } : {}),
+      }),
+    });
+  }
+
+  /** GET /notes?patient= — the patient's notes, newest first. */
+  notes(patient: string): Promise<NotesListResponse> {
+    const qs = new URLSearchParams({ patient });
+    return this.request(`/notes?${qs.toString()}`);
+  }
+
+  /** GET /notes/{id} */
+  getNote(id: string): Promise<ClinicalNote> {
+    return this.request(`/notes/${encodeURIComponent(id)}`);
+  }
+
+  /** POST /notes/{id}/sign — preliminary → final (409 if not a draft). */
+  signNote(id: string): Promise<ClinicalNote> {
+    return this.request(`/notes/${encodeURIComponent(id)}/sign`, { method: "POST" });
+  }
+
+  /** POST /notes/{id}/amend — creates a NEW linked DocumentReference;
+   *  the original is never modified server-side. */
+  amendNote(
+    id: string,
+    input: { text?: string; answers?: QuestionnaireAnswerItem[] },
+  ): Promise<ClinicalNote> {
+    return this.request(`/notes/${encodeURIComponent(id)}/amend`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** POST /flowsheets — record one flowsheet entry (a
+   *  QuestionnaireResponse against the published form). */
+  submitFlowsheet(input: {
+    patient: string;
+    form: string;
+    answers: QuestionnaireAnswerItem[];
+  }): Promise<FhirResource> {
+    return this.request("/flowsheets", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** GET /flowsheets/{form}?patient= — time-series rows for the grid. */
+  flowsheetView(formKey: string, patient: string): Promise<FlowsheetView> {
+    const qs = new URLSearchParams({ patient });
+    return this.request(`/flowsheets/${encodeURIComponent(formKey)}?${qs.toString()}`);
+  }
+
+  // ---- Phase 6: inpatient operations (/inpatient) ----
+  // Locations, dispositions, ADT labels and the checklist /
+  // anaesthesia forms are published Studio config; beds carry live
+  // status server-side and every movement writes an ADT event.
+
+  /** GET /inpatient/locations — the config hierarchy + live bed status. */
+  inpatientLocations(): Promise<LocationsResponse> {
+    return this.request("/inpatient/locations");
+  }
+
+  /** GET /inpatient/census — per-unit counts + occupancy + today's
+   *  expected discharges. */
+  inpatientCensus(): Promise<Census> {
+    return this.request("/inpatient/census");
+  }
+
+  /** GET /inpatient/beds — patient-per-bed listing. */
+  inpatientBeds(): Promise<{ beds: BedEntry[]; total: number }> {
+    return this.request("/inpatient/beds");
+  }
+
+  /** POST /inpatient/beds/{code}/status — housekeeping / bed-management
+   *  flip (never occupancy; an occupied bed is a 409). */
+  setBedStatus(code: string, status: string): Promise<{ bed: BedEntry }> {
+    return this.request(`/inpatient/beds/${encodeURIComponent(code)}/status`, {
+      method: "POST",
+      body: JSON.stringify({ status }),
+    });
+  }
+
+  /** POST /inpatient/admissions — admit a patient into a bed (A01). */
+  admitPatient(input: { patient: string; bed: string; reason?: string }): Promise<AdmitOutcome> {
+    return this.request("/inpatient/admissions", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** POST /inpatient/encounters/{id}/assign-bed — bed for an admission
+   *  created elsewhere (e.g. the ED board's admit). */
+  assignBed(encounterId: string, bed: string): Promise<AdmitOutcome> {
+    return this.request(
+      `/inpatient/encounters/${encodeURIComponent(encounterId)}/assign-bed`,
+      { method: "POST", body: JSON.stringify({ bed }) },
+    );
+  }
+
+  /** POST /inpatient/encounters/{id}/transfer — move beds (A02; the
+   *  old bed goes to cleaning). */
+  transferPatient(encounterId: string, bed: string): Promise<AdmitOutcome> {
+    return this.request(
+      `/inpatient/encounters/${encodeURIComponent(encounterId)}/transfer`,
+      { method: "POST", body: JSON.stringify({ bed }) },
+    );
+  }
+
+  /** POST /inpatient/encounters/{id}/discharge — close the encounter
+   *  through the inpatient workflow + release the bed (A03). */
+  dischargePatient(
+    encounterId: string,
+    disposition?: string,
+  ): Promise<{ encounter: Encounter; bed_code_released?: string | null; disposition?: string | null }> {
+    return this.request(
+      `/inpatient/encounters/${encodeURIComponent(encounterId)}/discharge`,
+      { method: "POST", body: JSON.stringify(disposition ? { disposition } : {}) },
+    );
+  }
+
+  /** GET /inpatient/encounters/{id} — one admission's detail. */
+  admissionDetail(encounterId: string): Promise<AdmissionDetail> {
+    return this.request(`/inpatient/encounters/${encodeURIComponent(encounterId)}`);
+  }
+
+  /** GET /inpatient/patients/{id}/admission — the current admission. */
+  patientAdmission(patientId: string): Promise<{ admission: AdmissionDetail | null }> {
+    return this.request(
+      `/inpatient/patients/${encodeURIComponent(patientId)}/admission`,
+    );
+  }
+
+  /** GET /inpatient/adt-events — the ADT movement log. */
+  adtEvents(params?: { encounterId?: string; patient?: string }): Promise<AdtEventsResponse> {
+    const qs = new URLSearchParams();
+    if (params?.encounterId) qs.set("encounter_id", params.encounterId);
+    if (params?.patient) qs.set("patient", params.patient);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request(`/inpatient/adt-events${suffix}`);
+  }
+
+  /** GET /inpatient/discharge-dispositions — the published value set. */
+  dischargeDispositions(): Promise<DispositionsResponse> {
+    return this.request("/inpatient/discharge-dispositions");
+  }
+
+  /** POST /inpatient/encounters/{id}/discharge-plan — record the plan
+   *  (target date / disposition / checklist linkage; writes an A08). */
+  setDischargePlan(
+    encounterId: string,
+    plan: DischargePlan & { checklistResponseId?: string },
+  ): Promise<{ encounter_id: string; discharge_plan: DischargePlan }> {
+    return this.request(
+      `/inpatient/encounters/${encodeURIComponent(encounterId)}/discharge-plan`,
+      { method: "POST", body: JSON.stringify(plan) },
+    );
+  }
+
+  /** GET /inpatient/expected-discharges?date= — the planning feed. */
+  expectedDischarges(date?: string): Promise<ExpectedDischargesResponse> {
+    const qs = date ? `?date=${encodeURIComponent(date)}` : "";
+    return this.request(`/inpatient/expected-discharges${qs}`);
+  }
+
+  /** POST /inpatient/encounters/{id}/care-plan — add a case-management item. */
+  addCarePlanItem(encounterId: string, description: string): Promise<{ task: Task }> {
+    return this.request(
+      `/inpatient/encounters/${encodeURIComponent(encounterId)}/care-plan`,
+      { method: "POST", body: JSON.stringify({ description }) },
+    );
+  }
+
+  /** GET /inpatient/encounters/{id}/care-plan — the item list. */
+  carePlan(encounterId: string): Promise<CarePlanResponse> {
+    return this.request(
+      `/inpatient/encounters/${encodeURIComponent(encounterId)}/care-plan`,
+    );
+  }
+
+  /** POST /inpatient/care-plan/{taskId}/transition — advance an item. */
+  transitionCarePlanItem(taskId: string, to: string): Promise<{ task: Task }> {
+    return this.request(
+      `/inpatient/care-plan/${encodeURIComponent(taskId)}/transition`,
+      { method: "POST", body: JSON.stringify({ to }) },
+    );
+  }
+
+  /** POST /inpatient/surgery-cases/{id}/preop-checklist — submit the
+   *  published pre-op checklist form for a case. */
+  submitPreopChecklist(
+    caseId: string,
+    answers: QuestionnaireAnswerItem[],
+  ): Promise<{ case: SurgeryCaseEntry; response: QuestionnaireResponse }> {
+    return this.request(
+      `/inpatient/surgery-cases/${encodeURIComponent(caseId)}/preop-checklist`,
+      { method: "POST", body: JSON.stringify({ answers }) },
+    );
+  }
+
+  /** POST /inpatient/surgery-cases/{id}/anaesthesia — submit the
+   *  published anaesthesia record form for a case. */
+  submitAnaesthesia(
+    caseId: string,
+    answers: QuestionnaireAnswerItem[],
+  ): Promise<{ case: SurgeryCaseEntry; response: QuestionnaireResponse }> {
+    return this.request(
+      `/inpatient/surgery-cases/${encodeURIComponent(caseId)}/anaesthesia`,
+      { method: "POST", body: JSON.stringify({ answers }) },
+    );
+  }
+
+  /** POST /inpatient/surgery-cases/{id}/anaesthesia-vitals — one
+   *  reading on the case's anaesthesia vitals flowsheet. */
+  submitAnaesthesiaVitals(
+    caseId: string,
+    answers: QuestionnaireAnswerItem[],
+  ): Promise<{ case_id: string; response: QuestionnaireResponse; recorded_at?: string }> {
+    return this.request(
+      `/inpatient/surgery-cases/${encodeURIComponent(caseId)}/anaesthesia-vitals`,
+      { method: "POST", body: JSON.stringify({ answers }) },
+    );
+  }
+
+  /** GET /inpatient/surgery-cases/{id}/record — timeline + pre-op +
+   *  anaesthesia record + vitals series for one case. */
+  surgeryCaseRecord(caseId: string): Promise<SurgeryCaseRecord> {
+    return this.request(
+      `/inpatient/surgery-cases/${encodeURIComponent(caseId)}/record`,
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // Phase 8 — Interoperability (interface engine admin)
+  // ---------------------------------------------------------------------
+
+  /** GET /interop/endpoints — effective endpoint config (published
+   *  Studio integration/hl7-endpoints) + per-endpoint queue tallies. */
+  interopEndpoints(): Promise<InteropEndpointsResponse> {
+    return this.request("/interop/endpoints");
+  }
+
+  /** GET /interop/messages — the unified interface log. */
+  interopMessages(params: {
+    direction?: string;
+    type?: string;
+    status?: string;
+    patient?: string;
+    limit?: number;
+  } = {}): Promise<InteropMessagesResponse> {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== "") query.set(key, String(value));
+    }
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return this.request(`/interop/messages${suffix}`);
+  }
+
+  /** GET /interop/dead-letters — exhausted messages with history. */
+  interopDeadLetters(): Promise<InteropDeadLettersResponse> {
+    return this.request("/interop/dead-letters");
+  }
+
+  /** POST /interop/dead-letters/{id}/replay — re-queue one dead
+   *  letter (attempt history preserved server-side). */
+  replayDeadLetter(id: number): Promise<InteropMessage> {
+    return this.request(`/interop/dead-letters/${id}/replay`, { method: "POST" });
+  }
+
+  /** POST /interop/dispatch — run one dispatcher pass now. */
+  dispatchInterop(): Promise<{ stats: DispatchStats }> {
+    return this.request("/interop/dispatch", { method: "POST" });
+  }
+
+  // ---------------------------------------------------------------------
+  // Phase 9 — Quality measures (/quality), research workbench
+  // (/pophealth snapshots + export), messaging (/messages, /portal),
+  // telehealth + self-scheduling (/portal, /engagement)
+  // ---------------------------------------------------------------------
+
+  /** GET /quality/measures — published Studio measure configs. */
+  qualityMeasures(): Promise<{ measures: QualityMeasureEntry[]; total: number }> {
+    return this.request("/quality/measures");
+  }
+
+  /** GET /quality/measures/{key}/result — denominator/numerator/rate
+   *  with small-cell suppression applied server-side. */
+  qualityMeasureResult(key: string): Promise<QualityMeasureResult> {
+    return this.request(`/quality/measures/${encodeURIComponent(key)}/result`);
+  }
+
+  /** GET /pophealth/registries/{key}/snapshots — snapshot time series. */
+  registrySnapshots(key: string): Promise<CohortSnapshotsResponse> {
+    return this.request(
+      `/pophealth/registries/${encodeURIComponent(key)}/snapshots`,
+    );
+  }
+
+  /** POST /pophealth/registries/{key}/snapshots — record the current
+   *  member count (pophealth.run; admin by default). */
+  takeRegistrySnapshot(key: string): Promise<CohortSnapshot> {
+    return this.request(
+      `/pophealth/registries/${encodeURIComponent(key)}/snapshots`,
+      { method: "POST" },
+    );
+  }
+
+  /** GET /pophealth/registries/{key}/export — de-identified aggregate
+   *  export (pophealth.export capability; audited server-side). */
+  exportRegistry(key: string): Promise<CohortExport> {
+    return this.request(
+      `/pophealth/registries/${encodeURIComponent(key)}/export`,
+    );
+  }
+
+  /** GET /messages/inbox?patient= — staff thread summaries for one
+   *  patient (messages.use capability). */
+  messageInbox(patient: string): Promise<{
+    items: MessageThreadSummary[];
+    total: number;
+    patient: string;
+  }> {
+    return this.request(
+      `/messages/inbox?patient=${encodeURIComponent(patient)}`,
+    );
+  }
+
+  /** GET /messages/threads/{id} — one thread's messages. Patients get
+   *  a 404 for another patient's thread (non-disclosure). */
+  messageThread(threadId: string): Promise<MessageThreadDetail> {
+    return this.request(`/messages/threads/${encodeURIComponent(threadId)}`);
+  }
+
+  /** POST /messages { patient, text } — staff starts a thread. */
+  sendMessage(patient: string, text: string): Promise<PortalMessage> {
+    return this.request("/messages", {
+      method: "POST",
+      body: JSON.stringify({ patient, text }),
+    });
+  }
+
+  /** POST /messages/threads/{id}/reply { text }. */
+  replyToThread(threadId: string, text: string): Promise<PortalMessage> {
+    return this.request(
+      `/messages/threads/${encodeURIComponent(threadId)}/reply`,
+      { method: "POST", body: JSON.stringify({ text }) },
+    );
+  }
+
+  /** POST /messages/threads/{id}/read — read receipt for the caller. */
+  markThreadRead(threadId: string): Promise<{ thread_id: string; marked: number }> {
+    return this.request(
+      `/messages/threads/${encodeURIComponent(threadId)}/read`,
+      { method: "POST" },
+    );
+  }
+
+  /** GET /messages/unread — staff unread total across threads. */
+  messageUnread(): Promise<{ unread: number }> {
+    return this.request("/messages/unread");
+  }
+
+  /** GET /portal/my-messages — the patient's own thread summaries. */
+  myMessages(): Promise<{ items: MessageThreadSummary[]; total: number }> {
+    return this.request("/portal/my-messages");
+  }
+
+  /** POST /portal/messages { text } — patient starts a thread (the
+   *  subject is always the caller's own record, server-side). */
+  sendPortalMessage(text: string): Promise<PortalMessage> {
+    return this.request("/portal/messages", {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    });
+  }
+
+  /** GET /portal/my-appointments — the patient's own appointments. */
+  myAppointments(): Promise<{ items: FhirResource[]; total: number }> {
+    return this.request("/portal/my-appointments");
+  }
+
+  /** GET /portal/self-scheduling/config — auto-confirm flag + the
+   *  published slot types a request may name. */
+  selfSchedulingConfig(): Promise<SelfSchedulingConfig> {
+    return this.request("/portal/self-scheduling/config");
+  }
+
+  /** POST /portal/appointments/request — request an appointment from
+   *  a published slot type; proposed (staff-confirm) or booked
+   *  (autoConfirm published config). */
+  requestAppointment(input: {
+    slot_type: string;
+    start: string;
+    reason?: string;
+  }): Promise<AppointmentRequestOutcome> {
+    return this.request("/portal/appointments/request", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** GET /portal/telehealth/appointments/{id}/workspace — the
+   *  patient's telehealth visit workspace (join URL is the org's
+   *  configured provider link — data, not an OpenCare video call). */
+  telehealthWorkspace(appointmentId: string): Promise<TelehealthWorkspace> {
+    return this.request(
+      `/portal/telehealth/appointments/${encodeURIComponent(appointmentId)}/workspace`,
+    );
+  }
+
+  /** POST /portal/telehealth/appointments/{id}/intake — submit the
+   *  published pre-visit intake form's answers. */
+  submitTelehealthIntake(
+    appointmentId: string,
+    answers: QuestionnaireAnswerItem[],
+  ): Promise<FhirResource> {
+    return this.request(
+      `/portal/telehealth/appointments/${encodeURIComponent(appointmentId)}/intake`,
+      { method: "POST", body: JSON.stringify({ answers }) },
+    );
+  }
+
+  /** GET /engagement/telehealth/appointments/{id}/workspace — staff
+   *  view of the same workspace. */
+  staffTelehealthWorkspace(appointmentId: string): Promise<TelehealthWorkspace> {
+    return this.request(
+      `/engagement/telehealth/appointments/${encodeURIComponent(appointmentId)}/workspace`,
+    );
   }
 }
 

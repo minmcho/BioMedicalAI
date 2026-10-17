@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ApiError, type ApiClient } from "../api/client";
 import { refLabel } from "../api/display";
 import type { RadiologyStudyItem, Role } from "../api/types";
+import { useRuntimeConfig } from "../auth/runtimeConfig";
 import { Empty, ErrorView, Loading } from "../components/StatusViews";
 import { useAsync } from "../hooks";
 
@@ -16,8 +17,9 @@ function errorText(err: unknown): string {
 }
 
 export function RadiologyPage({ client, role }: Props) {
-  const canWork = role === "admin" || role === "configurator" || role === "clinician";
-  const canVerify = role === "admin" || role === "clinician";
+  const { permissions } = useRuntimeConfig();
+  const canWork = permissions["radiology.work"]?.[role] === true;
+  const canVerify = permissions["radiology.verify"]?.[role] === true;
   const [tick, setTick] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);

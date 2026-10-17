@@ -1,12 +1,16 @@
 import { useState } from "react";
 import { ApiError, type ApiClient } from "../api/client";
 import type {
+  CohortExport,
   ExploreResult,
+  QualityMeasureEntry,
+  QualityMeasureResult,
   RegistryListEntry,
   RegistrySummary,
   Role,
   StratumCell,
 } from "../api/types";
+import { useRuntimeConfig } from "../auth/runtimeConfig";
 import { Empty, ErrorView, Loading } from "../components/StatusViews";
 import { useAsync } from "../hooks";
 
@@ -51,19 +55,106 @@ function StrataList({ title, cells }: { title: string; cells: StratumCell[] }) {
   );
 }
 
+function MeasureCard({ client, entry }: { client: ApiClient; entry: QualityMeasureEntry }) {
+  const result = useAsync<QualityMeasureResult>(
+    () => client.qualityMeasureResult(entry.key),
+    [client, entry.key],
+  );
+  return (
+    <section className="card">
+      <h3>{entry.title ?? entry.name ?? entry.key}</h3>
+      {entry.description && <p className="hint">{entry.description}</p>}
+      <p className="hint">
+        Studio measure config (kind <code>measure</code>), definition v
+        {entry.definition_version} · small-cell threshold {entry.small_cell_threshold}
+      </p>
+      {result.loading && <Loading label="Computing measure…" />}
+      {result.error != null && <ErrorView error={result.error} />}
+      {result.data &&
+        (result.data.suppressed ? (
+          <p role="status">
+            <span className="badge badge-warn">small-cell suppressed</span> Counts under{" "}
+            {result.data.small_cell_threshold} are hidden (denominator{" "}
+            {result.data.denominator}, numerator {result.data.numerator}) and no rate is
+            shown — a rate would reveal the suppressed numerator.
+          </p>
+        ) : (
+          <p role="status">
+            <strong>{result.data.rate}%</strong> — {result.data.numerator} of{" "}
+            {result.data.denominator} persons (as of {result.data.as_of})
+          </p>
+        ))}
+    </section>
+  );
+}
+
 function RegistryCard({
   client,
   entry,
   refreshKey,
+  canSnapshot,
+  canExport,
 }: {
   client: ApiClient;
   entry: RegistryListEntry;
   refreshKey: number;
+  canSnapshot: boolean;
+  canExport: boolean;
 }) {
   const summary = useAsync<RegistrySummary>(
     () => client.registrySummary(entry.key),
     [client, entry.key, refreshKey],
   );
+  const [snapTick, setSnapTick] = useState(0);
+  const [exported, setExported] = useState<CohortExport | null>(null);
+  const [exportUrl, setExportUrl] = useState<string | null>(null);
+  const [cardError, setCardError] = useState<string | null>(null);
+  const [cardBusy, setCardBusy] = useState(false);
+  const snapshots = useAsync(
+    () => client.registrySnapshots(entry.key),
+    [client, entry.key, snapTick, refreshKey],
+  );
+
+  async function onSnapshot() {
+    setCardBusy(true);
+    setCardError(null);
+    try {
+      await client.takeRegistrySnapshot(entry.key);
+      setSnapTick((t) => t + 1);
+    } catch (err) {
+      setCardError(errorText(err));
+    } finally {
+      setCardBusy(false);
+    }
+  }
+
+  async function onExport() {
+    setCardBusy(true);
+    setCardError(null);
+    try {
+      const result = await client.exportRegistry(entry.key);
+      setExported(result);
+      // Build the download URL eagerly (and defensively — some
+      // environments have no URL.createObjectURL; the export itself
+      // has still happened and is audited server-side).
+      try {
+        setExportUrl(
+          URL.createObjectURL(
+            new Blob([JSON.stringify(result, null, 2)], {
+              type: "application/json",
+            }),
+          ),
+        );
+      } catch {
+        setExportUrl(null);
+      }
+    } catch (err) {
+      setCardError(errorText(err));
+    } finally {
+      setCardBusy(false);
+    }
+  }
+
   return (
     <section className="card">
       <h3>{entry.name ?? entry.key}</h3>
@@ -100,6 +191,52 @@ function RegistryCard({
           </p>
         </>
       )}
+      <h4>Cohort snapshots</h4>
+      {snapshots.loading && <Loading label="Loading snapshots…" />}
+      {snapshots.data && snapshots.data.snapshots.length === 0 && (
+        <p className="hint">No snapshots yet — a snapshot pins the member count at a moment in time.</p>
+      )}
+      {snapshots.data && snapshots.data.snapshots.length > 0 && (
+        <ul className="result-list">
+          {snapshots.data.snapshots.map((s) => (
+            <li key={s.id} className="result-row">
+              <span className="result-type">{s.taken_at ?? "—"}</span>
+              <span className="result-meta">
+                {s.member_count} in cohort · definition v{s.definition_version} · by{" "}
+                {s.taken_by}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {cardError && (
+        <div className="state state-error" role="alert">
+          {cardError}
+        </div>
+      )}
+      <div className="inline-form">
+        {canSnapshot && (
+          <button type="button" onClick={onSnapshot} disabled={cardBusy}>
+            Take snapshot
+          </button>
+        )}
+        {canExport && (
+          <button type="button" onClick={onExport} disabled={cardBusy}>
+            Export aggregates
+          </button>
+        )}
+      </div>
+      {exported && (
+        <p role="status" className="hint">
+          {exported.notice} Exported by {exported.exported_by} · definition v
+          {exported.definition_version} · {exported.summary.member_count} members.{" "}
+          {exportUrl && (
+            <a href={exportUrl} download={`${entry.key}-export.json`}>
+              Download export JSON
+            </a>
+          )}
+        </p>
+      )}
     </section>
   );
 }
@@ -111,6 +248,7 @@ export function PopHealthPage({ client, role }: Props) {
   const [busy, setBusy] = useState(false);
 
   const registries = useAsync(() => client.registries(), [client, tick]);
+  const measures = useAsync(() => client.qualityMeasures(), [client, tick]);
   const status = useAsync(() => client.warehouseStatus(), [client, tick]);
   const whStatus = status.data;
 
@@ -156,7 +294,9 @@ export function PopHealthPage({ client, role }: Props) {
     }
   }
 
-  const canRunEtl = role === "admin";
+  const { permissions } = useRuntimeConfig();
+  const canRunEtl = permissions["pophealth.run"]?.[role] === true;
+  const canExport = permissions["pophealth.export"]?.[role] === true;
 
   return (
     <div>
@@ -182,7 +322,29 @@ export function PopHealthPage({ client, role }: Props) {
         <Empty label="No published cohort registries. Publish one in Studio configuration (kind: cohort)." />
       )}
       {registries.data?.map((entry) => (
-        <RegistryCard key={entry.key} client={client} entry={entry} refreshKey={tick} />
+        <RegistryCard
+          key={entry.key}
+          client={client}
+          entry={entry}
+          refreshKey={tick}
+          canSnapshot={canRunEtl}
+          canExport={canExport}
+        />
+      ))}
+
+      <h3>Quality measures</h3>
+      <p className="hint">
+        Measures are Studio configuration (kind <code>measure</code>) evaluated over the
+        warehouse by the same cohort evaluator as the registries — numerator inside
+        denominator, with small-cell suppression.
+      </p>
+      {measures.loading && <Loading label="Loading measures…" />}
+      {measures.error != null && <ErrorView error={measures.error} />}
+      {measures.data && measures.data.measures.length === 0 && (
+        <Empty label="No published quality measures. Publish one in Studio configuration (kind: measure)." />
+      )}
+      {measures.data?.measures.map((entry) => (
+        <MeasureCard key={entry.key} client={client} entry={entry} />
       ))}
 
       <section className="card">

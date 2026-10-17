@@ -164,3 +164,16 @@ nav { display: flex; flex-direction: column; gap: 0.25rem; }
 .studio-brand-preview { background: #fff; border: 1px solid var(--border);
   border-radius: 8px; padding: 0.8rem 1rem; max-width: 420px; margin-top: 0.8rem; }
 .state-ok { background: #e6f2ec; color: var(--accent); }
+
+/* Phase 5 — chart tabs: orders, notes, flowsheets, MAR + the generic
+   published-form renderer (components/FormRenderer.tsx) */
+.form-field { margin: 0.45rem 0; display: flex; flex-direction: column; gap: 0.2rem; max-width: 34rem; }
+.form-field label { font-weight: 600; font-size: 0.9rem; }
+.form-field input, .form-field select, .form-field textarea { padding: 0.35rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; font: inherit; }
+.rendered-form .form-group { border: 1px solid var(--border); border-radius: 8px; margin: 0.6rem 0; }
+.form-error { color: #b42318; font-weight: 600; }
+.order-warnings { color: #9a6700; background: #fdf3e0; border-radius: 8px; padding: 0.5rem 0.8rem 0.5rem 1.6rem; }
+.order-list li, .note-list li { margin: 0.35rem 0; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.mar-controls { display: flex; gap: 0.8rem; align-items: end; flex-wrap: wrap; }
+.mar-summary { font-weight: 600; }
+.mar-note { color: #57606a; font-size: 0.9rem; }

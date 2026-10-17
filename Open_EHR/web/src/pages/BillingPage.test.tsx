@@ -17,6 +17,42 @@ function stubClient(overrides: Record<string, unknown> = {}): ApiClient {
     generateClaim: vi.fn(async () => fixtureClaim),
     transitionClaim: vi.fn(async () => fixtureClaim),
     export837: vi.fn(async () => "ISA*00*~\nCLM*claim-1*100.00~\n"),
+    // Phase 7 sections mount alongside the claims UI; the stub serves
+    // their empty states so these Phase 4A tests keep asserting the
+    // claims behaviour they were written for.
+    codingQueue: vi.fn(async () => []),
+    assignCodes: vi.fn(async () => ({
+      encounter_id: "enc-1", patient: "Patient/pat-1",
+      diagnoses: [], procedures: [], coded_by: "dev-admin",
+    })),
+    remittanceBatches: vi.fn(async () => []),
+    remittanceExceptions: vi.fn(async () => []),
+    ingest835: vi.fn(async () => ({
+      batch: {
+        id: "batch-1", check_number: "CHK-1", payer: "Synthetic Payer",
+        total_amount: 0, posted: 0, exceptions: 0, received_by: "dev-admin",
+      },
+      posted: [],
+      exceptions: [],
+    })),
+    denials: vi.fn(async () => ({
+      items: [], total: 0,
+      outcomes: ["appealed", "rebilled", "written-off", "closed"],
+    })),
+    assignDenial: vi.fn(),
+    noteDenial: vi.fn(),
+    resolveDenial: vi.fn(),
+    rebillClaim: vi.fn(async () => fixtureClaim),
+    statement: vi.fn(async () => ({
+      patient: "Patient/pat-1", generated_at: "2026-01-10T12:00:00Z",
+      claims: [],
+      totals: {
+        total: 0, paid: 0, adjustments: 0, patient_responsibility: 0,
+        patient_paid: 0, patient_due: 0, balance: 0,
+      },
+      disclaimer: "Payments recorded here are ledger entries.",
+    })),
+    recordPatientPayment: vi.fn(),
     ...overrides,
   } as unknown as ApiClient;
 }

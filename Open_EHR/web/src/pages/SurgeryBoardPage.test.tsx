@@ -1,7 +1,12 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, type ApiClient } from "../api/client";
-import { fixtureRooms, fixtureSurgeryBoard } from "../test/fixtures";
+import {
+  fixtureAnaesthesiaForm,
+  fixtureRooms,
+  fixtureSurgeryBoard,
+  fixtureSurgeryCaseRecord,
+} from "../test/fixtures";
 import { SurgeryBoardPage } from "./SurgeryBoardPage";
 
 // RTL auto-cleanup does not run in this repo's vitest setup (no globals).
@@ -29,6 +34,17 @@ function stubClient(overrides: Record<string, unknown> = {}): ApiClient {
       room: "OR-1",
       state: "scheduled",
     })),
+    surgeryCaseRecord: vi.fn(async () => fixtureSurgeryCaseRecord),
+    effectiveConfig: vi.fn(async () => ({
+      kind: "form",
+      key: "anaesthesia-record",
+      version: 1,
+      status: "published",
+      payload: fixtureAnaesthesiaForm,
+    })),
+    submitPreopChecklist: vi.fn(async () => ({})),
+    submitAnaesthesia: vi.fn(async () => ({})),
+    submitAnaesthesiaVitals: vi.fn(async () => ({})),
     ...overrides,
   } as unknown as ApiClient;
 }
@@ -90,5 +106,40 @@ describe("SurgeryBoardPage", () => {
     expect(await screen.findByText("Total knee arthroplasty")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Schedule case" })).toBeNull();
     expect(screen.queryByRole("button", { name: "pre-op" })).toBeNull();
+  });
+
+  it("renders the case timeline from the board entry (Phase 6)", async () => {
+    render(<SurgeryBoardPage client={stubClient()} role="clinician" />);
+    expect(await screen.findByText(/Timeline: scheduled/)).toBeTruthy();
+  });
+
+  it("case record panel shows pre-op + vitals and submits the anaesthesia form", async () => {
+    const client = stubClient();
+    render(<SurgeryBoardPage client={client} role="clinician" />);
+    await screen.findByText("Total knee arthroplasty");
+    fireEvent.click(screen.getByRole("button", { name: "Case record" }));
+    expect(await screen.findByText(/Pre-op checklist completed/)).toBeTruthy();
+    expect(screen.getByText(/Anaesthesia vitals \(1\)/)).toBeTruthy();
+    expect(screen.getByText(/systolic: 118/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Anaesthesia record" }));
+    expect(await screen.findByLabelText(/Anaesthesia type/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Anaesthesia type/), {
+      target: { value: "general" },
+    });
+    fireEvent.change(screen.getByLabelText(/Airway/), {
+      target: { value: "ett" },
+    });
+    fireEvent.change(screen.getByLabelText(/Agents administered/), {
+      target: { value: "Propofol, sevoflurane" },
+    });
+    fireEvent.click(screen.getByRole("button", {
+      name: "Submit Anaesthesia record",
+    }));
+    await waitFor(() => {
+      expect(client.submitAnaesthesia).toHaveBeenCalledWith(
+        "case-1",
+        expect.any(Array),
+      );
+    });
   });
 });

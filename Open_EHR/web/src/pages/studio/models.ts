@@ -439,9 +439,15 @@ export const CAPABILITY_DEFAULTS: Record<string, Role[]> = {
   "fhir.write": ["admin", "configurator", "clinician"],
   "fhir.inbox": ["admin", "configurator", "clinician"],
   "studio.manage": ["admin", "configurator"],
+  "studio.read": ["admin", "configurator", "clinician", "viewer"],
   "lab.order": ["admin", "configurator", "clinician"],
   "lab.work": ["admin", "configurator", "clinician"],
   "lab.verify": ["admin", "clinician"],
+  "lab.read": ["admin", "configurator", "clinician", "viewer"],
+  "pharmacy.read": ["admin", "configurator", "clinician", "viewer"],
+  "boards.read": ["admin", "configurator", "clinician", "viewer"],
+  "pophealth.view": ["admin", "clinician"],
+  "pophealth.run": ["admin"],
   "billing.view": ["admin", "configurator", "clinician"],
   "billing.manage": ["admin", "configurator"],
   "pharmacy.dispense": ["admin", "configurator", "clinician"],
@@ -450,6 +456,32 @@ export const CAPABILITY_DEFAULTS: Record<string, Role[]> = {
   "radiology.work": ["admin", "configurator", "clinician"],
   "radiology.verify": ["admin", "clinician"],
   "surgery.work": ["admin", "configurator", "clinician"],
+  // Phase 5 (orders + documentation) — mirrors configstore.py
+  // CAPABILITY_DEFAULTS exactly, like every row above.
+  "orders.read": ["admin", "configurator", "clinician", "viewer"],
+  "orders.place": ["admin", "configurator", "clinician"],
+  "notes.read": ["admin", "configurator", "clinician", "viewer"],
+  "notes.write": ["admin", "configurator", "clinician"],
+  // Phase 6 (inpatient operations) — mirrors configstore.py
+  // CAPABILITY_DEFAULTS exactly, like every row above.
+  "inpatient.read": ["admin", "configurator", "clinician", "viewer"],
+  "inpatient.work": ["admin", "configurator", "clinician"],
+  // Phase 7 (access & revenue cycle) — mirrors configstore.py
+  // CAPABILITY_DEFAULTS exactly, like every row above.
+  "access.read": ["admin", "configurator", "clinician", "viewer"],
+  "access.work": ["admin", "configurator", "clinician"],
+  "coding.read": ["admin", "configurator", "clinician"],
+  "coding.work": ["admin", "configurator"],
+  // Phase 8 (interoperability) — mirrors configstore.py
+  // CAPABILITY_DEFAULTS exactly, like every row above.
+  "interop.read": ["admin", "configurator", "clinician", "viewer"],
+  "interop.manage": ["admin", "configurator"],
+  "interop.export": ["admin", "configurator"],
+  // Phase 9 (engagement + research) — mirrors configstore.py
+  // CAPABILITY_DEFAULTS exactly, like every row above.
+  "messages.use": ["admin", "configurator", "clinician"],
+  "portal.self-schedule": ["admin", "clinician", "patient"],
+  "pophealth.export": ["admin", "configurator"],
 };
 
 /** capability -> role -> allowed (fully resolved matrix). */

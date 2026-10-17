@@ -210,7 +210,18 @@ describe("permissions model", () => {
     expect(caps["billing.manage"]).toEqual({
       admin: true, configurator: true, clinician: true, patient: false, viewer: false,
     });
-    expect(Object.keys(caps)).toHaveLength(14);
+    // 36 capabilities: the original 14 plus the realignment's six
+    // (studio.read, lab.read, pharmacy.read, boards.read,
+    // pophealth.view, pophealth.run) plus Phase 5's four (orders.read,
+    // orders.place, notes.read, notes.write) plus Phase 6's two
+    // (inpatient.read, inpatient.work) plus Phase 7's four
+    // (access.read, access.work, coding.read, coding.work) plus
+    // Phase 8's three (interop.read, interop.manage, interop.export)
+    // plus Phase 9's three (messages.use, portal.self-schedule,
+    // pophealth.export) — each new capability ships with defaults on
+    // the server (configstore.CAPABILITY_DEFAULTS) and this mirror,
+    // per the realignment pattern.
+    expect(Object.keys(caps)).toHaveLength(36);
   });
 });
 

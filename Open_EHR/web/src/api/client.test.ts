@@ -140,3 +140,84 @@ describe("ApiClient request shaping", () => {
     expect(ackUrl).toBe("http://localhost:8000/lab/reports/rep-1/acknowledge");
   });
 });
+
+describe("ApiClient Phase 5 (orders, notes, flowsheets, MAR)", () => {
+  function stubClient(body: unknown = {}) {
+    const fetchFn = vi.fn(async () => jsonResponse(body));
+    const client = new ApiClient("http://localhost:8000", () => "clinician-token", fetchFn as never);
+    return { client, fetchFn };
+  }
+
+  it("places an order with the placement body unchanged", async () => {
+    const { client, fetchFn } = stubClient({ order: { id: "o-1" }, warnings: [] });
+    await client.placeOrder({
+      type: "consult",
+      code: "cardiology-consult",
+      patient: "pat-1",
+      performerRole: "clinician",
+    });
+    const [url, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("http://localhost:8000/orders");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({
+      type: "consult",
+      code: "cardiology-consult",
+      patient: "pat-1",
+      performerRole: "clinician",
+    });
+  });
+
+  it("expands an order set and transitions orders via { to_status }", async () => {
+    const { client, fetchFn } = stubClient({});
+    await client.placeOrderSet({ set: "admission-general", patient: "pat-1" });
+    let [url, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("http://localhost:8000/orders/from-set");
+    expect(JSON.parse(init.body as string)).toEqual({
+      set: "admission-general",
+      patient: "pat-1",
+    });
+    await client.transitionOrder("ord-1", "signed");
+    [url, init] = fetchFn.mock.calls[1] as unknown as [string, RequestInit];
+    expect(url).toBe("http://localhost:8000/orders/ord-1/transition");
+    expect(JSON.parse(init.body as string)).toEqual({ to_status: "signed" });
+  });
+
+  it("creates a note with snake_case note_type and template answers", async () => {
+    const { client, fetchFn } = stubClient({});
+    const answers = [
+      { linkId: "assessment", answer: [{ valueString: "Stable" }] },
+    ];
+    await client.createNote({ patient: "pat-1", noteType: "progress", answers });
+    const [url, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("http://localhost:8000/notes");
+    expect(JSON.parse(init.body as string)).toEqual({
+      patient: "pat-1",
+      note_type: "progress",
+      answers,
+    });
+  });
+
+  it("signs and amends notes on their dedicated endpoints", async () => {
+    const { client, fetchFn } = stubClient({});
+    await client.signNote("note-1");
+    let [url, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("http://localhost:8000/notes/note-1/sign");
+    expect(init.method).toBe("POST");
+    await client.amendNote("note-1", { text: "Correction" });
+    [url, init] = fetchFn.mock.calls[1] as unknown as [string, RequestInit];
+    expect(url).toBe("http://localhost:8000/notes/note-1/amend");
+    expect(JSON.parse(init.body as string)).toEqual({ text: "Correction" });
+  });
+
+  it("queries the MAR window and the flowsheet view with patient scoping", async () => {
+    const { client, fetchFn } = stubClient({});
+    await client.marDue("pat-1", "2026-10-15T00:00:00Z", "2026-10-17T00:00:00Z");
+    let [url] = fetchFn.mock.calls[0] as unknown as [string];
+    expect(url).toContain("/orders/mar/due?");
+    expect(url).toContain("patient=pat-1");
+    expect(url).toContain("from=2026-10-15T00%3A00%3A00Z");
+    await client.flowsheetView("flowsheet-vitals", "pat-1");
+    [url] = fetchFn.mock.calls[1] as unknown as [string];
+    expect(url).toBe("http://localhost:8000/flowsheets/flowsheet-vitals?patient=pat-1");
+  });
+});
