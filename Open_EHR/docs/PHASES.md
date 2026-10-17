@@ -35,12 +35,28 @@ report in `docs/sqa/`, before the next phase starts.
   `workflow/appointment-adt` config (seeded v1 at startup), FHIR write/inbox
   gates are capabilities merged from the published `permissions/role-matrix`
   config and enforced in the API dependency, and `QuestionnaireResponse`
-  writes validate against the published form. Web Studio page gained a
-  configuration section (kinds, payload view, draft editor, publish /
-  disable / roll back). SQA: `docs/sqa/PHASE_STUDIO_SQA_REPORT.md`
+  writes validate against the published form. The web Studio page is a
+  full tabbed System Studio module (visual editors per kind, pack
+  lifecycle, audit view — built 2026-10-16, SQA:
+  `docs/sqa/STUDIO_UI_SQA_REPORT.md`). SQA: `docs/sqa/PHASE_STUDIO_SQA_REPORT.md`
   (backend 61 tests, web 29 tests, both suites green).
+- **Realignment (2026-10-16):** the audit in `docs/sqa/REALIGNMENT_AUDIT.md`
+  found the backend clinical core genuinely config-driven but the web
+  shell consuming zero config at runtime, the permissions matrix
+  governing only some writes, and pack enablement gating nothing. The
+  realignment closed the consumption gaps: the shell renders navigation,
+  branding and capability gating from the published configs (seeded
+  defaults preserve the previous behaviour exactly); every backend gate
+  is a capability check, including Studio's own APIs; all five workflow
+  machines honour per-transition `roles`; governed/active state sets,
+  claim exportable states + appeal limit, the ESI range, BCMA rights and
+  QC policy parameters moved into their config payloads; and released
+  critical lab results gained a tracked notification lifecycle
+  (pending → notified → acknowledged). SQA:
+  `docs/sqa/REALIGNMENT_SQA_REPORT.md` (backend 165 tests, web 135
+  tests, both suites green).
 - **Client deliverables (alongside Phase 1):** the web app (`web/` —
-  clinician workspace, patient portal, Studio packs UI) and the native
+  clinician workspace, patient portal, System Studio) and the native
   mobile sources (`mobile/` — SwiftUI iOS Universal + Kotlin Compose
   Android + KMP shared models). Each carries its own SQA report in
   `docs/sqa/`. Mobile completion pass (2026-10-15): Android — Gradle
@@ -66,9 +82,9 @@ report in `docs/sqa/`, before the next phase starts.
 | System Studio concept | OpenCare adaptation (original code) |
 |---|---|
 | Versioned module packs | `backend/packs/*.pack.json` manifests, `(name, version)` unique in DB |
-| Instantiation = designer draft only | Install creates `installed_draft` and nothing else; no routes go live |
+| Instantiation = designer draft only | Install creates `installed_draft` and nothing else (governance bookkeeping: module routes themselves are live from first boot — install state does not gate them; see the known gap in `docs/sqa/REALIGNMENT_SQA_REPORT.md`) |
 | Approve, then attach, as separate human steps | `approve` requires `installed_draft`; `attach` requires `approved`; out-of-order = 409 |
-| Backend surface ships disabled until enabled | Pack manifests declare endpoints `"enabled": false`; `enable` requires `attached` and is a separate audited action |
+| Backend surface ships disabled until enabled | **Not implemented as gating (corrected 2026-10-16):** manifests declare endpoints `"enabled": false`, but no code path reads that flag; `enable` (requires `attached`) is a separate audited governance action only. Enablement gating is a documented known gap with a design note in the realignment SQA report |
 | Role gates | Studio actions require `admin`/`configurator` (403 for clinician/viewer, tested) |
 | Audit logging on studio actions | Every transition + install writes a hash-chained AuditLog row (tested) |
 | No mocks, real DB | SQLAlchemy 2.0 against SQLite locally / PostgreSQL in Compose |
