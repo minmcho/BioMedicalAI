@@ -48,16 +48,16 @@ from sqlalchemy.orm import Session
 
 from . import fhir
 from .audit import append_audit
-from .configstore import published_config
-from .models import ConfigStatus, FhirResource, Role, StudioConfig, User
-from .security import get_db, require_capability, require_roles
+from .configstore import (load_workflow_machine, payload_state_set,
+                          published_config, transition_role_allowed,
+                          workflow_payload)
+from .models import ConfigStatus, FhirResource, StudioConfig, User
+from .security import get_db, require_capability
 
 ed_router = APIRouter(prefix="/ed", tags=["ed"])
 radiology_router = APIRouter(prefix="/radiology", tags=["radiology"])
 dicomweb_router = APIRouter(prefix="/dicomweb", tags=["dicomweb"])
 surgery_router = APIRouter(prefix="/surgery", tags=["surgery"])
-
-STAFF_READ = (Role.admin, Role.configurator, Role.clinician, Role.viewer)
 
 ED_WORKFLOW_KEY = "ed-flow"
 SURGERY_WORKFLOW_KEY = "surgery-flow"
@@ -204,8 +204,14 @@ def _seed_published(session: Session, kind: str, key: str, payload: dict) -> Non
 def ensure_boards_defaults(session: Session) -> None:
     """Seed the Phase 4B Studio config as published v1 (idempotent),
     exactly like the lab/billing/pophealth config seeds."""
-    _seed_published(session, "workflow", ED_WORKFLOW_KEY,
-                    _workflow_payload(DEFAULT_ED_TRANSITIONS))
+    ed_payload = _workflow_payload(DEFAULT_ED_TRANSITIONS)
+    # activeStates / governedStates ride in the workflow payload (they
+    # used to be the ED_ACTIVE_STATES / ED_GOVERNED_STATES code constants;
+    # the constants remain only as fallbacks for payloads without them).
+    ed_payload["activeStates"] = list(ED_ACTIVE_STATES)
+    ed_payload["governedStates"] = list(ED_GOVERNED_STATES)
+    _seed_published(session, "workflow", ED_WORKFLOW_KEY, ed_payload)
+    _seed_published(session, "terminology", ESI_KEY, default_triage_payload())
     _seed_published(session, "workflow", SURGERY_WORKFLOW_KEY,
                     _workflow_payload(DEFAULT_SURGERY_TRANSITIONS))
     _seed_published(session, "terminology", MODALITIES_KEY,
@@ -222,21 +228,72 @@ def ensure_boards_defaults(session: Session) -> None:
 # ---------------------------------------------------------------------------
 
 def _machine(session: Session, key: str,
-             defaults: dict[str, set[str]]) -> tuple[dict[str, set[str]], set[str]]:
-    """(transitions, known states) from a published workflow config;
-    falls back to the built-in map when no config is published."""
-    cfg = published_config(session, "workflow", key)
+             defaults: dict[str, set[str]]):
+    """(transitions, known states, per-transition roles) from a published
+    workflow config; falls back to the built-in map when none is
+    published."""
+    return load_workflow_machine(session, key, defaults)
+
+
+def _check_transition_role(roles: dict, current, target, user: User,
+                           subject: str) -> None:
+    """403 when the published workflow config restricts this transition
+    to roles the caller does not hold."""
+    if not transition_role_allowed(roles, current, target, user.role.value):
+        raise HTTPException(
+            status_code=403,
+            detail=(f"Role {user.role.value} may not perform the {subject} "
+                    f"transition '{current}' -> '{target}': the published "
+                    "workflow config restricts it to "
+                    f"{', '.join(roles.get((current, target), []))}"))
+
+
+def _ed_state_sets(session: Session) -> tuple[tuple, set]:
+    """(active board states in order, governed states) from the ed-flow
+    payload's `activeStates` / `governedStates` fields; the built-in
+    tuples are the fallback for payloads without them."""
+    payload = workflow_payload(session, ED_WORKFLOW_KEY) or {}
+    active_values = payload.get("activeStates")
+    if isinstance(active_values, list) and active_values and all(
+            isinstance(v, str) and v for v in active_values):
+        active = tuple(active_values)
+    else:
+        active = ED_ACTIVE_STATES
+    governed = payload_state_set(payload, "governedStates", ED_GOVERNED_STATES)
+    return active, governed
+
+
+# ---------------------------------------------------------------------------
+# ESI triage levels (terminology config, key "ed-triage")
+# ---------------------------------------------------------------------------
+
+ESI_KEY = "ed-triage"
+ESI_DEFAULT_RANGE = (1, 5)
+
+
+def default_triage_payload() -> dict:
+    labels = {1: "Resuscitation", 2: "Emergent", 3: "Urgent",
+              4: "Less urgent", 5: "Non-urgent"}
+    return {"name": "Emergency Severity Index (ESI) acuity levels",
+            "min": ESI_DEFAULT_RANGE[0], "max": ESI_DEFAULT_RANGE[1],
+            "concepts": [
+                {"code": str(level), "display": f"ESI {level} — {label}",
+                 "active": True}
+                for level, label in labels.items()]}
+
+
+def _esi_range(session: Session) -> tuple[int, int]:
+    """Valid acuity range from the published ed-triage terminology
+    (`min`/`max` fields); the ESI standard's 1-5 when unconfigured."""
+    cfg = published_config(session, "terminology", ESI_KEY)
     if cfg is not None:
         payload = cfg.payload or {}
-        transitions: dict[str, set[str]] = {}
-        for t in payload.get("transitions") or []:
-            if isinstance(t, dict) and t.get("from") and t.get("to"):
-                transitions.setdefault(t["from"], set()).add(t["to"])
-        states = set(payload.get("states") or transitions.keys())
-        for targets in transitions.values():
-            states |= targets
-        return transitions, states
-    return defaults, set(defaults.keys())
+        low, high = payload.get("min"), payload.get("max")
+        if isinstance(low, int) and not isinstance(low, bool) \
+                and isinstance(high, int) and not isinstance(high, bool) \
+                and low <= high:
+            return low, high
+    return ESI_DEFAULT_RANGE
 
 
 def _concepts(session: Session, key: str, label: str) -> list[dict]:
@@ -432,7 +489,7 @@ async def ed_arrival(request: Request, session: Session = Depends(get_db),
 
 @ed_router.get("/board")
 def ed_board(session: Session = Depends(get_db),
-             user: User = Depends(require_roles(*STAFF_READ))):
+             user: User = Depends(require_capability("boards.read"))):
     """Current ED census: every EMER encounter in an active tracking
     state, grouped by state, longest-waiting first, with the wait time
     (minutes since arrival) computed here, server-side."""
@@ -440,7 +497,8 @@ def ed_board(session: Session = Depends(get_db),
     rows = session.scalars(
         select(FhirResource).where(FhirResource.resource_type == "Encounter")
         .order_by(FhirResource.created_at.asc(), FhirResource.id.asc())).all()
-    groups: dict[str, list[dict]] = {state: [] for state in ED_ACTIVE_STATES}
+    active_states, _ = _ed_state_sets(session)
+    groups: dict[str, list[dict]] = {state: [] for state in active_states}
     for row in rows:
         body = row.body or {}
         if _class_code(body) != "EMER":
@@ -461,13 +519,15 @@ async def ed_transition(encounter_id: str, request: Request,
                         session: Session = Depends(get_db),
                         user: User = Depends(require_capability("ed.work"))):
     """Advance an ED encounter through the published ed-flow workflow
-    config. Triage (waiting -> triage) requires an ESI `acuity` of 1-5.
-    departed/admitted are governed states with dedicated endpoints."""
+    config. Triage (waiting -> triage) requires an ESI `acuity` inside
+    the published ed-triage range (default 1-5). departed/admitted are
+    governed states with dedicated endpoints."""
     payload = await _json_body(request)
     target = payload.get("to_status") or payload.get("status")
     if not target:
         raise HTTPException(status_code=422, detail="Transition requires 'to_status'")
-    if target in ED_GOVERNED_STATES:
+    _, governed_states = _ed_state_sets(session)
+    if target in governed_states:
         raise HTTPException(
             status_code=422,
             detail=(f"Status '{target}' is governed: it is reached through the "
@@ -475,22 +535,25 @@ async def ed_transition(encounter_id: str, request: Request,
     row = _ed_row(session, encounter_id)
     body = dict(row.body or {})
     current = body.get("status")
-    transitions, known_states = _machine(session, ED_WORKFLOW_KEY,
-                                         DEFAULT_ED_TRANSITIONS)
+    transitions, known_states, roles = _machine(session, ED_WORKFLOW_KEY,
+                                                DEFAULT_ED_TRANSITIONS)
     if target not in known_states:
         raise HTTPException(status_code=422, detail=f"Unknown ED status: {target}")
     if target not in transitions.get(current, set()):
         raise HTTPException(
             status_code=409,
             detail=f"Illegal ED transition '{current}' -> '{target}'")
+    _check_transition_role(roles, current, target, user, "ED")
     acuity = None
     if target == "triage":
         acuity = payload.get("acuity")
+        low, high = _esi_range(session)
         if isinstance(acuity, bool) or not isinstance(acuity, int) \
-                or not 1 <= acuity <= 5:
+                or not low <= acuity <= high:
             raise HTTPException(
                 status_code=422,
-                detail="Triage requires 'acuity': an ESI level, an integer 1-5")
+                detail=(f"Triage requires 'acuity': an ESI level, an "
+                        f"integer {low}-{high}"))
         _set_extension(body, ACUITY_EXTENSION, valueInteger=acuity)
     body["status"] = target
     row.body = body
@@ -508,15 +571,18 @@ async def ed_transition(encounter_id: str, request: Request,
 def _ed_finish(session: Session, user: User, row: FhirResource,
                target: str, action: str) -> None:
     """Shared governed-exit check: the published ed-flow machine must
-    allow current -> target, else 409."""
+    allow current -> target, else 409; a per-transition role restriction
+    in the config applies here too (403)."""
     current = (row.body or {}).get("status")
-    transitions, _ = _machine(session, ED_WORKFLOW_KEY, DEFAULT_ED_TRANSITIONS)
+    transitions, _, roles = _machine(session, ED_WORKFLOW_KEY,
+                                     DEFAULT_ED_TRANSITIONS)
     if target not in transitions.get(current, set()):
         raise HTTPException(
             status_code=409,
             detail=f"Illegal ED transition '{current}' -> '{target}' "
                    f"({action} is only possible from a state the workflow "
                    "allows to reach it)")
+    _check_transition_role(roles, current, target, user, "ED")
 
 
 @ed_router.post("/encounters/{encounter_id}/admit")
@@ -649,7 +715,7 @@ def _study_item(session: Session, row: FhirResource) -> dict:
 
 @radiology_router.get("/modalities")
 def radiology_modalities(session: Session = Depends(get_db),
-                         user: User = Depends(require_roles(*STAFF_READ))):
+                         user: User = Depends(require_capability("boards.read"))):
     cfg = published_config(session, "terminology", MODALITIES_KEY)
     concepts = _concepts(session, MODALITIES_KEY, "imaging modalities")
     return {"modalities": concepts, "version": cfg.version if cfg else None}
@@ -728,7 +794,7 @@ async def create_study(request: Request, session: Session = Depends(get_db),
 
 @radiology_router.get("/studies")
 def list_studies(session: Session = Depends(get_db),
-                 user: User = Depends(require_roles(*STAFF_READ))):
+                 user: User = Depends(require_capability("boards.read"))):
     rows = session.scalars(
         select(FhirResource).where(FhirResource.resource_type == "ImagingStudy")
         .order_by(FhirResource.created_at.asc(), FhirResource.id.asc())).all()
@@ -738,7 +804,7 @@ def list_studies(session: Session = Depends(get_db),
 
 @radiology_router.get("/studies/{study_id}")
 def study_detail(study_id: str, session: Session = Depends(get_db),
-                 user: User = Depends(require_roles(*STAFF_READ))):
+                 user: User = Depends(require_capability("boards.read"))):
     row = fhir._get_row("ImagingStudy", study_id, session)
     item = _study_item(session, row)
     item["reports"] = [fhir._render(r)
@@ -892,7 +958,7 @@ def _dicom_study_json(session: Session, row: FhirResource) -> dict:
 
 @dicomweb_router.get("/studies")
 def dicomweb_studies(session: Session = Depends(get_db),
-                     user: User = Depends(require_roles(*STAFF_READ))):
+                     user: User = Depends(require_capability("boards.read"))):
     """QIDO-RS study search: a JSON array of study-level DICOM JSON
     objects, one per stored ImagingStudy."""
     rows = session.scalars(
@@ -903,7 +969,7 @@ def dicomweb_studies(session: Session = Depends(get_db),
 
 @dicomweb_router.get("/studies/{study_uid}")
 def dicomweb_study(study_uid: str, session: Session = Depends(get_db),
-                   user: User = Depends(require_roles(*STAFF_READ))):
+                   user: User = Depends(require_capability("boards.read"))):
     """Retrieve one study's DICOM JSON by its Study Instance UID."""
     rows = session.scalars(
         select(FhirResource).where(FhirResource.resource_type == "ImagingStudy")).all()
@@ -999,7 +1065,7 @@ def _case_entry(case: FhirResource, appointment: FhirResource) -> dict:
 
 @surgery_router.get("/rooms")
 def surgery_rooms(session: Session = Depends(get_db),
-                  user: User = Depends(require_roles(*STAFF_READ))):
+                  user: User = Depends(require_capability("boards.read"))):
     cfg = published_config(session, "terminology", OR_ROOMS_KEY)
     rooms = _concepts(session, OR_ROOMS_KEY, "operating rooms")
     return {"rooms": rooms, "version": cfg.version if cfg else None}
@@ -1120,7 +1186,7 @@ async def schedule_case(request: Request, session: Session = Depends(get_db),
 @surgery_router.get("/board")
 def surgery_board(date: str | None = Query(default=None),
                   session: Session = Depends(get_db),
-                  user: User = Depends(require_roles(*STAFF_READ))):
+                  user: User = Depends(require_capability("boards.read"))):
     """One day's OR schedule, grouped by room: every surgery case whose
     appointment falls on `date` (default: today, UTC), with its current
     workflow state. All configured rooms appear, even when empty."""
@@ -1179,14 +1245,15 @@ async def transition_case(case_id: str, request: Request,
         raise HTTPException(status_code=422, detail="Transition requires 'to_status'")
     case, appointment = _get_case(session, case_id)
     current = (case.body or {}).get("status")
-    transitions, known_states = _machine(session, SURGERY_WORKFLOW_KEY,
-                                         DEFAULT_SURGERY_TRANSITIONS)
+    transitions, known_states, roles = _machine(session, SURGERY_WORKFLOW_KEY,
+                                                DEFAULT_SURGERY_TRANSITIONS)
     if target not in known_states:
         raise HTTPException(status_code=422, detail=f"Unknown surgery case status: {target}")
     if target not in transitions.get(current, set()):
         raise HTTPException(
             status_code=409,
             detail=f"Illegal surgery case transition '{current}' -> '{target}'")
+    _check_transition_role(roles, current, target, user, "surgery case")
     _set_status(case, target)
     if target == "done":
         _set_status(appointment, "fulfilled")

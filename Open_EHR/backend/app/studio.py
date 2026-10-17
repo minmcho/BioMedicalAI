@@ -14,14 +14,12 @@ from sqlalchemy.orm import Session
 
 from .audit import append_audit
 from .models import (AuditLog, InstallationStatus, ModulePack, PackInstallation,
-                     Role, User)
-from .security import get_db, require_roles
+                     User)
+from .security import get_db, require_capability
 
 router = APIRouter(prefix="/studio", tags=["studio"])
 
 PACKS_DIR = Path(__file__).resolve().parent.parent / "packs"
-
-STUDIO_ROLES = (Role.admin, Role.configurator)
 
 # Allowed transitions: action -> (required current status, new status)
 TRANSITIONS = {
@@ -59,14 +57,14 @@ def _installation_out(inst: PackInstallation, pack: ModulePack) -> dict:
 
 
 @router.get("/packs")
-def list_packs(session: Session = Depends(get_db), user: User = Depends(require_roles(
-        Role.admin, Role.configurator, Role.clinician, Role.viewer))):
+def list_packs(session: Session = Depends(get_db),
+               user: User = Depends(require_capability("studio.read"))):
     return [_pack_out(p) for p in load_pack_manifests(session)]
 
 
 @router.post("/packs/{name}/install", status_code=201)
 def install_pack(name: str, session: Session = Depends(get_db),
-                 user: User = Depends(require_roles(*STUDIO_ROLES))):
+                 user: User = Depends(require_capability("studio.manage"))):
     load_pack_manifests(session)
     pack = session.scalars(select(ModulePack).where(ModulePack.name == name)).first()
     if pack is None:
@@ -104,31 +102,31 @@ def _transition(action: str, installation_id: int, session: Session, user: User)
 
 @router.post("/installations/{installation_id}/approve")
 def approve(installation_id: int, session: Session = Depends(get_db),
-            user: User = Depends(require_roles(*STUDIO_ROLES))):
+            user: User = Depends(require_capability("studio.manage"))):
     return _transition("approve", installation_id, session, user)
 
 
 @router.post("/installations/{installation_id}/attach")
 def attach(installation_id: int, session: Session = Depends(get_db),
-           user: User = Depends(require_roles(*STUDIO_ROLES))):
+           user: User = Depends(require_capability("studio.manage"))):
     return _transition("attach", installation_id, session, user)
 
 
 @router.post("/installations/{installation_id}/enable")
 def enable(installation_id: int, session: Session = Depends(get_db),
-           user: User = Depends(require_roles(*STUDIO_ROLES))):
+           user: User = Depends(require_capability("studio.manage"))):
     return _transition("enable", installation_id, session, user)
 
 
 @router.post("/installations/{installation_id}/disable")
 def disable(installation_id: int, session: Session = Depends(get_db),
-            user: User = Depends(require_roles(*STUDIO_ROLES))):
+            user: User = Depends(require_capability("studio.manage"))):
     return _transition("disable", installation_id, session, user)
 
 
 @router.get("/installations")
-def list_installations(session: Session = Depends(get_db), user: User = Depends(require_roles(
-        Role.admin, Role.configurator, Role.clinician, Role.viewer))):
+def list_installations(session: Session = Depends(get_db),
+                       user: User = Depends(require_capability("studio.read"))):
     out = []
     for inst in session.scalars(select(PackInstallation)).all():
         out.append(_installation_out(inst, session.get(ModulePack, inst.pack_id)))
@@ -138,7 +136,7 @@ def list_installations(session: Session = Depends(get_db), user: User = Depends(
 @router.get("/audit")
 def list_audit(limit: int = Query(default=50, ge=1, le=200),
                session: Session = Depends(get_db),
-               user: User = Depends(require_roles(*STUDIO_ROLES))):
+               user: User = Depends(require_capability("studio.manage"))):
     """Most recent entries of the hash-chained audit log, newest first.
 
     One chain covers pack lifecycle actions, Studio config writes and
