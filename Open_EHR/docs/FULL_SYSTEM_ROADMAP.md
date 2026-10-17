@@ -63,14 +63,14 @@ therapy minutes, interdisciplinary team conferences, long stays); Toronto Genera
 | ICU / acute care | Device data, drips, ventilator, early-warning scores | MISSING |
 | Specialties | Ophthalmology, rehab (functional outcomes), cardiology, oncology, transplant, OB, behavioural health, dialysis | MISSING — specialty depth is Phase 9 |
 | Therapies (PT/OT/ST) | Rehab documentation, functional instruments, therapy scheduling | MISSING |
-| Patient engagement | Portal: results, messaging, questionnaires, telehealth, self-scheduling, bill pay, proxy access | PARTIAL — portal reads results/bills; no messaging/telehealth/self-scheduling |
+| Patient engagement | Portal: results, messaging, questionnaires, telehealth, self-scheduling, bill pay, proxy access | PARTIAL — portal reads results/conditions/medications; patient bills live on the Billing page (own claims only); no messaging/telehealth/self-scheduling |
 | Revenue cycle | Charge capture, coding/HIM, claims, remittance (835), denials, patient billing, estimates | PARTIAL — claims + 837 export; no 835/coding/denials workqueues |
 | HIM & compliance | Chart completion/deficiency, release of information, coding queues | MISSING |
 | Interoperability | HL7 v2 live feeds (ADT/ORM/ORU over MLLP), FHIR bulk, document exchange, public-health reporting | PARTIAL — HL7 ORU ingest (paste/API) + SMART; no live MLLP listener, no ADT feeds, no reporting |
 | Analytics & quality | Warehouse, registries, quality measures (eCQM-style), operational dashboards | PARTIAL — OMOP warehouse + registries + explorer; no quality-measure engine |
 | Research | Cohort discovery, de-identified extracts, trial screening | MISSING (explorer is aggregate clinical ops, not research) |
 | Platform | Multi-site/org hierarchy, HA, downtime viewer, config governance (Studio) | PARTIAL — Studio engine real; single-site today |
-| System Studio | Visual configuration IDE: packs, forms, workflows, terminology, navigation, branding, permissions, integrations, audit | ENGINE + 11-tab visual module DONE (2026-10-16); runtime consumption (shell nav/branding/permissions) = the realignment pass — see docs/sqa/REALIGNMENT_AUDIT.md |
+| System Studio | Visual configuration IDE: packs, forms, workflows, terminology, navigation, branding, permissions, integrations, audit | ENGINE + 11-tab visual module DONE (2026-10-16); runtime consumption DONE (realignment, 2026-10-16 — shell nav/branding/permissions + full API enforcement; docs/sqa/REALIGNMENT_SQA_REPORT.md). Known gap: pack enablement does not gate module routes (design note in the same report) |
 
 ## 3. Build-out phases (sequential, SQA-gated, Studio-config-first — same rules as Phases 0–4)
 
@@ -237,10 +237,14 @@ Already proven on this rule in Phases 1–4 (each flips behaviour by config
 publish, with tests): ADT transition rules, lab catalogue + QC gating,
 claim lifecycle + fee schedule, cohort/registry definitions, radiology
 viewer integration, OR room inventory, pack lifecycle governance.
-(Correction, 2026-10-16 audit: navigation was proven only on the WRITE
-side — the modules-only 400 — while the shell menu itself was hardcoded;
-runtime consumption of navigation/branding/permissions config is the
-realignment pass, tracked in docs/sqa/REALIGNMENT_AUDIT.md §3.) Enforcement: every phase SQA report from Phase 5 on
+(Correction, 2026-10-16 audit: navigation was at first proven only on
+the WRITE side — the modules-only 400 — while the shell menu itself was
+hardcoded. The realignment pass, 2026-10-16, made it genuinely
+consumed: the shell renders navigation/branding from the published
+configs and resolves its capability gating from the published
+permissions matrix, and the QC gate's rule parameters — not just the
+catalogue — are configuration now too. See
+docs/sqa/REALIGNMENT_SQA_REPORT.md.) Enforcement: every phase SQA report from Phase 5 on
 must include a **configuration-coverage list** — which behaviours the phase
 made configurable, and a justification for anything left coded.
 
@@ -276,9 +280,11 @@ specimens, QC status).
   ties to the solo-practice profile's in-office tests).
 - *Post-analytical*: auto-verification rules engine (config), delta checks,
   reflex-testing rules (config), **critical-value notification workflow**
-  (call + read-back + acknowledgement timestamps — today there is only a
-  flag), amended/corrected reports with reason + audit, result-routing
-  rules, reference-lab send-out tracking.
+  (call + read-back + acknowledgement timestamps — the tracking core
+  landed early in the 2026-10-16 realignment: pending → notified →
+  acknowledged records on released critical reports; escalation timers
+  and routing remain Phase 6B), amended/corrected reports with reason +
+  audit, result-routing rules, reference-lab send-out tracking.
 - *Laboratory operations*: QC **programme** (multi-level QC, Levey-Jennings
   data, Westgard-style rule evaluation, EQA/proficiency-testing records),
   instrument/analyser registry + maintenance/calibration log, TAT
