@@ -49,14 +49,14 @@ from sqlalchemy.orm import Session
 
 from . import fhir
 from .audit import append_audit
-from .configstore import published_config
-from .models import (ConfigStatus, FhirResource, LabQcRun, Role, StudioConfig,
-                     User)
-from .security import get_db, get_current_user, require_capability, require_roles
+from .configstore import (load_workflow_machine, payload_state_set,
+                          published_config, transition_role_allowed,
+                          workflow_payload)
+from .models import (ConfigStatus, FhirResource, LabCriticalNotification,
+                     LabQcRun, Role, StudioConfig, User)
+from .security import get_db, get_current_user, require_capability
 
 router = APIRouter(prefix="/lab", tags=["lab"])
-
-STAFF_READ = (Role.admin, Role.configurator, Role.clinician, Role.viewer)
 
 LAB_CATALOG_KEY = "lab-catalog"
 LAB_WORKFLOW_KEY = "lab-order-flow"
@@ -144,7 +144,14 @@ def default_lab_catalog_payload() -> dict:
          "components": ["2345-7", "3094-0", "2160-0", "2951-2", "2823-3"]},
     ]
     return {"name": "OpenCare laboratory catalog (LOINC)",
-            "system": LOINC, "concepts": concepts}
+            "system": LOINC, "concepts": concepts,
+            # QC gating policy (read by qc_blockers): the defaults below
+            # reproduce the original code rule exactly — a FAILED latest
+            # run blocks; missing QC history does not; no freshness
+            # window. A site may publish stricter policy (block on missing
+            # QC, require a passing run within N hours) without code.
+            "qc": {"blockOnFailedLatest": True, "blockOnMissingQc": False,
+                   "freshnessHours": None}}
 
 
 def default_lab_workflow_payload() -> dict:
@@ -154,7 +161,12 @@ def default_lab_workflow_payload() -> dict:
         for src in sorted(DEFAULT_LAB_TRANSITIONS)
         for dst in sorted(DEFAULT_LAB_TRANSITIONS[src])
     ]
-    return {"states": states, "transitions": transitions}
+    # governedStates / specimenStates ride in the workflow payload (they
+    # used to be the GOVERNED_STATES / _SPECIMEN_MIRROR code constants;
+    # the constants remain only as fallbacks for payloads without them).
+    return {"states": states, "transitions": transitions,
+            "governedStates": sorted(GOVERNED_STATES),
+            "specimenStates": sorted(_SPECIMEN_MIRROR)}
 
 
 def _seed_published(session: Session, kind: str, key: str, payload: dict) -> None:
@@ -206,21 +218,26 @@ def _concept(session: Session, code: str) -> dict | None:
     return None
 
 
-def _lab_machine(session: Session) -> tuple[dict[str, set[str]], set[str]]:
-    """(transitions, known states) from the published lab workflow config;
-    falls back to the built-in map when no config is published."""
-    cfg = published_config(session, "workflow", LAB_WORKFLOW_KEY)
-    if cfg is not None:
-        payload = cfg.payload or {}
-        transitions: dict[str, set[str]] = {}
-        for t in payload.get("transitions") or []:
-            if isinstance(t, dict) and t.get("from") and t.get("to"):
-                transitions.setdefault(t["from"], set()).add(t["to"])
-        states = set(payload.get("states") or transitions.keys())
-        for targets in transitions.values():
-            states |= targets
-        return transitions, states
-    return DEFAULT_LAB_TRANSITIONS, set(DEFAULT_LAB_TRANSITIONS.keys())
+def _lab_machine(session: Session):
+    """(transitions, known states, per-transition roles) from the
+    published lab workflow config; falls back to the built-in map when
+    no config is published."""
+    return load_workflow_machine(session, LAB_WORKFLOW_KEY,
+                                 DEFAULT_LAB_TRANSITIONS)
+
+
+def _governed_states(session: Session) -> set:
+    """States the generic transition endpoint will not move INTO, from
+    the workflow payload's `governedStates` (fallback: the built-in set)."""
+    return payload_state_set(workflow_payload(session, LAB_WORKFLOW_KEY),
+                             "governedStates", GOVERNED_STATES)
+
+
+def _specimen_states(session: Session) -> set:
+    """States mirrored onto the linked Specimen, from the workflow
+    payload's `specimenStates` (fallback: the built-in mirror set)."""
+    return payload_state_set(workflow_payload(session, LAB_WORKFLOW_KEY),
+                             "specimenStates", _SPECIMEN_MIRROR)
 
 
 # ---------------------------------------------------------------------------
@@ -342,16 +359,59 @@ def _latest_qc(session: Session, analyte_code: str) -> LabQcRun | None:
         .order_by(LabQcRun.id.desc())).first()
 
 
+def _qc_policy(session: Session) -> dict:
+    """QC gating policy from the published lab catalog's `qc` object.
+    The defaults reproduce the original code rule exactly: a failed
+    LATEST run blocks; missing QC history does not block; there is no
+    freshness window. A site publishes stricter policy as data —
+    `blockOnMissingQc` (no run at all blocks) and/or `freshnessHours`
+    (the latest passing run must be younger than this) — or relaxes the
+    failed-latest block with `blockOnFailedLatest: false`."""
+    policy = {"blockOnFailedLatest": True, "blockOnMissingQc": False,
+              "freshnessHours": None}
+    cfg = published_config(session, "terminology", LAB_CATALOG_KEY)
+    raw = (cfg.payload or {}).get("qc") if cfg is not None else None
+    if isinstance(raw, dict):
+        for field in ("blockOnFailedLatest", "blockOnMissingQc"):
+            if isinstance(raw.get(field), bool):
+                policy[field] = raw[field]
+        fresh = raw.get("freshnessHours")
+        if isinstance(fresh, (int, float)) and not isinstance(fresh, bool) \
+                and fresh > 0:
+            policy["freshnessHours"] = float(fresh)
+    return policy
+
+
 def qc_blockers(session: Session, analyte_codes) -> list[dict]:
-    """Analytes whose LATEST QC run failed. A patient result for such an
-    analyte cannot be verified or released until a passing QC run exists
-    after the failure. No QC history at all does not block (only a failed
-    run does) — that is the rule the phase specifies."""
+    """Analytes currently blocked by the QC policy (see _qc_policy).
+    Each blocker carries the analyte, the deciding run (None when the
+    block is missing QC history) and a machine-readable `reason`:
+    'failed-latest' | 'missing-qc' | 'stale-qc'."""
+    policy = _qc_policy(session)
+    now = datetime.now(timezone.utc)
     blockers = []
     for code in sorted(set(analyte_codes)):
         latest = _latest_qc(session, code)
-        if latest is not None and not latest.passed:
-            blockers.append({"analyte_code": code, "qc_run": _qc_out(latest)})
+        if latest is None:
+            if policy["blockOnMissingQc"]:
+                blockers.append({"analyte_code": code, "qc_run": None,
+                                 "reason": "missing-qc"})
+            continue
+        if not latest.passed:
+            if policy["blockOnFailedLatest"]:
+                blockers.append({"analyte_code": code,
+                                 "qc_run": _qc_out(latest),
+                                 "reason": "failed-latest"})
+            continue
+        freshness = policy["freshnessHours"]
+        if freshness is not None and latest.created_at is not None:
+            created = latest.created_at
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            if (now - created).total_seconds() > freshness * 3600:
+                blockers.append({"analyte_code": code,
+                                 "qc_run": _qc_out(latest),
+                                 "reason": "stale-qc"})
     return blockers
 
 
@@ -360,9 +420,10 @@ def _enforce_qc(session: Session, report_row: FhirResource) -> None:
     blockers = qc_blockers(session, [c for c in codes if c])
     if blockers:
         names = ", ".join(b["analyte_code"] for b in blockers)
+        reasons = ", ".join(sorted({b["reason"] for b in blockers}))
         raise HTTPException(
             status_code=409,
-            detail=(f"QC block: the latest QC run failed for {names}; "
+            detail=(f"QC block: {names} [{reasons}]; "
                     "record a passing QC run for each blocked analyte "
                     "before this report can proceed"))
 
@@ -452,7 +513,7 @@ async def place_order(request: Request, session: Session = Depends(get_db),
 def list_orders(status: str | None = Query(default=None),
                 patient: str | None = Query(default=None),
                 session: Session = Depends(get_db),
-                user: User = Depends(require_roles(*STAFF_READ))):
+                user: User = Depends(require_capability("lab.read"))):
     stmt = select(FhirResource).where(FhirResource.resource_type == "ServiceRequest")
     if status:
         stmt = stmt.where(FhirResource.status == status)
@@ -465,7 +526,7 @@ def list_orders(status: str | None = Query(default=None),
 
 @router.get("/orders/{order_id}")
 def order_detail(order_id: str, session: Session = Depends(get_db),
-                 user: User = Depends(require_roles(*STAFF_READ))):
+                 user: User = Depends(require_capability("lab.read"))):
     order = _order_row(session, order_id)
     specimen = _specimen_row(session, order)
     reports = session.scalars(
@@ -493,7 +554,7 @@ async def transition_order(order_id: str, request: Request,
     target = payload.get("to_status") or payload.get("status")
     if not target:
         raise HTTPException(status_code=422, detail="Transition requires 'to_status'")
-    if target in GOVERNED_STATES:
+    if target in _governed_states(session):
         raise HTTPException(
             status_code=422,
             detail=(f"Status '{target}' is governed: it is reached through the "
@@ -501,13 +562,20 @@ async def transition_order(order_id: str, request: Request,
                     "transition"))
     order = _order_row(session, order_id)
     current = (order.body or {}).get("status")
-    transitions, known_states = _lab_machine(session)
+    transitions, known_states, roles = _lab_machine(session)
     if target not in known_states:
         raise HTTPException(status_code=422, detail=f"Unknown lab order status: {target}")
     if target not in transitions.get(current, set()):
         raise HTTPException(
             status_code=409,
             detail=f"Illegal lab order transition '{current}' -> '{target}'")
+    if not transition_role_allowed(roles, current, target, user.role.value):
+        raise HTTPException(
+            status_code=403,
+            detail=(f"Role {user.role.value} may not perform the lab order "
+                    f"transition '{current}' -> '{target}': the published "
+                    "workflow config restricts it to "
+                    f"{', '.join(roles.get((current, target), []))}"))
 
     specimen = _specimen_row(session, order)
     specimen_id = None
@@ -559,7 +627,8 @@ async def transition_order(order_id: str, request: Request,
         order.body = order_body
 
     _set_status(order, target)
-    if specimen is not None and target in _SPECIMEN_MIRROR and not specimen_fresh:
+    if specimen is not None and target in _specimen_states(session) \
+            and not specimen_fresh:
         _set_status(specimen, target)
         specimen_id = specimen.resource_id
     session.flush()
@@ -581,7 +650,7 @@ async def transition_order(order_id: str, request: Request,
 def list_specimens(status: str | None = Query(default=None),
                    patient: str | None = Query(default=None),
                    session: Session = Depends(get_db),
-                   user: User = Depends(require_roles(*STAFF_READ))):
+                   user: User = Depends(require_capability("lab.read"))):
     stmt = select(FhirResource).where(FhirResource.resource_type == "Specimen")
     if status:
         stmt = stmt.where(FhirResource.status == status)
@@ -899,6 +968,51 @@ async def ingest(request: Request, session: Session = Depends(get_db),
 # Verification queue, verify, release
 # ---------------------------------------------------------------------------
 
+def _report_is_critical(session: Session, report: FhirResource) -> bool:
+    """A report is critical when it carries the critical-result
+    extension or any of its observations interpreted LL/HH."""
+    for ext in (report.body or {}).get("extension") or []:
+        if isinstance(ext, dict) and ext.get("url") == CRITICAL_EXTENSION_URL \
+                and ext.get("valueBoolean") is True:
+            return True
+    for obs in _result_observations(session, report):
+        interp = (((obs.body or {}).get("interpretation") or [{}])[0]
+                  .get("coding") or [{}])[0].get("code")
+        if _is_critical(interp):
+            return True
+    return False
+
+
+def _notification_record(session: Session,
+                         report_id: str) -> LabCriticalNotification | None:
+    return session.scalars(
+        select(LabCriticalNotification).where(
+            LabCriticalNotification.report_id == report_id)).first()
+
+
+def _notification_out(session: Session, report: FhirResource,
+                      critical: bool) -> dict:
+    """Notification state for one report. No record yet = 'pending' for
+    a critical report (the call is outstanding) and 'not-required' for
+    a non-critical one; the record's own state rules once it exists."""
+    record = _notification_record(session, report.resource_id)
+    if record is None:
+        return {"state": "pending" if critical else "not-required",
+                "notified_to": None, "read_back": None, "notified_by": None,
+                "notified_at": None, "acknowledged_by": None,
+                "acknowledged_at": None}
+    return {
+        "state": record.state,
+        "notified_to": record.notified_to,
+        "read_back": record.read_back,
+        "notified_by": record.notified_by,
+        "notified_at": record.notified_at.isoformat() if record.notified_at else None,
+        "acknowledged_by": record.acknowledged_by,
+        "acknowledged_at": (record.acknowledged_at.isoformat()
+                              if record.acknowledged_at else None),
+    }
+
+
 def _report_summary(session: Session, report: FhirResource,
                     order: FhirResource | None) -> dict:
     observations = _result_observations(session, report)
@@ -928,13 +1042,14 @@ def _report_summary(session: Session, report: FhirResource,
                   else order_status),
         "critical": critical,
         "qc_blocked": qc_blockers(session, codes),
+        "notification": _notification_out(session, report, critical),
         "results": results,
     }
 
 
 @router.get("/verification-queue")
 def verification_queue(session: Session = Depends(get_db),
-                       user: User = Depends(require_roles(*STAFF_READ))):
+                       user: User = Depends(require_capability("lab.read"))):
     """Lab drafts awaiting a human step: reports whose order is resulted
     (awaiting verification) or verified (awaiting release), each with its
     results, critical flags and live QC-block state."""
@@ -1046,6 +1161,124 @@ def _strip_unreleased(row: FhirResource) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Critical-result notification (released critical reports)
+# ---------------------------------------------------------------------------
+
+@router.get("/critical-reports")
+def critical_reports(session: Session = Depends(get_db),
+                     user: User = Depends(require_capability("lab.read"))):
+    """The critical-results worklist: RELEASED reports containing a
+    critical (LL/HH) value, each with its notification state
+    (pending -> notified -> acknowledged). Staff-only like every /lab
+    surface; patients never see notification internals — their portal
+    shows the released results themselves, and this record is not part
+    of the FHIR report body."""
+    reports = session.scalars(
+        select(FhirResource).where(FhirResource.resource_type == "DiagnosticReport")
+        .order_by(FhirResource.created_at.asc(), FhirResource.id.asc())).all()
+    items = []
+    for report in reports:
+        order = _report_order(session, report)
+        if order is None or (order.body or {}).get("status") != "released":
+            continue
+        summary = _report_summary(session, report, order)
+        if summary["critical"]:
+            items.append(summary)
+    return {"items": items, "total": len(items)}
+
+
+@router.post("/reports/{report_id}/notify")
+async def notify_critical_report(report_id: str, request: Request,
+                                 session: Session = Depends(get_db),
+                                 user: User = Depends(require_capability("lab.verify"))):
+    """Record the critical-value phone notification for a RELEASED
+    critical report: who was notified (`notified_to`) and the read-back
+    confirmation (`read_back` must be true — the receiver reads the
+    result back; without it the notification is not recorded, 422).
+    Notifying a non-critical report -> 400; an unreleased one -> 409;
+    notifying twice -> 409."""
+    payload = await _json_body(request)
+    report, order = _lab_report(session, report_id)
+    if not _report_is_critical(session, report):
+        raise HTTPException(
+            status_code=400,
+            detail=(f"Report {report_id} contains no critical value; "
+                    "notification tracking applies to critical reports only"))
+    if (order.body or {}).get("status") != "released":
+        raise HTTPException(
+            status_code=409,
+            detail=(f"Report {report_id} has not been released (order status "
+                    f"'{(order.body or {}).get('status')}'); critical "
+                    "notification is recorded for released reports"))
+    notified_to = payload.get("notified_to")
+    if not isinstance(notified_to, str) or not notified_to.strip():
+        raise HTTPException(
+            status_code=422,
+            detail="Notification requires 'notified_to' (who was notified)")
+    if payload.get("read_back") is not True:
+        raise HTTPException(
+            status_code=422,
+            detail=("Critical-value notification requires read-back "
+                    "confirmation: 'read_back' must be true (the receiver "
+                    "read the result back)"))
+    record = _notification_record(session, report_id)
+    if record is not None and record.state in ("notified", "acknowledged"):
+        raise HTTPException(
+            status_code=409,
+            detail=(f"Report {report_id} was already notified "
+                    f"(state '{record.state}')"))
+    if record is None:
+        record = LabCriticalNotification(report_id=report_id,
+                                         order_id=order.resource_id)
+        session.add(record)
+    record.state = "notified"
+    record.notified_to = notified_to.strip()
+    record.read_back = True
+    record.notified_by = user.username
+    record.notified_at = datetime.now(timezone.utc)
+    session.flush()
+    append_audit(session, actor=user.username, action="lab.report.notify",
+                 entity=f"DiagnosticReport/{report_id}",
+                 payload={"order_id": order.resource_id,
+                          "notified_to": record.notified_to,
+                          "read_back": True})
+    session.commit()
+    return {"report_id": report_id,
+            "notification": _notification_out(session, report, True)}
+
+
+@router.post("/reports/{report_id}/acknowledge")
+def acknowledge_critical_report(report_id: str,
+                                session: Session = Depends(get_db),
+                                user: User = Depends(require_capability("lab.verify"))):
+    """Acknowledge a notified critical report (the receiving clinician
+    confirms receipt). Acknowledging before notification -> 409; the
+    state machine is pending -> notified -> acknowledged, in order."""
+    report, order = _lab_report(session, report_id)
+    record = _notification_record(session, report_id)
+    if record is None or record.state == "pending":
+        raise HTTPException(
+            status_code=409,
+            detail=(f"Report {report_id} has not been notified yet; "
+                    "acknowledgement follows the notification call"))
+    if record.state == "acknowledged":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Report {report_id} has already been acknowledged")
+    record.state = "acknowledged"
+    record.acknowledged_by = user.username
+    record.acknowledged_at = datetime.now(timezone.utc)
+    session.flush()
+    append_audit(session, actor=user.username, action="lab.report.acknowledge",
+                 entity=f"DiagnosticReport/{report_id}",
+                 payload={"order_id": order.resource_id,
+                          "acknowledged_by": user.username})
+    session.commit()
+    return {"report_id": report_id,
+            "notification": _notification_out(session, report, True)}
+
+
+# ---------------------------------------------------------------------------
 # QC endpoints
 # ---------------------------------------------------------------------------
 
@@ -1095,7 +1328,7 @@ async def create_qc_run(request: Request, session: Session = Depends(get_db),
 @router.get("/qc")
 def list_qc_runs(analyte_code: str | None = Query(default=None),
                  session: Session = Depends(get_db),
-                 user: User = Depends(require_roles(*STAFF_READ))):
+                 user: User = Depends(require_capability("lab.read"))):
     stmt = select(LabQcRun).order_by(LabQcRun.id.desc())
     if analyte_code:
         stmt = stmt.where(LabQcRun.analyte_code == analyte_code)
@@ -1104,7 +1337,7 @@ def list_qc_runs(analyte_code: str | None = Query(default=None),
 
 @router.get("/qc/status")
 def qc_status(analyte_code: str = Query(...), session: Session = Depends(get_db),
-              user: User = Depends(require_roles(*STAFF_READ))):
+              user: User = Depends(require_capability("lab.read"))):
     latest = _latest_qc(session, analyte_code)
     return {"analyte_code": analyte_code,
             "blocked": bool(latest is not None and not latest.passed),
