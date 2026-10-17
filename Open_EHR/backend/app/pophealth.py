@@ -26,17 +26,20 @@ from sqlalchemy.orm import Session
 from . import etl, warehouse as wh
 from .audit import append_audit
 from .configstore import published_config, published_configs
-from .models import ConfigStatus, OutboxEvent, Role, StudioConfig, User
+from .models import ConfigStatus, OutboxEvent, StudioConfig, User
 from .outbox import outbox_counts
-from .security import get_db, require_roles
+from .security import get_db, require_capability
 
 router = APIRouter(prefix="/pophealth", tags=["pophealth"])
 warehouse_router = APIRouter(prefix="/warehouse", tags=["warehouse"])
 
-POPHEALTH_ROLES = (Role.admin, Role.clinician)
 DEFAULT_SMALL_CELL = 5
+# Fallback age bands for cohort payloads that do not carry `ageBands`
+# (the seeded registries below carry them explicitly; a cohort's bands
+# are its own configuration).
 AGE_BANDS = ((0, 17, "0-17"), (18, 44, "18-44"), (45, 64, "45-64"),
              (65, 74, "65-74"), (75, None, "75+"))
+_AGE_BANDS_PAYLOAD = [[low, high, label] for low, high, label in AGE_BANDS]
 
 DIABETES_COHORT = {
     "name": "Diabetes registry",
@@ -46,6 +49,7 @@ DIABETES_COHORT = {
     "lab": {"system": "http://loinc.org", "code": "4548-4",
             "comparator": "<", "threshold": 7.0, "windowDays": 365},
     "smallCellThreshold": 5,
+    "ageBands": _AGE_BANDS_PAYLOAD,
 }
 
 HYPERTENSION_COHORT = {
@@ -53,7 +57,26 @@ HYPERTENSION_COHORT = {
     "description": "Persons with a hypertensive disorder diagnosis.",
     "conditionCodes": [{"system": "http://snomed.info/sct", "code": "38341003"}],
     "smallCellThreshold": 5,
+    "ageBands": _AGE_BANDS_PAYLOAD,
 }
+
+
+def _age_bands(definition: dict) -> list:
+    """(low, high, label) bands from the cohort payload's `ageBands`
+    ([low, high|null, label] triples); the built-in bands when the
+    payload carries none (or carries malformed ones)."""
+    raw = definition.get("ageBands")
+    bands = []
+    if isinstance(raw, list):
+        for entry in raw:
+            if isinstance(entry, (list, tuple)) and len(entry) == 3:
+                low, high, label = entry
+                if isinstance(low, int) and not isinstance(low, bool) \
+                        and (high is None or (isinstance(high, int)
+                                              and not isinstance(high, bool))) \
+                        and isinstance(label, str) and label:
+                    bands.append((low, high, label))
+    return bands or list(AGE_BANDS)
 
 
 def ensure_pophealth_defaults(session: Session) -> None:
@@ -197,14 +220,15 @@ def registry_summary(wh_session: Session, key: str, definition: dict) -> dict:
                              if with_result else None),
         }
 
+    age_bands = _age_bands(definition)
     by_gender: dict[str, int] = {}
-    by_age: dict[str, int] = {label: 0 for _, _, label in AGE_BANDS}
+    by_age: dict[str, int] = {label: 0 for _, _, label in age_bands}
     for p in members:
         gender = p.gender_source_value or "unknown"
         by_gender[gender] = by_gender.get(gender, 0) + 1
         if p.year_of_birth is not None:
             age = as_of.year - p.year_of_birth
-            for low, high, label in AGE_BANDS:
+            for low, high, label in age_bands:
                 if age >= low and (high is None or age <= high):
                     by_age[label] += 1
                     break
@@ -231,7 +255,7 @@ def registry_summary(wh_session: Session, key: str, definition: dict) -> dict:
 
 @router.get("/registries")
 def list_registries(session: Session = Depends(get_db),
-                    user: User = Depends(require_roles(*POPHEALTH_ROLES))):
+                    user: User = Depends(require_capability("pophealth.view"))):
     """Published cohort (registry) definitions from Studio config."""
     return [{"key": cfg.key, "name": (cfg.payload or {}).get("name"),
              "definition": cfg.payload}
@@ -240,7 +264,7 @@ def list_registries(session: Session = Depends(get_db),
 
 @router.get("/registries/{key}/summary")
 def get_registry_summary(key: str, session: Session = Depends(get_db),
-                         user: User = Depends(require_roles(*POPHEALTH_ROLES))):
+                         user: User = Depends(require_capability("pophealth.view"))):
     cfg = published_config(session, "cohort", key)
     if cfg is None:
         raise HTTPException(status_code=404, detail=f"No published cohort config '{key}'")
@@ -252,7 +276,7 @@ def get_registry_summary(key: str, session: Session = Depends(get_db),
 
 @router.post("/explore")
 async def explore(request: Request, session: Session = Depends(get_db),
-                  user: User = Depends(require_roles(*POPHEALTH_ROLES))):
+                  user: User = Depends(require_capability("pophealth.view"))):
     """Cohort explorer: persons matching ALL supplied filters (condition
     code and/or latest-lab rule). Aggregate count only — with small-cell
     suppression applied to the count itself, since an explorer result IS
@@ -313,7 +337,7 @@ async def explore(request: Request, session: Session = Depends(get_db),
 
 @warehouse_router.get("/status")
 def warehouse_status(request: Request, session: Session = Depends(get_db),
-                     user: User = Depends(require_roles(*POPHEALTH_ROLES))):
+                     user: User = Depends(require_capability("pophealth.view"))):
     factory = wh.warehouse_session_factory()
     with factory() as wh_session:
         wh.ensure_concept_map(wh_session)
@@ -334,7 +358,7 @@ def warehouse_status(request: Request, session: Session = Depends(get_db),
 
 @warehouse_router.post("/etl/run")
 def run_etl_now(request: Request, session: Session = Depends(get_db),
-                user: User = Depends(require_roles(Role.admin))):
+                user: User = Depends(require_capability("pophealth.run"))):
     """Trigger an ETL drain (admin only). Audited. Warehouse DB comes from
     WAREHOUSE_DATABASE_URL, exactly like the CLI."""
     stats = etl.run_etl(request.app.state.session_factory,

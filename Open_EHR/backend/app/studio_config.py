@@ -5,8 +5,11 @@ workflows, terminology, navigation, branding, permissions) is configuration
 DATA with a draft -> publish lifecycle, never hardcoded per site.
 
 Governance rules enforced here:
-- Writes require admin/configurator (the same studio gate as module packs);
-  clinician/viewer can only ever read PUBLISHED (effective) config.
+- Writes require the `studio.manage` capability (default admin/
+  configurator, overridable via the published permissions matrix);
+  reads require `studio.read` (default admin/configurator/clinician/
+  viewer). Clinician/viewer can only ever read PUBLISHED (effective)
+  config; drafts are designer data gated by studio.manage.
 - Published versions are immutable. Editing one means creating a new draft
   version (POST) and publishing it; publishing supersedes the previously
   published version, which is kept for rollback.
@@ -19,17 +22,17 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .audit import append_audit
-from .configstore import (ADT_WORKFLOW_KEY, CONFIG_KINDS, ConfigPayloadError,
-                          default_adt_workflow_payload, diff_payloads,
-                          get_config_version, list_config_versions,
-                          published_config, published_configs, validate_payload)
-from .models import ConfigStatus, Role, StudioConfig, User
-from .security import get_db, require_roles
+from .configstore import (ADT_WORKFLOW_KEY, BRANDING_KEY, CONFIG_KINDS,
+                          ConfigPayloadError, NAVIGATION_KEY,
+                          default_adt_workflow_payload,
+                          default_branding_payload, default_navigation_payload,
+                          diff_payloads, get_config_version,
+                          list_config_versions, published_config,
+                          published_configs, role_allowed, validate_payload)
+from .models import ConfigStatus, StudioConfig, User
+from .security import get_db, require_capability
 
 router = APIRouter(prefix="/studio/config", tags=["studio-config"])
-
-STUDIO_ROLES = (Role.admin, Role.configurator)
-READ_ROLES = (Role.admin, Role.configurator, Role.clinician, Role.viewer)
 
 
 def _require_kind(kind: str) -> None:
@@ -54,16 +57,17 @@ def _config_out(row: StudioConfig) -> dict:
     }
 
 
-def _can_see(row: StudioConfig, user: User) -> bool:
-    """Clinician/viewer see published config only; drafts are designer data."""
-    if user.role in STUDIO_ROLES:
+def _can_see(session: Session, row: StudioConfig, user: User) -> bool:
+    """Drafts are designer data: only studio.manage holders see them;
+    everyone else with studio.read sees published config only."""
+    if role_allowed(session, user.role, "studio.manage"):
         return True
     return row.status == ConfigStatus.published
 
 
 def _get_visible(kind: str, key: str, version: int, session: Session, user: User) -> StudioConfig:
     row = get_config_version(session, kind, key, version)
-    if row is None or not _can_see(row, user):
+    if row is None or not _can_see(session, row, user):
         raise HTTPException(status_code=404,
                             detail=f"Config {kind}/{key} v{version} not found")
     return row
@@ -83,14 +87,14 @@ async def _json_body(request: Request):
 
 @router.get("/{kind}/effective")
 def effective_for_kind(kind: str, session: Session = Depends(get_db),
-                       user: User = Depends(require_roles(*READ_ROLES))):
+                       user: User = Depends(require_capability("studio.read"))):
     _require_kind(kind)
     return [_config_out(r) for r in published_configs(session, kind)]
 
 
 @router.get("/{kind}/effective/{key}")
 def effective_for_key(kind: str, key: str, session: Session = Depends(get_db),
-                      user: User = Depends(require_roles(*READ_ROLES))):
+                      user: User = Depends(require_capability("studio.read"))):
     _require_kind(kind)
     row = published_config(session, kind, key)
     if row is None:
@@ -106,7 +110,7 @@ def effective_for_key(kind: str, key: str, session: Session = Depends(get_db),
 @router.post("/{kind}/{key}", status_code=201)
 async def create_draft(kind: str, key: str, request: Request,
                        session: Session = Depends(get_db),
-                       user: User = Depends(require_roles(*STUDIO_ROLES))):
+                       user: User = Depends(require_capability("studio.manage"))):
     """Create the next version of {kind}/{key} as a draft. If the latest
     version is published, this is how it is 'edited': the published row is
     never mutated — a new draft version spawns instead."""
@@ -136,7 +140,7 @@ async def create_draft(kind: str, key: str, request: Request,
 @router.put("/{kind}/{key}/versions/{version}")
 async def update_draft(kind: str, key: str, version: int, request: Request,
                        session: Session = Depends(get_db),
-                       user: User = Depends(require_roles(*STUDIO_ROLES))):
+                       user: User = Depends(require_capability("studio.manage"))):
     """Replace a DRAFT version's payload. Any other status -> 409: published
     config is immutable and changes only via a new draft version."""
     _require_kind(kind)
@@ -186,7 +190,7 @@ def _publish_row(row: StudioConfig, session: Session, user: User, action: str,
 
 @router.post("/{kind}/{key}/versions/{version}/publish")
 def publish(kind: str, key: str, version: int, session: Session = Depends(get_db),
-            user: User = Depends(require_roles(*STUDIO_ROLES))):
+            user: User = Depends(require_capability("studio.manage"))):
     _require_kind(kind)
     row = get_config_version(session, kind, key, version)
     if row is None:
@@ -205,7 +209,7 @@ def publish(kind: str, key: str, version: int, session: Session = Depends(get_db
 
 @router.post("/{kind}/{key}/versions/{version}/disable")
 def disable(kind: str, key: str, version: int, session: Session = Depends(get_db),
-            user: User = Depends(require_roles(*STUDIO_ROLES))):
+            user: User = Depends(require_capability("studio.manage"))):
     _require_kind(kind)
     row = get_config_version(session, kind, key, version)
     if row is None:
@@ -228,7 +232,7 @@ def disable(kind: str, key: str, version: int, session: Session = Depends(get_db
 @router.post("/{kind}/{key}/rollback", status_code=201)
 async def rollback(kind: str, key: str, request: Request,
                    session: Session = Depends(get_db),
-                   user: User = Depends(require_roles(*STUDIO_ROLES))):
+                   user: User = Depends(require_capability("studio.manage"))):
     """Republish an earlier version's payload as a NEW published version.
     The target must have been published at some point (never a draft)."""
     _require_kind(kind)
@@ -262,7 +266,7 @@ async def rollback(kind: str, key: str, request: Request,
 @router.get("")
 def list_configs(kind: str | None = Query(default=None),
                  session: Session = Depends(get_db),
-                 user: User = Depends(require_roles(*READ_ROLES))):
+                 user: User = Depends(require_capability("studio.read"))):
     if kind is not None:
         _require_kind(kind)
     stmt = select(StudioConfig).order_by(StudioConfig.kind, StudioConfig.key,
@@ -270,24 +274,24 @@ def list_configs(kind: str | None = Query(default=None),
     if kind is not None:
         stmt = stmt.where(StudioConfig.kind == kind)
     rows = session.scalars(stmt).all()
-    return [_config_out(r) for r in rows if _can_see(r, user)]
+    return [_config_out(r) for r in rows if _can_see(session, r, user)]
 
 
 @router.get("/{kind}/{key}")
 def config_history(kind: str, key: str, session: Session = Depends(get_db),
-                   user: User = Depends(require_roles(*READ_ROLES))):
+                   user: User = Depends(require_capability("studio.read"))):
     _require_kind(kind)
     all_rows = list_config_versions(session, kind, key)
     if not all_rows:
         raise HTTPException(status_code=404, detail=f"No config found for {kind}/{key}")
-    return [_config_out(r) for r in all_rows if _can_see(r, user)]
+    return [_config_out(r) for r in all_rows if _can_see(session, r, user)]
 
 
 @router.get("/{kind}/{key}/diff")
 def config_diff(kind: str, key: str, from_version: int = Query(..., alias="from"),
                 to_version: int = Query(..., alias="to"),
                 session: Session = Depends(get_db),
-                user: User = Depends(require_roles(*READ_ROLES))):
+                user: User = Depends(require_capability("studio.read"))):
     _require_kind(kind)
     old = _get_visible(kind, key, from_version, session, user)
     new = _get_visible(kind, key, to_version, session, user)
@@ -297,7 +301,7 @@ def config_diff(kind: str, key: str, from_version: int = Query(..., alias="from"
 
 @router.get("/{kind}/{key}/versions/{version}")
 def get_version(kind: str, key: str, version: int, session: Session = Depends(get_db),
-                user: User = Depends(require_roles(*READ_ROLES))):
+                user: User = Depends(require_capability("studio.read"))):
     _require_kind(kind)
     return _config_out(_get_visible(kind, key, version, session, user))
 
@@ -306,26 +310,41 @@ def get_version(kind: str, key: str, version: int, session: Session = Depends(ge
 # Defaults seeded at startup
 # ---------------------------------------------------------------------------
 
-def ensure_default_configs(session: Session) -> None:
-    """Seed the Appointment ADT state machine as published workflow config v1
-    (idempotent). From then on the ADT endpoint reads its transitions from
-    Studio config; the hardcoded map in fhir.py is only a fallback for the
-    case where this config has been disabled."""
-    existing = list_config_versions(session, "workflow", ADT_WORKFLOW_KEY)
-    if existing:
+def _seed_published(session: Session, kind: str, key: str, payload: dict) -> None:
+    """Insert one config object as published v1 (idempotent: any existing
+    version of the object means the seed already ran — never overwrite)."""
+    if list_config_versions(session, kind, key):
         return
-    row = StudioConfig(kind="workflow", key=ADT_WORKFLOW_KEY, version=1,
-                       status=ConfigStatus.published,
-                       payload=default_adt_workflow_payload(),
+    row = StudioConfig(kind=kind, key=key, version=1,
+                       status=ConfigStatus.published, payload=payload,
                        created_by="system", updated_by="system")
     session.add(row)
     session.flush()
     append_audit(session, actor="system", action="studio.config.create",
-                 entity=f"config:workflow/{ADT_WORKFLOW_KEY}@v1",
-                 payload={"kind": "workflow", "key": ADT_WORKFLOW_KEY, "version": 1,
+                 entity=f"config:{kind}/{key}@v1",
+                 payload={"kind": kind, "key": key, "version": 1,
                           "seeded_default": True})
     append_audit(session, actor="system", action="studio.config.publish",
-                 entity=f"config:workflow/{ADT_WORKFLOW_KEY}@v1",
-                 payload={"kind": "workflow", "key": ADT_WORKFLOW_KEY, "version": 1,
+                 entity=f"config:{kind}/{key}@v1",
+                 payload={"kind": kind, "key": key, "version": 1,
                           "superseded_version": None, "seeded_default": True})
+
+
+def ensure_default_configs(session: Session) -> None:
+    """Seed the built-in published v1 configs at startup (idempotent):
+
+    - the Appointment ADT state machine (workflow/appointment-adt) — from
+      then on the ADT endpoint reads its transitions from Studio config;
+      the hardcoded map in fhir.py is only a fallback for the case where
+      this config has been disabled;
+    - the shell navigation (navigation/main) and branding
+      (branding/default) — payload-for-payload mirrors of the web shell's
+      built-in defaults, so the shell consumes published config from first
+      boot with zero visible change until a site publishes over them."""
+    _seed_published(session, "workflow", ADT_WORKFLOW_KEY,
+                    default_adt_workflow_payload())
+    _seed_published(session, "navigation", NAVIGATION_KEY,
+                    default_navigation_payload())
+    _seed_published(session, "branding", BRANDING_KEY,
+                    default_branding_payload())
     session.commit()
