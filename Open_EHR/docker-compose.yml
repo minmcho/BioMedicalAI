@@ -33,6 +33,20 @@ services:
         condition: service_healthy
       valkey:
         condition: service_started
+  mllp:
+    # Phase 8 HL7 v2 listener (app.mllp_server): real MLLP over TCP.
+    # Inbound ORU lands as lab drafts via the shared ingest path;
+    # inbound ADT is recorded as external events only.
+    build:
+      context: ./backend
+    command: ["python", "-m", "app.mllp_server", "--host", "0.0.0.0", "--port", "2575"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-openehr}:${POSTGRES_PASSWORD:-openehr}@db:5432/${POSTGRES_DB:-openehr}
+    ports:
+      - "2575:2575"
+    depends_on:
+      db:
+        condition: service_healthy
   web:
     build:
       context: ./web
