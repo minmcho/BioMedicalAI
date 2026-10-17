@@ -120,6 +120,53 @@ export function canAccess(role: Role, page: PageKey): boolean {
   }
 }
 
+// ---- Runtime-config-aware access (realignment) ----
+// The shell resolves access from the PUBLISHED permissions matrix
+// (merged over the built-in defaults by the caller) so the UI and the
+// server agree after a site publishes an override. Each page maps to
+// the capability that gates its API surface server-side; where no
+// capability exists (FHIR reads are token-scoped; the portal is the
+// patient's own record) the rule stays role-based, exactly as the
+// server enforces it.
+
+import type { PermissionMatrix } from "../pages/studio/models";
+
+export const PAGE_CAPABILITY: Partial<Record<PageKey, string>> = {
+  inbox: "fhir.inbox",
+  scheduling: "fhir.write",
+  lab: "lab.read",
+  pophealth: "pophealth.view",
+  pharmacy: "pharmacy.read",
+  ed: "boards.read",
+  radiology: "boards.read",
+  surgery: "boards.read",
+  // The Studio page is the configurators' surface: its write actions
+  // are studio.manage on the server, so page access follows it too
+  // (NOT studio.read, which staff roles hold for config reads).
+  studio: "studio.manage",
+};
+
+export function canAccessWith(
+  role: Role,
+  page: PageKey,
+  matrix: PermissionMatrix,
+): boolean {
+  if (page === "portal") return role === "patient";
+  if (page === "patients" || page === "chart") return role !== "patient";
+  if (page === "billing") {
+    // billing.view for staff; a patient sees only their own claims.
+    if (role === "patient") return true;
+    const row = matrix["billing.view"];
+    return row ? row[role] === true : canAccess(role, page);
+  }
+  const capability = PAGE_CAPABILITY[page];
+  if (capability) {
+    const row = matrix[capability];
+    if (row) return row[role] === true;
+  }
+  return canAccess(role, page);
+}
+
 export interface NavItem {
   key: PageKey;
   label: string;
@@ -136,12 +183,59 @@ const NAV: Array<NavItem & { pages: PageKey }> = [
   { key: "ed", label: "ED board", pages: "ed" },
   { key: "radiology", label: "Radiology", pages: "radiology" },
   { key: "surgery", label: "Surgery board", pages: "surgery" },
-  { key: "studio", label: "Studio packs", pages: "studio" },
+  { key: "studio", label: "System Studio", pages: "studio" },
   { key: "portal", label: "My results", pages: "portal" },
 ];
 
 export function navItemsFor(role: Role): NavItem[] {
   return NAV.filter((item) => canAccess(role, item.pages)).map(({ key, label }) => ({ key, label }));
+}
+
+/** Resolve the shell navigation from the published navigation config
+ *  (kind=navigation, key=main) merged with the permissions matrix.
+ *  A missing/malformed payload falls back to the built-in NAV, so the
+ *  shell is never broken by a bad config; the matrix ALWAYS applies
+ *  (with the built-in defaults it reproduces navItemsFor exactly). */
+export function resolveNavItems(
+  role: Role,
+  navPayload: unknown,
+  matrix: PermissionMatrix,
+): NavItem[] {
+  const known = new Map(NAV.map((item) => [item.key as string, item]));
+  const payloadItems =
+    navPayload && typeof navPayload === "object" && !Array.isArray(navPayload)
+      ? (navPayload as { items?: unknown }).items
+      : undefined;
+  if (!Array.isArray(payloadItems)) {
+    return NAV.filter((item) => canAccessWith(role, item.pages, matrix)).map(
+      ({ key, label }) => ({ key, label }),
+    );
+  }
+  const resolved: Array<NavItem & { order: number; index: number }> = [];
+  payloadItems.forEach((raw, index) => {
+    if (!raw || typeof raw !== "object") return;
+    const item = raw as {
+      module?: unknown; label?: unknown; roles?: unknown;
+      order?: unknown; visible?: unknown;
+    };
+    if (typeof item.module !== "string") return;
+    const builtin = known.get(item.module);
+    if (!builtin) return; // unknown module — the shell has no such page
+    if (item.visible === false) return;
+    if (Array.isArray(item.roles) && !item.roles.includes(role)) return;
+    if (!canAccessWith(role, builtin.pages, matrix)) return;
+    resolved.push({
+      key: builtin.key,
+      label:
+        typeof item.label === "string" && item.label.trim()
+          ? item.label
+          : builtin.label,
+      order: typeof item.order === "number" ? item.order : index + 1,
+      index,
+    });
+  });
+  resolved.sort((a, b) => a.order - b.order || a.index - b.index);
+  return resolved.map(({ key, label }) => ({ key, label }));
 }
 
 export function homePageFor(role: Role): PageKey {

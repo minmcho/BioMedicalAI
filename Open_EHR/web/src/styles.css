@@ -123,3 +123,44 @@ nav { display: flex; flex-direction: column; gap: 0.25rem; }
   border: 1px solid var(--border); border-radius: 6px; }
 .inline-form textarea { font: inherit; padding: 0.4rem 0.55rem;
   border: 1px solid var(--border); border-radius: 6px; min-width: 22rem; }
+
+/* System Studio — visual module (tabs, editors, overview, audit) */
+.studio-tabs { display: flex; gap: 0.3rem; flex-wrap: wrap; margin: 0.8rem 0 1.1rem;
+  border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+.studio-tab { background: none; border: 1px solid transparent; border-radius: 8px;
+  padding: 0.45rem 0.75rem; font: inherit; cursor: pointer; }
+.studio-tab:hover { background: #eef3f1; }
+.studio-tab.active { background: #e6f2ec; border-color: var(--accent); font-weight: 600; }
+.studio-overview { display: grid; gap: 0.8rem; }
+.studio-org-name { font-size: 1.15rem; font-weight: 700; margin: 0.3rem 0; }
+.studio-color-chip { display: inline-block; width: 0.9rem; height: 0.9rem;
+  border-radius: 3px; border: 1px solid var(--border); vertical-align: baseline; }
+.studio-table { border-collapse: collapse; width: 100%; margin: 0.6rem 0 1rem; background: #fff; }
+.studio-table th, .studio-table td { border: 1px solid var(--border); padding: 0.35rem 0.55rem;
+  text-align: left; font-size: 0.9rem; vertical-align: middle; }
+.studio-table th { background: #eef3f1; }
+.studio-table input { font: inherit; padding: 0.3rem 0.45rem; border: 1px solid var(--border);
+  border-radius: 6px; }
+.studio-matrix td:not(:first-child), .studio-matrix th:not(:first-child) { text-align: center; }
+.studio-keybar { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+.studio-keybar select, .studio-keybar input { font: inherit; padding: 0.4rem 0.55rem;
+  border: 1px solid var(--border); border-radius: 6px; }
+.studio-editor input, .studio-editor select { font: inherit; padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border); border-radius: 6px; }
+.studio-editor button, .studio-actions button { border: 1px solid var(--accent);
+  background: #fff; color: var(--accent); border-radius: 8px; padding: 0.4rem 0.8rem;
+  font-weight: 600; cursor: pointer; }
+.studio-actions button { background: var(--accent); color: #fff; border: none; }
+.studio-editor button:disabled, .studio-actions button:disabled { opacity: 0.55; cursor: default; }
+.studio-item { border: 1px solid var(--border); border-radius: 8px; margin: 0.6rem 0;
+  padding: 0.6rem 0.9rem; background: #fff; }
+.studio-item legend { font-weight: 600; padding: 0 0.3rem; }
+.studio-subrows { margin: 0.5rem 0 0.2rem 1rem; }
+.studio-row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.row-controls button { padding: 0.2rem 0.5rem; font-weight: 400; }
+.studio-preview { border: 1px dashed var(--border); border-radius: 8px;
+  padding: 0.6rem 0.9rem; margin-top: 1rem; background: #fbfcfc; max-width: 560px; }
+.studio-preview-field { margin: 0.35rem 0; }
+.studio-brand-preview { background: #fff; border: 1px solid var(--border);
+  border-radius: 8px; padding: 0.8rem 1rem; max-width: 420px; margin-top: 0.8rem; }
+.state-ok { background: #e6f2ec; color: var(--accent); }
