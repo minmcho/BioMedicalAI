@@ -33,6 +33,16 @@ CAPABILITY_DEFAULTS: dict[str, tuple[str, ...]] = {
     "fhir.write": ("admin", "configurator", "clinician"),
     "fhir.inbox": ("admin", "configurator", "clinician"),
     "studio.manage": ("admin", "configurator"),
+    # Read gates (realignment): these used to be hardcoded role tuples in
+    # the modules (STAFF_READ / POPHEALTH_ROLES). The defaults below are
+    # copied tuple-for-tuple from those constants, so behaviour is
+    # unchanged until a site publishes a permissions override.
+    "studio.read": ("admin", "configurator", "clinician", "viewer"),
+    "lab.read": ("admin", "configurator", "clinician", "viewer"),
+    "pharmacy.read": ("admin", "configurator", "clinician", "viewer"),
+    "boards.read": ("admin", "configurator", "clinician", "viewer"),
+    "pophealth.view": ("admin", "clinician"),
+    "pophealth.run": ("admin",),
     # Phase 2 (Lab LIS). Ordering and bench work follow the fhir.write
     # pattern; verification/release is a clinical sign-off, so the
     # configurator (a systems role, not a clinician) is excluded by default.
@@ -91,6 +101,112 @@ def default_adt_workflow_payload() -> dict:
         for dst in sorted(DEFAULT_ADT_TRANSITIONS[src])
     ]
     return {"states": states, "transitions": transitions}
+
+
+# ---------------------------------------------------------------------------
+# Shell defaults: navigation + branding (seeded published v1 at startup,
+# mirroring the web shell's built-in defaults EXACTLY — same modules,
+# labels, order and per-module roles as web/src/auth/session.ts — so the
+# shell can consume the published config with zero visible change, and a
+# site re-skins/re-menus the deployment by publishing over them.)
+# ---------------------------------------------------------------------------
+
+NAVIGATION_KEY = "main"
+BRANDING_KEY = "default"
+
+_STAFF = ["admin", "configurator", "clinician", "viewer"]
+_WRITE_STAFF = ["admin", "configurator", "clinician"]
+
+# (module, label, roles) in shell order — mirrors NAV + canAccess in
+# web/src/auth/session.ts at the time of the realignment.
+_DEFAULT_NAV_MODULES: tuple[tuple[str, str, list[str]], ...] = (
+    ("patients", "Patients", _STAFF),
+    ("inbox", "Results inbox", _WRITE_STAFF),
+    ("scheduling", "Scheduling", _WRITE_STAFF),
+    ("lab", "Laboratory", _STAFF),
+    ("pophealth", "Population health", ["admin", "clinician"]),
+    ("billing", "Billing", ["admin", "configurator", "clinician", "patient"]),
+    ("pharmacy", "Pharmacy", _STAFF),
+    ("ed", "ED board", _STAFF),
+    ("radiology", "Radiology", _STAFF),
+    ("surgery", "Surgery board", _STAFF),
+    ("studio", "System Studio", ["admin", "configurator"]),
+    ("portal", "My results", ["patient"]),
+)
+
+
+def default_navigation_payload() -> dict:
+    return {"items": [
+        {"module": module, "label": label, "roles": list(roles),
+         "order": index + 1, "visible": True}
+        for index, (module, label, roles) in enumerate(_DEFAULT_NAV_MODULES)
+    ]}
+
+
+def default_branding_payload() -> dict:
+    # orgName + primaryColor are the web shell's literals (App.tsx brand
+    # heading, styles.css --accent); portalTitle is the portal heading.
+    return {"orgName": "OpenCare", "portalTitle": "My results",
+            "primaryColor": "#0b6e4f"}
+
+
+# ---------------------------------------------------------------------------
+# Workflow machine loading (shared by every config-driven state machine)
+# ---------------------------------------------------------------------------
+
+def machine_from_payload(payload, default_transitions):
+    """(transitions, known states, per-transition roles) from a workflow
+    payload. `roles` maps (from, to) -> list of role names for transitions
+    that declare a `roles` list; transitions without one are absent from
+    the map, meaning any otherwise-authorised role may perform them."""
+    payload = payload or {}
+    transitions: dict[str, set[str]] = {}
+    roles: dict[tuple[str, str], list[str]] = {}
+    for t in payload.get("transitions") or []:
+        if isinstance(t, dict) and t.get("from") and t.get("to"):
+            transitions.setdefault(t["from"], set()).add(t["to"])
+            if isinstance(t.get("roles"), list):
+                roles[(t["from"], t["to"])] = [
+                    r for r in t["roles"] if isinstance(r, str)]
+    states = set(payload.get("states") or transitions.keys())
+    for targets in transitions.values():
+        states |= targets
+    return transitions, states, roles
+
+
+def load_workflow_machine(session: Session, key: str,
+                          default_transitions):
+    """machine_from_payload over the PUBLISHED workflow config `key`,
+    falling back to the built-in map when nothing is published."""
+    cfg = published_config(session, "workflow", key)
+    if cfg is not None:
+        return machine_from_payload(cfg.payload, default_transitions)
+    return ({src: set(dst) for src, dst in default_transitions.items()},
+            set(default_transitions.keys()), {})
+
+
+def transition_role_allowed(roles: dict, current, target, role_value: str) -> bool:
+    """True when the transition declares no role restriction, or the
+    caller's role is in the declared list. A restriction naming no valid
+    caller (empty list) blocks everyone — that is what the config says."""
+    allowed = roles.get((current, target))
+    return allowed is None or role_value in allowed
+
+
+def payload_state_set(payload, field: str, fallback) -> set:
+    """A state-set field (governedStates / activeStates / ...) from a
+    workflow payload, falling back to the built-in set when the field is
+    absent or malformed."""
+    values = (payload or {}).get(field)
+    if isinstance(values, list) and values and all(
+            isinstance(v, str) and v for v in values):
+        return set(values)
+    return set(fallback)
+
+
+def workflow_payload(session: Session, key: str) -> dict | None:
+    cfg = published_config(session, "workflow", key)
+    return (cfg.payload or {}) if cfg is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -222,6 +338,23 @@ def validate_workflow(payload) -> None:
         if "action" in t and not isinstance(t["action"], str):
             _fail(f"transitions[{i}].action must be a string")
         _check_roles(t.get("roles"), f"transitions[{i}].roles")
+    # Optional policy fields the owning modules read at runtime (the
+    # realignment moved these state sets / limits out of code constants):
+    # governedStates (bare transitions refused), activeStates (board
+    # census), specimenStates (lab specimen mirror), exportableStates
+    # (837 export) — each a list of declared states.
+    for field in ("governedStates", "activeStates", "specimenStates",
+                  "exportableStates"):
+        values = payload.get(field)
+        if values is not None:
+            if not isinstance(values, list) or any(
+                    not isinstance(v, str) or v not in state_set for v in values):
+                _fail(f"'{field}' must be a list of declared states")
+    max_appeals = payload.get("maxAppeals")
+    if max_appeals is not None and (isinstance(max_appeals, bool)
+                                    or not isinstance(max_appeals, int)
+                                    or max_appeals < 0):
+        _fail("'maxAppeals' must be a non-negative integer")
 
 
 def validate_terminology(payload) -> None:
@@ -304,8 +437,13 @@ def validate_permissions(payload) -> None:
     if not isinstance(caps, dict) or not caps:
         _fail("Permissions config requires a non-empty 'capabilities' object")
     for capability, per_role in caps.items():
-        if capability not in CAPABILITY_DEFAULTS:
-            _fail(f"Unknown capability '{capability}'; known: {sorted(CAPABILITY_DEFAULTS)}")
+        # A capability NOT in CAPABILITY_DEFAULTS is accepted and stored:
+        # sites may define new capabilities in configuration ahead of (or
+        # without) code that enforces them. The distinction matters —
+        # DEFINING a capability is configuration; the ENFORCEMENT POINTS
+        # (which endpoint checks which capability) remain code-defined,
+        # and role_allowed() resolves an undefined capability to its
+        # published cells, defaulting to denied.
         if not isinstance(per_role, dict) or not per_role:
             _fail(f"capabilities.{capability} must be an object mapping role -> boolean")
         for role, allowed in per_role.items():
@@ -356,6 +494,21 @@ def validate_cohort(payload) -> None:
                                         or not isinstance(threshold_cells, int)
                                         or threshold_cells < 1):
         _fail("'smallCellThreshold' must be a positive integer")
+    bands = payload.get("ageBands")
+    if bands is not None:
+        if not isinstance(bands, list) or not bands:
+            _fail("'ageBands' must be a non-empty list of [low, high, label] triples")
+        for i, band in enumerate(bands):
+            if not isinstance(band, list) or len(band) != 3:
+                _fail(f"ageBands[{i}] must be a [low, high, label] triple")
+            low, high, label = band
+            if isinstance(low, bool) or not isinstance(low, int) or low < 0:
+                _fail(f"ageBands[{i}][0] (low) must be a non-negative integer")
+            if high is not None and (isinstance(high, bool)
+                                     or not isinstance(high, int) or high < low):
+                _fail(f"ageBands[{i}][1] (high) must be null or an integer >= low")
+            if not isinstance(label, str) or not label:
+                _fail(f"ageBands[{i}][2] (label) must be a non-empty string")
 
 
 def validate_integration(payload) -> None:

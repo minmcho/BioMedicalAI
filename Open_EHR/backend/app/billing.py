@@ -42,7 +42,9 @@ from sqlalchemy.orm import Session
 
 from . import fhir
 from .audit import append_audit
-from .configstore import published_config, role_allowed
+from .configstore import (load_workflow_machine, published_config,
+                          role_allowed, transition_role_allowed,
+                          workflow_payload)
 from .models import ConfigStatus, FhirResource, Role, StudioConfig, User
 from .security import get_current_user, get_db, require_capability
 
@@ -127,7 +129,11 @@ def default_claim_workflow_payload() -> dict:
         for src in sorted(DEFAULT_CLAIM_TRANSITIONS)
         for dst in sorted(DEFAULT_CLAIM_TRANSITIONS[src])
     ]
-    return {"states": states, "transitions": transitions}
+    # exportableStates + maxAppeals ride in the workflow payload (they
+    # used to be the EXPORTABLE_STATES constant and a literal `>= 1`
+    # appeal check; both remain as fallbacks for payloads without them).
+    return {"states": states, "transitions": transitions,
+            "exportableStates": list(EXPORTABLE_STATES), "maxAppeals": 1}
 
 
 def _seed_published(session: Session, kind: str, key: str, payload: dict) -> None:
@@ -198,19 +204,31 @@ def price_for(index: dict, system: str | None, code: str | None) -> float | None
     return float(price)
 
 
-def _claim_machine(session: Session) -> tuple[dict[str, set[str]], set[str]]:
-    cfg = published_config(session, "workflow", CLAIM_WORKFLOW_KEY)
-    if cfg is not None:
-        payload = cfg.payload or {}
-        transitions: dict[str, set[str]] = {}
-        for t in payload.get("transitions") or []:
-            if isinstance(t, dict) and t.get("from") and t.get("to"):
-                transitions.setdefault(t["from"], set()).add(t["to"])
-        states = set(payload.get("states") or transitions.keys())
-        for targets in transitions.values():
-            states |= targets
-        return transitions, states
-    return DEFAULT_CLAIM_TRANSITIONS, set(DEFAULT_CLAIM_TRANSITIONS.keys())
+def _claim_machine(session: Session):
+    """(transitions, known states, per-transition roles) from the
+    published claim-lifecycle config; built-in map as fallback."""
+    return load_workflow_machine(session, CLAIM_WORKFLOW_KEY,
+                                 DEFAULT_CLAIM_TRANSITIONS)
+
+
+def _exportable_states(session: Session) -> tuple:
+    """States from which an 837 export may be produced, from the claim
+    workflow payload's `exportableStates` (fallback: the built-in set)."""
+    values = (workflow_payload(session, CLAIM_WORKFLOW_KEY) or {}).get(
+        "exportableStates")
+    if isinstance(values, list) and values and all(
+            isinstance(v, str) and v for v in values):
+        return tuple(values)
+    return EXPORTABLE_STATES
+
+
+def _max_appeals(session: Session) -> int:
+    """How many times a claim may be appealed, from the claim workflow
+    payload's `maxAppeals` (fallback: 1 — the original one-appeal rule)."""
+    value = (workflow_payload(session, CLAIM_WORKFLOW_KEY) or {}).get("maxAppeals")
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    return 1
 
 
 # ---------------------------------------------------------------------------
@@ -516,8 +534,9 @@ async def transition_claim(claim_id: str, request: Request,
     """Advance a claim through the published claim-lifecycle workflow
     config. Illegal transitions -> 409; unknown target state -> 422.
     Moving to 'appealed' is the appeal: it is legal only from 'denied',
-    requires a note, and may happen ONCE per claim — a second appeal is
-    refused with 409 and the original appeal stays in the history."""
+    requires a note, and may happen at most `maxAppeals` times per claim
+    (a workflow-config number, default 1) — a further appeal is refused
+    with 409 and the earlier appeals stay in the history."""
     payload = await _json_body(request)
     target = payload.get("to_status") or payload.get("status")
     if not target:
@@ -525,24 +544,36 @@ async def transition_claim(claim_id: str, request: Request,
     row = fhir._get_row("Claim", claim_id, session)
     body = dict(row.body or {})
     current = body.get("status")
-    transitions, known_states = _claim_machine(session)
+    transitions, known_states, roles = _claim_machine(session)
     if target not in known_states:
         raise HTTPException(status_code=422, detail=f"Unknown claim status: {target}")
     if target not in transitions.get(current, set()):
         raise HTTPException(
             status_code=409,
             detail=f"Illegal claim transition '{current}' -> '{target}'")
+    if not transition_role_allowed(roles, current, target, user.role.value):
+        raise HTTPException(
+            status_code=403,
+            detail=(f"Role {user.role.value} may not perform the claim "
+                    f"transition '{current}' -> '{target}': the published "
+                    "workflow config restricts it to "
+                    f"{', '.join(roles.get((current, target), []))}"))
     note = payload.get("note")
     if target == "appealed":
         if not isinstance(note, str) or not note.strip():
             raise HTTPException(
                 status_code=422,
                 detail="Appealing a denied claim requires a 'note' explaining the appeal")
-        if _appeal_count(body) >= 1:
-            raise HTTPException(
-                status_code=409,
-                detail=(f"Claim {claim_id} has already been appealed once; "
-                        "a second appeal is not permitted"))
+        max_appeals = _max_appeals(session)
+        if _appeal_count(body) >= max_appeals:
+            if max_appeals == 1:
+                detail = (f"Claim {claim_id} has already been appealed once; "
+                          "a second appeal is not permitted")
+            else:
+                detail = (f"Claim {claim_id} has already been appealed "
+                          f"{_appeal_count(body)} time(s); the published "
+                          f"workflow config allows at most {max_appeals}")
+            raise HTTPException(status_code=409, detail=detail)
         _set_appeal_count(body, _appeal_count(body) + 1)
     body["status"] = target
     _append_history(body, {"from": current, "to": target, "at": _now_iso(),
@@ -654,7 +685,7 @@ def export_837(claim_id: str, session: Session = Depends(get_db),
     only; nothing is transmitted to any clearinghouse or payer."""
     claim = fhir.get_resource("Claim", claim_id, session, user)
     status = claim.get("status")
-    if status not in EXPORTABLE_STATES:
+    if status not in _exportable_states(session):
         raise HTTPException(
             status_code=409,
             detail=(f"Claim {claim_id} is in status '{status}'; an 837 export "
