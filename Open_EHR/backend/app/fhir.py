@@ -32,7 +32,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .audit import append_audit
-from .configstore import ADT_WORKFLOW_KEY, published_config
+from .configstore import (ADT_WORKFLOW_KEY, DEFAULT_ADT_TRANSITIONS,
+                          load_workflow_machine, published_config,
+                          transition_role_allowed)
 from .models import FhirResource, Role, User
 from .security import get_db, get_current_user, require_capability, require_roles
 
@@ -73,21 +75,15 @@ def has_unreleased_tag(body: dict | None) -> bool:
 WRITE_ROLES = (Role.admin, Role.configurator, Role.clinician)
 INBOX_ROLES = (Role.admin, Role.configurator, Role.clinician)
 
-# Appointment (ADT) status state machine — FALLBACK copy. The live machine
-# is Studio configuration (kind=workflow, key="appointment-adt"), seeded as
+# Appointment (ADT) status state machine — FALLBACK. The live machine is
+# Studio configuration (kind=workflow, key="appointment-adt"), seeded as
 # published v1 at startup with exactly these transitions; this constant is
-# used only if that config has been disabled. fulfilled/cancelled/noshow are
-# terminal. Anything not listed for the current status is illegal -> 409.
-APPOINTMENT_TRANSITIONS = {
-    "proposed": {"booked", "cancelled"},
-    "pending": {"booked", "cancelled"},
-    "booked": {"arrived", "cancelled"},
-    "arrived": {"fulfilled", "cancelled"},
-    "checked-in": {"fulfilled", "cancelled"},
-    "fulfilled": set(),
-    "cancelled": set(),
-    "noshow": set(),
-}
+# used only if that config has been disabled. fulfilled/cancelled/noshow
+# are terminal. Anything not listed for the current status is illegal ->
+# 409. The map itself lives in ONE place (configstore.DEFAULT_ADT_
+# TRANSITIONS, from which the seeded config payload is also built); this
+# alias remains for existing importers.
+APPOINTMENT_TRANSITIONS = DEFAULT_ADT_TRANSITIONS
 
 
 # --------------------------------------------------------------------------
@@ -345,21 +341,11 @@ def results_bundle(session: Session, patient_ref: str, status: str | None = None
 # Appointment ADT transition (state machine loaded from Studio config)
 # --------------------------------------------------------------------------
 
-def _adt_machine(session: Session) -> tuple[dict[str, set[str]], set[str]]:
-    """(transitions map, known states) from the published ADT workflow
-    config; falls back to the hardcoded map when no config is published."""
-    cfg = published_config(session, "workflow", ADT_WORKFLOW_KEY)
-    if cfg is not None:
-        payload = cfg.payload or {}
-        transitions: dict[str, set[str]] = {}
-        for t in payload.get("transitions") or []:
-            if isinstance(t, dict) and t.get("from") and t.get("to"):
-                transitions.setdefault(t["from"], set()).add(t["to"])
-        states = set(payload.get("states") or transitions.keys())
-        for targets in transitions.values():
-            states |= targets
-        return transitions, states
-    return APPOINTMENT_TRANSITIONS, set(APPOINTMENT_TRANSITIONS.keys())
+def _adt_machine(session: Session):
+    """(transitions map, known states, per-transition roles) from the
+    published ADT workflow config; falls back to the built-in map when no
+    config is published."""
+    return load_workflow_machine(session, ADT_WORKFLOW_KEY, APPOINTMENT_TRANSITIONS)
 
 
 def transition_appointment(resource_id: str, payload: dict, session: Session, user: User) -> dict:
@@ -370,7 +356,7 @@ def transition_appointment(resource_id: str, payload: dict, session: Session, us
         raise HTTPException(status_code=422, detail="Transition requires 'to_status'")
     row = _get_row("Appointment", resource_id, session)
     current = (row.body or {}).get("status")
-    transitions, known_states = _adt_machine(session)
+    transitions, known_states, roles = _adt_machine(session)
     if target not in known_states:
         raise HTTPException(status_code=422, detail=f"Unknown Appointment status: {target}")
     allowed = transitions.get(current, set())
@@ -378,6 +364,13 @@ def transition_appointment(resource_id: str, payload: dict, session: Session, us
         raise HTTPException(
             status_code=409,
             detail=f"Illegal Appointment transition '{current}' -> '{target}'")
+    if not transition_role_allowed(roles, current, target, user.role.value):
+        raise HTTPException(
+            status_code=403,
+            detail=(f"Role {user.role.value} may not perform the Appointment "
+                    f"transition '{current}' -> '{target}': the published "
+                    "workflow config restricts it to "
+                    f"{', '.join(roles.get((current, target), []))}"))
     body = dict(row.body)
     body["status"] = target
     row.body = body

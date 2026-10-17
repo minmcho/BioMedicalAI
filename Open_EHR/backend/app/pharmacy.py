@@ -35,13 +35,11 @@ from sqlalchemy.orm import Session
 from . import fhir
 from .audit import append_audit
 from .configstore import published_config
-from .models import (ConfigStatus, FhirResource, PharmacyStock, Role,
+from .models import (ConfigStatus, FhirResource, PharmacyStock,
                      StudioConfig, User)
-from .security import get_db, require_capability, require_roles
+from .security import get_db, require_capability
 
 router = APIRouter(prefix="/pharmacy", tags=["pharmacy"])
-
-STAFF_READ = (Role.admin, Role.configurator, Role.clinician, Role.viewer)
 
 FORMULARY_KEY = "formulary"
 RXNORM = "http://www.nlm.nih.gov/research/umls/rxnorm"
@@ -70,6 +68,11 @@ def default_formulary_payload() -> dict:
     return {
         "name": "OpenCare formulary (RxNorm, synthetic)",
         "system": RXNORM,
+        # BCMA enforced rights, in enforcement order (read by
+        # _bcma_rights): a site may publish a subset; the default is the
+        # original three checks. right-dose / right-time are not
+        # implemented in v1 and so cannot be enabled by config either.
+        "bcmaRights": ["right-dispense", "right-medication", "right-patient"],
         "concepts": [
             med("1049221", "Lisinopril 10 MG Oral Tablet", True, 120),
             med("847232", "Metformin hydrochloride 500 MG Oral Tablet", True, 200),
@@ -201,7 +204,7 @@ async def _json_body(request: Request) -> dict:
 
 @router.get("/formulary")
 def get_formulary(session: Session = Depends(get_db),
-                  user: User = Depends(require_roles(*STAFF_READ))):
+                  user: User = Depends(require_capability("pharmacy.read"))):
     cfg = published_config(session, "terminology", FORMULARY_KEY)
     return {"formulary": _formulary(session),
             "version": cfg.version if cfg else None}
@@ -209,13 +212,13 @@ def get_formulary(session: Session = Depends(get_db),
 
 @router.get("/stock")
 def get_stock(session: Session = Depends(get_db),
-              user: User = Depends(require_roles(*STAFF_READ))):
+              user: User = Depends(require_capability("pharmacy.read"))):
     return {"items": _stock_out(session)}
 
 
 @router.get("/dispense-queue")
 def dispense_queue(session: Session = Depends(get_db),
-                   user: User = Depends(require_roles(*STAFF_READ))):
+                   user: User = Depends(require_capability("pharmacy.read"))):
     """Active MedicationRequests awaiting dispensing, each with its
     formulary entry and live stock level, oldest first."""
     rows = session.scalars(
@@ -334,7 +337,7 @@ async def dispense(request: Request, session: Session = Depends(get_db),
 @router.get("/dispenses")
 def list_dispenses(patient: str | None = Query(default=None),
                    session: Session = Depends(get_db),
-                   user: User = Depends(require_roles(*STAFF_READ))):
+                   user: User = Depends(require_capability("pharmacy.read"))):
     stmt = select(FhirResource).where(
         FhirResource.resource_type == "MedicationDispense")
     if patient:
@@ -347,6 +350,23 @@ def list_dispenses(patient: str | None = Query(default=None),
 # ---------------------------------------------------------------------------
 # BCMA-lite: barcode medication administration
 # ---------------------------------------------------------------------------
+
+# The BCMA rights v1 implements, in enforcement order.
+BCMA_RIGHTS = ("right-dispense", "right-medication", "right-patient")
+
+
+def _bcma_rights(session: Session) -> list[str]:
+    """Which BCMA rights are enforced, from the published formulary's
+    `bcmaRights` list (unknown names dropped; order preserved). The
+    default is all three — the original behaviour. An explicitly empty
+    list enforces none. (The dispense LOOKUP itself is not optional: a
+    nonexistent dispense cannot be administered under any policy and
+    still fails with the right-dispense 422.)"""
+    cfg = published_config(session, "terminology", FORMULARY_KEY)
+    raw = (cfg.payload or {}).get("bcmaRights") if cfg is not None else None
+    if isinstance(raw, list):
+        return [r for r in raw if r in BCMA_RIGHTS]
+    return list(BCMA_RIGHTS)
 
 def _administered_dispense_ids(session: Session) -> set[str]:
     ids = set()
@@ -366,8 +386,9 @@ async def administer(request: Request, session: Session = Depends(get_db),
                      user: User = Depends(require_capability("pharmacy.administer"))):
     """BCMA-lite scan: {wristband_id, medication_code, dispense_id}.
 
-    The three enforced rights, checked in order, each failing as a 422
-    that NAMES the right:
+    The enforced rights (which ones is Studio configuration — the
+    formulary's `bcmaRights`, defaulting to all three), checked in
+    order, each failing as a 422 that NAMES the right:
     - right dispense: the scanned dispense exists;
     - right medication: the dispense's medication code equals the scan;
     - right patient: the dispense's patient equals the wristband id.
@@ -389,6 +410,7 @@ async def administer(request: Request, session: Session = Depends(get_db),
                             detail="Med-admin scan requires 'dispense_id' "
                                    "(right dispense cannot be verified)")
 
+    rights = _bcma_rights(session)
     dispense = session.scalars(
         select(FhirResource).where(
             FhirResource.resource_type == "MedicationDispense",
@@ -400,14 +422,14 @@ async def administer(request: Request, session: Session = Depends(get_db),
                     "was not found"))
     dispense_body = dispense.body or {}
     _, dispense_code, concept = _medication_of(dispense_body)
-    if str(med_code) != dispense_code:
+    if "right-medication" in rights and str(med_code) != dispense_code:
         raise HTTPException(
             status_code=422,
             detail=(f"Right medication failed: scanned medication '{med_code}' "
                     f"does not match the dispensed medication '{dispense_code}'"))
     expected_patient = fhir._normalize_patient_ref(str(wristband))
     actual_patient = (dispense_body.get("subject") or {}).get("reference")
-    if actual_patient != expected_patient:
+    if "right-patient" in rights and actual_patient != expected_patient:
         raise HTTPException(
             status_code=422,
             detail=(f"Right patient failed: wristband '{expected_patient}' does "
@@ -442,7 +464,11 @@ async def administer(request: Request, session: Session = Depends(get_db),
                  payload={"dispense_id": str(dispense_id),
                           "medication_code": dispense_code,
                           "patient": actual_patient,
-                          "checks": ["right-patient", "right-medication",
-                                     "right-dispense"]})
+                          # The rights actually enforced for this scan,
+                          # in the audit's canonical display order.
+                          "checks": [r for r in ("right-patient",
+                                                 "right-medication",
+                                                 "right-dispense")
+                                     if r in rights]})
     session.commit()
     return rendered

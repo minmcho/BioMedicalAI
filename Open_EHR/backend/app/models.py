@@ -135,6 +135,38 @@ class LabQcRun(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class LabCriticalNotification(Base):
+    """Critical-result notification record — realignment addition
+    (app.lab). One row per lab DiagnosticReport that contains a critical
+    (LL/HH) value, created lazily on the first notification action.
+
+    Patient-safety workflow: a RELEASED critical report starts in state
+    'pending' (no row yet — the state is derived), a staff member records
+    the phone notification with read-back confirmation ('notified'), and
+    the receiving clinician acknowledges ('acknowledged'). The record is
+    operational data, not part of the FHIR report body: it lives here so
+    patient-facing reads of the report never carry notification internals
+    (who was phoned, by whom) — the same separation as LabQcRun.
+    """
+    __tablename__ = "lab_critical_notifications"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    report_id: Mapped[str] = mapped_column(String(120), unique=True,
+                                           nullable=False, index=True)
+    order_id: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    state: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    notified_to: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    read_back: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    notified_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True),
+                                                         nullable=True)
+    acknowledged_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True),
+                                                             nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow,
+                                                 onupdate=utcnow)
+
+
 class PharmacyStock(Base):
     """Pharmacy stock counter — Phase 4A (app.pharmacy).
 
