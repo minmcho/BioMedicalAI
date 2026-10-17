@@ -159,9 +159,23 @@ export interface LabCatalogPayload {
   concepts: LabConcept[];
 }
 
+export interface WorkflowTransition {
+  from: string;
+  to: string;
+  action?: string;
+  /** Optional per-transition role restriction (Studio workflow config);
+   *  absent = any role the endpoint otherwise allows. */
+  roles?: string[];
+}
+
 export interface LabWorkflowPayload {
   states: string[];
-  transitions: Array<{ from: string; to: string; action?: string }>;
+  transitions: WorkflowTransition[];
+  /** States reachable only through dedicated endpoints (server-enforced
+   *  governance); the order queue offers no bare-transition buttons for
+   *  them. */
+  governedStates?: string[];
+  specimenStates?: string[];
 }
 
 export interface LabCatalogResponse {
@@ -220,7 +234,23 @@ export interface QcRun {
 
 export interface QcBlocker {
   analyte_code: string;
-  qc_run: QcRun;
+  /** The latest QC run for the analyte, or null when the block is a
+   *  missing run (the catalog's QC policy decides which reasons block). */
+  qc_run: QcRun | null;
+  reason?: "failed-latest" | "missing-qc" | "stale-qc";
+}
+
+/** Critical-value notification state for a lab report (released
+ *  critical reports only; tracked server-side, never inside the FHIR
+ *  report body). */
+export interface CriticalNotification {
+  state: "not-required" | "pending" | "notified" | "acknowledged";
+  notified_to: string | null;
+  read_back: boolean | null;
+  notified_by: string | null;
+  notified_at: string | null;
+  acknowledged_by: string | null;
+  acknowledged_at: string | null;
 }
 
 export interface VerificationResult {
@@ -240,6 +270,7 @@ export interface VerificationItem {
   stage: string;
   critical: boolean;
   qc_blocked: QcBlocker[];
+  notification: CriticalNotification;
   results: VerificationResult[];
 }
 

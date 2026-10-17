@@ -110,4 +110,33 @@ describe("ApiClient request shaping", () => {
     const [url] = fetchFn.mock.calls[0] as unknown as [string];
     expect(url).toBe("http://localhost:8000/fhir/inbox?patient=pat-1");
   });
+
+  it("fetches a single effective config object for runtime consumption", async () => {
+    const fetchFn = vi.fn(async () =>
+      jsonResponse({ kind: "branding", key: "default", payload: { orgName: "Mercy" } }),
+    );
+    const client = new ApiClient("http://localhost:8000", () => "clinician-token", fetchFn as never);
+    const cfg = await client.effectiveConfig("branding", "default");
+    expect(cfg.payload.orgName).toBe("Mercy");
+    const [url] = fetchFn.mock.calls[0] as unknown as [string];
+    expect(url).toBe("http://localhost:8000/studio/config/branding/effective/default");
+  });
+
+  it("posts the critical-value notification with read-back, and acknowledgement", async () => {
+    const fetchFn = vi.fn(async () =>
+      jsonResponse({ report_id: "rep-1", notification: { state: "notified" } }),
+    );
+    const client = new ApiClient("http://localhost:8000", () => "clinician-token", fetchFn as never);
+    await client.notifyLabReport("rep-1", { notifiedTo: "Dr A", readBack: true });
+    const [url, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("http://localhost:8000/lab/reports/rep-1/notify");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({
+      notified_to: "Dr A",
+      read_back: true,
+    });
+    await client.acknowledgeLabReport("rep-1");
+    const [ackUrl] = fetchFn.mock.calls[1] as unknown as [string];
+    expect(ackUrl).toBe("http://localhost:8000/lab/reports/rep-1/acknowledge");
+  });
 });

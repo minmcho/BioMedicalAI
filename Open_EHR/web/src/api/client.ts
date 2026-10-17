@@ -5,6 +5,7 @@ import type {
   Claim,
   ConfigConcept,
   ConfigKind,
+  CriticalNotification,
   DiagnosticReport,
   DispenseOutcome,
   DispenseQueueItem,
@@ -274,6 +275,35 @@ export class ApiClient {
     return this.request(`/lab/reports/${encodeURIComponent(id)}/release`, { method: "POST" });
   }
 
+  /** GET /lab/critical-reports — released reports containing a critical
+   *  value, each with its notification state (staff roles). */
+  criticalReports(): Promise<VerificationQueue> {
+    return this.request("/lab/critical-reports");
+  }
+
+  /** POST /lab/reports/{id}/notify { notified_to, read_back } — record
+   *  the critical-value phone notification. Read-back is mandatory on
+   *  the server (422 without it); non-critical reports are a 400. */
+  notifyLabReport(
+    id: string,
+    input: { notifiedTo: string; readBack: boolean },
+  ): Promise<{ report_id: string; notification: CriticalNotification }> {
+    return this.request(`/lab/reports/${encodeURIComponent(id)}/notify`, {
+      method: "POST",
+      body: JSON.stringify({ notified_to: input.notifiedTo, read_back: input.readBack }),
+    });
+  }
+
+  /** POST /lab/reports/{id}/acknowledge — the receiving clinician
+   *  confirms a notified critical report (409 before notification). */
+  acknowledgeLabReport(
+    id: string,
+  ): Promise<{ report_id: string; notification: CriticalNotification }> {
+    return this.request(`/lab/reports/${encodeURIComponent(id)}/acknowledge`, {
+      method: "POST",
+    });
+  }
+
   /** GET /lab/qc[?analyte_code=] — QC run history, newest first. */
   qcRuns(analyteCode?: string): Promise<QcRun[]> {
     const qs = analyteCode ? `?analyte_code=${encodeURIComponent(analyteCode)}` : "";
@@ -342,6 +372,15 @@ export class ApiClient {
   /** GET /studio/config/{kind}/effective — published objects of a kind. */
   effectiveConfigs(kind: ConfigKind): Promise<StudioConfigObject[]> {
     return this.request(`/studio/config/${encodeURIComponent(kind)}/effective`);
+  }
+
+  /** GET /studio/config/{kind}/effective/{key} — the one published
+   *  object for a key (404 when nothing is published). This is the
+   *  runtime-consumption read the web shell uses at sign-in. */
+  effectiveConfig(kind: ConfigKind, key: string): Promise<StudioConfigObject> {
+    return this.request(
+      `/studio/config/${encodeURIComponent(kind)}/effective/${encodeURIComponent(key)}`,
+    );
   }
 
   /** POST /studio/config/{kind}/{key} — create the next version as a draft. */
@@ -421,7 +460,8 @@ export class ApiClient {
     return this.request("/warehouse/status");
   }
 
-  /** POST /warehouse/etl/run — trigger an outbox drain (admin only). */
+  /** POST /warehouse/etl/run — trigger an outbox drain (pophealth.run
+   *  capability; admin by default). */
   runEtl(): Promise<EtlRunStats> {
     return this.request("/warehouse/etl/run", { method: "POST" });
   }
