@@ -22,7 +22,9 @@ def test_audit_entries_newest_first_with_hash_fields(client):
     # Two auditable actions: a pack install, then a config draft create.
     r = client.post("/studio/packs/lab/install", headers=ADMIN)
     assert r.status_code == 201, r.text
-    r = client.post("/studio/config/branding/default", headers=CONFIG, json={
+    # A fresh branding key (branding/default is seeded at startup by the
+    # realignment, so its first draft would be v2, not v1).
+    r = client.post("/studio/config/branding/audit-clinic", headers=CONFIG, json={
         "orgName": "Audit Clinic", "portalTitle": "Audit Portal"})
     assert r.status_code == 201, r.text
 
@@ -33,7 +35,7 @@ def test_audit_entries_newest_first_with_hash_fields(client):
     assert actions.index("studio.config.create") < actions.index("studio.install")
     newest = entries[0]
     assert newest["actor"] == "dev-configurator"
-    assert newest["entity"] == "config:branding/default@v1"
+    assert newest["entity"] == "config:branding/audit-clinic@v1"
     assert len(newest["entry_hash"]) == 64
     assert len(newest["prev_hash"]) == 64
     assert newest["created_at"] is not None

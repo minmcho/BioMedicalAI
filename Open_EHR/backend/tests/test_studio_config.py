@@ -60,104 +60,105 @@ def _appointment(appt_id, status="booked"):
 # ---------------------------------------------------------------------------
 
 def test_draft_invisible_until_published(client):
-    r = _create(client, "branding", "default", BRANDING)
+    r = _create(client, "branding", "clinic", BRANDING)
     assert r.status_code == 201
     body = r.json()
     assert body["status"] == "draft" and body["version"] == 1
-    # not effective for anyone yet
-    assert client.get("/studio/config/branding/effective/default",
+    # not effective for anyone yet (the only effective branding is the
+    # startup-seeded "default" row; the new draft key is absent from it)
+    assert client.get("/studio/config/branding/effective/clinic",
                       headers=CLINICIAN).status_code == 404
-    assert client.get("/studio/config/branding/effective",
-                      headers=CLINICIAN).json() == []
+    assert [c["key"] for c in client.get(
+        "/studio/config/branding/effective", headers=CLINICIAN).json()] == ["default"]
     # clinician cannot see the draft version at all
-    assert client.get("/studio/config/branding/default/versions/1",
+    assert client.get("/studio/config/branding/clinic/versions/1",
                       headers=CLINICIAN).status_code == 404
     # publish -> effective for clinician and viewer
-    assert _publish(client, "branding", "default", 1).status_code == 200
-    eff = client.get("/studio/config/branding/effective/default", headers=VIEWER)
+    assert _publish(client, "branding", "clinic", 1).status_code == 200
+    eff = client.get("/studio/config/branding/effective/clinic", headers=VIEWER)
     assert eff.status_code == 200 and eff.json()["payload"]["orgName"] == "OpenCare Clinic"
     listed = client.get("/studio/config/branding/effective", headers=CLINICIAN).json()
-    assert [c["key"] for c in listed] == ["default"]
+    assert sorted(c["key"] for c in listed) == ["clinic", "default"]
 
 
 def test_publish_supersedes_and_effective_follows(client):
-    _make_published(client, "branding", "default", BRANDING)
+    _make_published(client, "branding", "clinic", BRANDING)
     changed = dict(BRANDING, orgName="Renamed Clinic")
-    r = _create(client, "branding", "default", changed)
+    r = _create(client, "branding", "clinic", changed)
     assert r.status_code == 201 and r.json()["version"] == 2
     # v1 still published until v2 publishes
-    eff = client.get("/studio/config/branding/effective/default", headers=ADMIN).json()
+    eff = client.get("/studio/config/branding/effective/clinic", headers=ADMIN).json()
     assert eff["version"] == 1
-    assert _publish(client, "branding", "default", 2).status_code == 200
-    history = client.get("/studio/config/branding/default", headers=ADMIN).json()
+    assert _publish(client, "branding", "clinic", 2).status_code == 200
+    history = client.get("/studio/config/branding/clinic", headers=ADMIN).json()
     assert [(h["version"], h["status"]) for h in history] == [
         (1, "superseded"), (2, "published")]
-    eff = client.get("/studio/config/branding/effective/default", headers=ADMIN).json()
+    eff = client.get("/studio/config/branding/effective/clinic", headers=ADMIN).json()
     assert eff["payload"]["orgName"] == "Renamed Clinic"
 
 
 def test_rollback_republishes_old_payload_as_new_version(client):
-    _make_published(client, "branding", "default", BRANDING)
-    _make_published(client, "branding", "default", dict(BRANDING, orgName="V2 Clinic"))
-    r = client.post("/studio/config/branding/default/rollback",
+    _make_published(client, "branding", "clinic", BRANDING)
+    _make_published(client, "branding", "clinic", dict(BRANDING, orgName="V2 Clinic"))
+    r = client.post("/studio/config/branding/clinic/rollback",
                     json={"version": 1}, headers=ADMIN)
     assert r.status_code == 201
     body = r.json()
     assert body["version"] == 3 and body["status"] == "published"
     assert body["payload"]["orgName"] == "OpenCare Clinic"
-    history = client.get("/studio/config/branding/default", headers=ADMIN).json()
+    history = client.get("/studio/config/branding/clinic", headers=ADMIN).json()
     assert [(h["version"], h["status"]) for h in history] == [
         (1, "superseded"), (2, "superseded"), (3, "published")]
 
 
 def test_rollback_to_draft_rejected(client):
-    _create(client, "branding", "default", BRANDING)  # v1 stays a draft
-    r = client.post("/studio/config/branding/default/rollback",
+    _create(client, "branding", "clinic", BRANDING)  # v1 stays a draft
+    r = client.post("/studio/config/branding/clinic/rollback",
                     json={"version": 1}, headers=ADMIN)
     assert r.status_code == 422
 
 
 def test_disable_removes_effective_config(client):
-    _make_published(client, "branding", "default", BRANDING)
-    r = client.post("/studio/config/branding/default/versions/1/disable", headers=ADMIN)
+    _make_published(client, "branding", "clinic", BRANDING)
+    r = client.post("/studio/config/branding/clinic/versions/1/disable", headers=ADMIN)
     assert r.status_code == 200 and r.json()["status"] == "disabled"
-    assert client.get("/studio/config/branding/effective/default",
+    assert client.get("/studio/config/branding/effective/clinic",
                       headers=ADMIN).status_code == 404
     # disabling again -> 409 (not published)
-    assert client.post("/studio/config/branding/default/versions/1/disable",
+    assert client.post("/studio/config/branding/clinic/versions/1/disable",
                        headers=ADMIN).status_code == 409
 
 
 def test_published_versions_are_immutable_new_draft_spawns(client):
-    _make_published(client, "branding", "default", BRANDING)
+    _make_published(client, "branding", "clinic", BRANDING)
     # direct edit of the published version -> 409
-    r = client.put("/studio/config/branding/default/versions/1",
+    r = client.put("/studio/config/branding/clinic/versions/1",
                    json=dict(BRANDING, orgName="Sneaky edit"), headers=ADMIN)
     assert r.status_code == 409
     # the published payload is untouched
-    eff = client.get("/studio/config/branding/effective/default", headers=ADMIN).json()
+    eff = client.get("/studio/config/branding/effective/clinic", headers=ADMIN).json()
     assert eff["payload"]["orgName"] == "OpenCare Clinic"
     # editing happens by spawning a new draft version
-    r = _create(client, "branding", "default", dict(BRANDING, orgName="Edited Clinic"))
+    r = _create(client, "branding", "clinic", dict(BRANDING, orgName="Edited Clinic"))
     assert r.status_code == 201 and r.json()["version"] == 2 and r.json()["status"] == "draft"
 
 
 def test_draft_edit_and_duplicate_draft_conflict(client):
-    _create(client, "branding", "default", BRANDING)
-    assert _create(client, "branding", "default", BRANDING).status_code == 409
-    r = client.put("/studio/config/branding/default/versions/1",
+    _create(client, "branding", "clinic", BRANDING)
+    assert _create(client, "branding", "clinic", BRANDING).status_code == 409
+    r = client.put("/studio/config/branding/clinic/versions/1",
                    json=dict(BRANDING, orgName="Draft edit"), headers=CONFIG)
     assert r.status_code == 200 and r.json()["payload"]["orgName"] == "Draft edit"
 
 
 def test_config_writes_are_role_gated(client):
-    assert client.post("/studio/config/branding/default", json=BRANDING).status_code == 401
-    assert _create(client, "branding", "default", BRANDING,
+    assert client.post("/studio/config/branding/clinic", json=BRANDING).status_code == 401
+    assert _create(client, "branding", "clinic", BRANDING,
                    headers=CLINICIAN).status_code == 403
-    assert _create(client, "branding", "default", BRANDING,
+    assert _create(client, "branding", "clinic", BRANDING,
                    headers=PATIENT).status_code == 403
-    _make_published(client, "branding", "default", BRANDING)
-    assert _publish(client, "branding", "default", 1, headers=VIEWER).status_code == 403
+    _make_published(client, "branding", "clinic", BRANDING)
+    assert _publish(client, "branding", "clinic", 1, headers=VIEWER).status_code == 403
     # patient may not read config either
     assert client.get("/studio/config/branding/effective",
                       headers=PATIENT).status_code == 403
@@ -169,8 +170,8 @@ def test_unknown_kind_is_404(client):
 
 
 def test_config_actions_are_audited(client):
-    _make_published(client, "branding", "default", BRANDING)
-    client.post("/studio/config/branding/default/versions/1/disable", headers=ADMIN)
+    _make_published(client, "branding", "clinic", BRANDING)
+    client.post("/studio/config/branding/clinic/versions/1/disable", headers=ADMIN)
     factory = client.app.state.session_factory
     with factory() as session:
         actions = [row.action for row in session.scalars(select(AuditLog)).all()]
@@ -181,9 +182,9 @@ def test_config_actions_are_audited(client):
 
 
 def test_config_diff_between_versions(client):
-    _make_published(client, "branding", "default", BRANDING)
-    _make_published(client, "branding", "default", dict(BRANDING, orgName="New Name"))
-    r = client.get("/studio/config/branding/default/diff",
+    _make_published(client, "branding", "clinic", BRANDING)
+    _make_published(client, "branding", "clinic", dict(BRANDING, orgName="New Name"))
+    r = client.get("/studio/config/branding/clinic/diff",
                    params={"from": 1, "to": 2}, headers=ADMIN)
     assert r.status_code == 200
     changes = r.json()["changes"]
@@ -209,9 +210,18 @@ def test_invalid_payloads_are_422_with_details(client):
     assert r.status_code == 422
     r = _create(client, "terminology", "panel", {"concepts": [{"code": "1"}]})
     assert r.status_code == 422 and "display" in r.json()["detail"]
+    # A NEW capability name is accepted and stored (realignment: defining
+    # capabilities is configuration; only enforcement points are code).
+    # Structural problems in the matrix are still 422.
     r = _create(client, "permissions", "role-matrix",
                 {"capabilities": {"fhir.fly": {"viewer": True}}})
-    assert r.status_code == 422 and "Unknown capability" in r.json()["detail"]
+    assert r.status_code == 201, r.text
+    r = _create(client, "permissions", "role-matrix-2",
+                {"capabilities": {"fhir.read": {"wizard": True}}})
+    assert r.status_code == 422 and "unknown role" in r.json()["detail"]
+    r = _create(client, "permissions", "role-matrix-3",
+                {"capabilities": {"fhir.read": {"viewer": "yes"}}})
+    assert r.status_code == 422
 
 
 def test_terminology_with_reference_ranges_round_trips(client):
