@@ -3,14 +3,27 @@ import type { ApiClient } from "../api/client";
 import { ApiError } from "../api/client";
 import type {
   ConfigKind,
-  InstallationStatus,
   ModulePack,
   PackInstallation,
-  StudioAction,
   StudioConfigObject,
 } from "../api/types";
 import { Empty, ErrorView, Loading } from "../components/StatusViews";
 import { useAsync } from "../hooks";
+import { AuditTab } from "./studio/AuditTab";
+import { BrandingTab } from "./studio/BrandingTab";
+import { FormsTab } from "./studio/FormsTab";
+import { CONFIG_KINDS, configActions, groupConfigs, nextAction } from "./studio/helpers";
+import { IntegrationTab } from "./studio/IntegrationTab";
+import { NavigationTab } from "./studio/NavigationTab";
+import { OverviewTab } from "./studio/OverviewTab";
+import { PermissionsTab } from "./studio/PermissionsTab";
+import { TerminologyTab } from "./studio/TerminologyTab";
+import { WorkflowsTab } from "./studio/WorkflowsTab";
+
+// Re-exported for existing imports (api/studioConfig.test.ts and the
+// Studio editor shell); the implementations live in ./studio/helpers.
+export { CONFIG_KINDS, configActions, groupConfigs, nextAction };
+export type { ConfigGroup } from "./studio/helpers";
 
 interface StudioData {
   packs: ModulePack[];
@@ -21,25 +34,7 @@ interface Props {
   client: ApiClient;
 }
 
-/** Next lifecycle action for an installation, following the server's
- *  state machine: installed_draft → approved → attached → enabled, and
- *  enabled → disabled. */
-export function nextAction(status: InstallationStatus): StudioAction | null {
-  switch (status) {
-    case "installed_draft":
-      return "approve";
-    case "approved":
-      return "attach";
-    case "attached":
-      return "enable";
-    case "enabled":
-      return "disable";
-    case "disabled":
-      return null;
-  }
-}
-
-/** Studio packs — the System Studio module-pack lifecycle in the web UI:
+/** Module Packs tab — the System Studio module-pack lifecycle:
  *  packs install as designer drafts and advance only through the separate
  *  approve / attach / enable steps, via the real /studio endpoints. */
 function StudioPacksSection({ client }: Props) {
@@ -77,7 +72,6 @@ function StudioPacksSection({ client }: Props) {
 
   return (
     <section>
-      <h2>Studio packs</h2>
       <p className="hint">
         Module packs install as designer drafts. A pack becomes usable only through the
         separate approve → attach → enable steps; declared endpoints stay disabled in the
@@ -165,58 +159,16 @@ function StudioPacksSection({ client }: Props) {
 }
 
 // ---------------------------------------------------------------------------
-// Studio configuration — the customization engine UI
+// Advanced tab — the raw-JSON config editor (all kinds/keys, versions,
+// diff-free payload view, rollback). Kept at full capability: the visual
+// tabs cover the common kinds; anything else (cohort definitions, novel
+// payload shapes) is edited here.
 // ---------------------------------------------------------------------------
 
-export const CONFIG_KINDS: ConfigKind[] = [
-  "form",
-  "workflow",
-  "terminology",
-  "navigation",
-  "branding",
-  "permissions",
-];
-
-export interface ConfigGroup {
-  kind: ConfigKind;
-  key: string;
-  versions: StudioConfigObject[]; // ascending by version
-}
-
-/** Group a flat config list into objects with their version history. */
-export function groupConfigs(configs: StudioConfigObject[]): ConfigGroup[] {
-  const byId = new Map<string, ConfigGroup>();
-  for (const cfg of configs) {
-    const id = `${cfg.kind}/${cfg.key}`;
-    const group = byId.get(id) ?? { kind: cfg.kind, key: cfg.key, versions: [] };
-    group.versions.push(cfg);
-    byId.set(id, group);
-  }
-  const groups = [...byId.values()];
-  for (const g of groups) g.versions.sort((a, b) => a.version - b.version);
-  groups.sort((a, b) => `${a.kind}/${a.key}`.localeCompare(`${b.kind}/${b.key}`));
-  return groups;
-}
-
-/** Actions the server allows for a config version in a given status. */
-export function configActions(status: StudioConfigObject["status"]): string[] {
-  switch (status) {
-    case "draft":
-      return ["edit", "publish"];
-    case "published":
-      return ["disable"];
-    case "disabled":
-      return ["publish", "rollback"];
-    case "superseded":
-      return ["rollback"];
-  }
-}
-
-/** Studio configuration — versioned config objects (forms, workflows,
- *  terminology, navigation, branding, permissions) with the draft → publish
- *  lifecycle, driven entirely through the real /studio/config endpoints.
- *  Published versions are immutable: "New draft" copies a payload into the
- *  editor, and saving creates the next draft version. */
+/** Studio configuration — versioned config objects with the draft →
+ *  publish lifecycle, driven entirely through the real /studio/config
+ *  endpoints. Published versions are immutable: "New draft" copies a
+ *  payload into the editor, and saving creates the next draft version. */
 export function StudioConfigSection({ client }: Props) {
   const [kindFilter, setKindFilter] = useState<ConfigKind | "all">("all");
   const [busy, setBusy] = useState<string | null>(null);
@@ -300,12 +252,10 @@ export function StudioConfigSection({ client }: Props) {
 
   return (
     <section>
-      <h2>Studio configuration</h2>
       <p className="hint">
-        Site customization as versioned configuration: forms, workflows, terminology,
-        navigation, branding and the permission matrix. Drafts are designer-only;
-        publishing supersedes the previous published version, which stays available
-        for rollback. Published versions are immutable — edit by creating a new draft.
+        Raw JSON editing for any config kind and key — including kinds without a visual
+        editor (cohort) and payload shapes the visual tabs do not model. Same governance:
+        drafts are designer-only, publishing supersedes, published versions are immutable.
       </p>
       {actionError ? (
         <div className="state state-error" role="alert">
@@ -457,11 +407,67 @@ export function StudioConfigSection({ client }: Props) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// System Studio — the tabbed visual module
+// ---------------------------------------------------------------------------
+
+const TABS = [
+  { key: "overview", label: "Overview" },
+  { key: "packs", label: "Module packs" },
+  { key: "forms", label: "Forms designer" },
+  { key: "workflows", label: "Workflows" },
+  { key: "terminology", label: "Terminology" },
+  { key: "navigation", label: "Navigation" },
+  { key: "branding", label: "Branding" },
+  { key: "permissions", label: "Permissions" },
+  { key: "integration", label: "Integration" },
+  { key: "advanced", label: "Advanced (JSON)" },
+  { key: "audit", label: "Audit" },
+] as const;
+
+type TabKey = (typeof TABS)[number]["key"];
+
 export function StudioPage({ client }: Props) {
+  const [tab, setTab] = useState<TabKey>("overview");
   return (
     <>
-      <StudioPacksSection client={client} />
-      <StudioConfigSection client={client} />
+      <h2>System Studio</h2>
+      <p className="hint">
+        The customization and future-configuration layer: everything a deploying
+        organisation changes — module packs, forms, workflows, terminology, navigation,
+        branding, permissions, integrations — is versioned configuration data with a
+        draft → publish lifecycle and a hash-chained audit trail. Drafts change
+        nothing until a human publishes them; once published, configuration is
+        live: the API reads workflows, terminology, permissions and integrations
+        from the published versions on every request, and the web shell reads
+        navigation, branding and permissions at sign-in.
+      </p>
+      <div className="studio-tabs" role="tablist" aria-label="System Studio sections">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.key}
+            className={tab === t.key ? "studio-tab active" : "studio-tab"}
+            onClick={() => setTab(t.key)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "overview" && <OverviewTab client={client} />}
+      {tab === "packs" && <StudioPacksSection client={client} />}
+      {tab === "forms" && <FormsTab client={client} />}
+      {tab === "workflows" && <WorkflowsTab client={client} />}
+      {tab === "terminology" && <TerminologyTab client={client} />}
+      {tab === "navigation" && <NavigationTab client={client} />}
+      {tab === "branding" && <BrandingTab client={client} />}
+      {tab === "permissions" && <PermissionsTab client={client} />}
+      {tab === "integration" && <IntegrationTab client={client} />}
+      {tab === "advanced" && <StudioConfigSection client={client} />}
+      {tab === "audit" && <AuditTab client={client} />}
     </>
   );
 }
