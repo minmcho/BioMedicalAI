@@ -42,6 +42,7 @@ from .security import get_db, require_capability
 router = APIRouter(prefix="/pharmacy", tags=["pharmacy"])
 
 FORMULARY_KEY = "formulary"
+MONITORING_KEY = "medication-monitoring"
 RXNORM = "http://www.nlm.nih.gov/research/umls/rxnorm"
 DISPENSE_EXTENSION = "urn:opencare:extension/dispense"
 
@@ -199,6 +200,152 @@ async def _json_body(request: Request) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Medication monitoring gate (Phase 9) — the Phase 2 QC-gate pattern
+# applied to high-risk medications: a published terminology config
+# (key `medication-monitoring`) declares, per medication code, the
+# monitoring labs that must be on file, current and in range before
+# the medication may be dispensed (the clozapine/ANC pattern from
+# roadmap §4 psychiatry). The EVALUATION is generic code; the RULES
+# are configuration. With no published rules config — the default —
+# the gate is inert and dispensing behaves exactly as before.
+#
+# Rule shape:
+#   {"rules": [{"medicationCode": ..., "medicationDisplay": ...,
+#               "action": "block" | "flag",          (default "block")
+#               "requiredLabs": [{"code": <LOINC>, "display": ...,
+#                                  "minValue": n?, "maxValue": n?,
+#                                  "maxAgeDays": n?}]}]}
+# "block" refuses the dispense with 409 (nothing written); "flag"
+# lets it proceed and returns the problems as `monitoring_warnings`.
+# Only RELEASED results count: lab drafts carrying the Phase 2
+# unreleased-visibility tag are invisible here, exactly as they are
+# to every other consumer.
+# ---------------------------------------------------------------------------
+
+def _monitoring_rules(session: Session) -> list[dict]:
+    cfg = published_config(session, "terminology", MONITORING_KEY)
+    if cfg is None:
+        return []
+    rules = (cfg.payload or {}).get("rules")
+    if not isinstance(rules, list):
+        return []
+    return [r for r in rules if isinstance(r, dict) and r.get("medicationCode")]
+
+
+def _parse_dt(raw) -> datetime | None:
+    if not raw or not isinstance(raw, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _latest_result(session: Session, patient_ref: str,
+                   code: str) -> tuple[float, datetime] | None:
+    """(value, effective datetime) of the patient's LATEST released
+    Observation carrying `code`, or None. Unreleased lab drafts
+    (Phase 2 visibility tag) never count as monitoring evidence."""
+    rows = session.scalars(
+        select(FhirResource).where(
+            FhirResource.resource_type == "Observation",
+            FhirResource.patient_ref == patient_ref)).all()
+    best: tuple[float, datetime] | None = None
+    for row in rows:
+        body = row.body or {}
+        if fhir.has_unreleased_tag(body):
+            continue
+        concept = body.get("code") or {}
+        codes = [c.get("code") for c in concept.get("coding") or []
+                 if isinstance(c, dict)]
+        if code not in codes:
+            continue
+        quantity = body.get("valueQuantity") or {}
+        value = quantity.get("value")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        effective = _parse_dt(body.get("effectiveDateTime")) \
+            or _parse_dt(body.get("issued"))
+        if effective is None:
+            created = row.created_at
+            effective = created if created.tzinfo is not None \
+                else created.replace(tzinfo=timezone.utc)
+        if best is None or effective > best[1]:
+            best = (float(value), effective)
+    return best
+
+
+def _monitoring_problem(session: Session, patient_ref: str,
+                        lab: dict) -> str | None:
+    """Why one required monitoring lab fails for this patient, or
+    None when it is on file, current and in range."""
+    code = str(lab.get("code"))
+    display = lab.get("display") or code
+    latest = _latest_result(session, patient_ref, code)
+    if latest is None:
+        return f"no {display} ({code}) result on file"
+    value, effective = latest
+    max_age = lab.get("maxAgeDays")
+    if isinstance(max_age, (int, float)) and not isinstance(max_age, bool) \
+            and max_age > 0:
+        age_days = (datetime.now(timezone.utc) - effective).total_seconds() / 86400.0
+        if age_days > float(max_age):
+            return (f"latest {display} ({code}) is {int(age_days)} days old "
+                    f"(must be within {max_age} days)")
+    min_value = lab.get("minValue")
+    if isinstance(min_value, (int, float)) and not isinstance(min_value, bool) \
+            and value < float(min_value):
+        return (f"latest {display} ({code}) is {value}, below the required "
+                f"minimum {min_value}")
+    max_value = lab.get("maxValue")
+    if isinstance(max_value, (int, float)) and not isinstance(max_value, bool) \
+            and value > float(max_value):
+        return (f"latest {display} ({code}) is {value}, above the allowed "
+                f"maximum {max_value}")
+    return None
+
+
+def medication_monitoring_check(session: Session, patient_ref: str,
+                                medication_code: str) -> tuple[list[dict], list[dict]]:
+    """Evaluate the published monitoring rules for one dispense.
+    Returns (blockers, warnings): each entry names the rule's
+    medication, the lab and the problem. An empty rules config (the
+    default) returns two empty lists — the gate is inert."""
+    blockers: list[dict] = []
+    warnings: list[dict] = []
+    for rule in _monitoring_rules(session):
+        if str(rule.get("medicationCode")) != str(medication_code):
+            continue
+        action = rule.get("action") if rule.get("action") in ("block", "flag") \
+            else "block"
+        for lab in rule.get("requiredLabs") or []:
+            if not isinstance(lab, dict) or not lab.get("code"):
+                continue
+            problem = _monitoring_problem(session, patient_ref, lab)
+            if problem is None:
+                continue
+            entry = {"medication_code": str(medication_code),
+                     "medication_display": rule.get("medicationDisplay"),
+                     "lab_code": str(lab.get("code")),
+                     "problem": problem}
+            (blockers if action == "block" else warnings).append(entry)
+    return blockers, warnings
+
+
+def _monitoring_block_message(blockers: list[dict]) -> str:
+    meds = ", ".join(sorted({b["medication_display"] or b["medication_code"]
+                             for b in blockers}))
+    problems = "; ".join(b["problem"] for b in blockers)
+    return (f"Medication monitoring block: {meds} requires current "
+            f"monitoring labs before dispensing — {problems}. Record "
+            "the required results (and have them released) before "
+            "this medication can be dispensed")
+
+
+# ---------------------------------------------------------------------------
 # Formulary / stock / dispense queue reads (staff)
 # ---------------------------------------------------------------------------
 
@@ -285,6 +432,17 @@ async def dispense(request: Request, session: Session = Depends(get_db),
         raise HTTPException(status_code=422,
                             detail="Dispense 'quantity' must be a positive integer")
 
+    # Medication monitoring gate (Phase 9): published rules may BLOCK
+    # this dispense (409, nothing written — the QC-gate posture) or
+    # FLAG it (warnings ride the response + audit). Inert when no
+    # monitoring config is published.
+    patient_ref = (request_body.get("subject") or {}).get("reference") or ""
+    blockers, monitoring_warnings = medication_monitoring_check(
+        session, patient_ref, code)
+    if blockers:
+        raise HTTPException(status_code=409,
+                            detail=_monitoring_block_message(blockers))
+
     stock_row = None
     if entry.get("stockTracked"):
         stock_row = _stock_row(session, code, entry)
@@ -327,11 +485,13 @@ async def dispense(request: Request, session: Session = Depends(get_db),
                  payload={"medication_request_id": str(request_id),
                           "medication_code": code, "quantity": quantity,
                           "stock_tracked": bool(entry.get("stockTracked")),
-                          "stock_after": stock_after})
+                          "stock_after": stock_after,
+                          "monitoring_warnings": monitoring_warnings})
     session.commit()
     return {"dispense": rendered,
             "medication_request": fhir._render(med_request),
-            "stock_after": stock_after}
+            "stock_after": stock_after,
+            "monitoring_warnings": monitoring_warnings}
 
 
 @router.get("/dispenses")

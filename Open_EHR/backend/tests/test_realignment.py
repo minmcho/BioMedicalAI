@@ -128,9 +128,12 @@ def test_navigation_and_branding_seeded_as_published_config(client):
     assert nav.status_code == 200
     assert nav.json()["version"] == 1 and nav.json()["status"] == "published"
     items = nav.json()["payload"]["items"]
+    # Phase 6 added the `beds` module (bed board) to the seeded
+    # navigation — a mechanism snapshot of the seed, extended for the
+    # new module exactly as earlier phases extended it.
     assert [i["module"] for i in items] == [
         "patients", "inbox", "scheduling", "lab", "pophealth", "billing",
-        "pharmacy", "ed", "radiology", "surgery", "studio", "portal"]
+        "pharmacy", "ed", "radiology", "surgery", "beds", "studio", "portal"]
     by_module = {i["module"]: i for i in items}
     assert by_module["studio"]["roles"] == ["admin", "configurator"]
     assert by_module["portal"]["roles"] == ["patient"]
@@ -155,7 +158,7 @@ def test_published_nav_without_a_module_is_the_effective_nav(client):
     _publish_config(client, "navigation", "main", payload)
     eff = _effective(client, "navigation", "main")
     assert "lab" not in [i["module"] for i in eff["items"]]
-    assert len(eff["items"]) == 11
+    assert len(eff["items"]) == 12  # 13 seeded modules (Phase 6: beds) - lab
 
 
 # ---------------------------------------------------------------------------

@@ -39,6 +39,7 @@ that carries the room (a Location participant) and the start/end times.
 Double-booking a room with overlapping times is refused server-side
 (409) on both create and reschedule, comparing the real stored times.
 """
+import json
 import uuid
 from datetime import datetime, timezone
 
@@ -74,6 +75,11 @@ ADMISSION_EXTENSION = "urn:opencare:extension/admission-encounter"
 OR_ROOM_EXTENSION = "urn:opencare:extension/or-room"
 CASE_APPOINTMENT_EXTENSION = "urn:opencare:extension/scheduled-appointment"
 APPOINTMENT_CASE_EXTENSION = "urn:opencare:extension/surgery-case"
+# Phase 6: the perioperative case timeline (server-timestamped events:
+# scheduled -> pre-op -> in-op/anaesthesia -> pacu -> done) lives on the
+# case Procedure as an extension, appended by the schedule/transition
+# endpoints below. Timestamps are always server-stamped.
+CASE_TIMELINE_EXTENSION = "urn:opencare:extension/case-timeline"
 
 # ED states in which the patient is physically in the department (the
 # board census). departed/admitted are terminal and leave the board.
@@ -1049,6 +1055,39 @@ def _check_room_overlap(session: Session, room_code: str, start: datetime,
                         f"{other_body.get('start')} – {other_body.get('end')})"))
 
 
+def _is_surgery_case(body: dict) -> bool:
+    """A Procedure is a surgery case iff it carries the OR-room
+    extension stamped by schedule_case."""
+    return _get_extension(body or {}, OR_ROOM_EXTENSION) is not None
+
+
+def case_timeline(body: dict) -> list[dict]:
+    """The case's perioperative timeline events, oldest first
+    (extension data; empty for cases scheduled before Phase 6)."""
+    ext = _get_extension(body or {}, CASE_TIMELINE_EXTENSION)
+    if ext is not None and isinstance(ext.get("valueString"), str):
+        try:
+            parsed = json.loads(ext["valueString"])
+        except ValueError:
+            return []
+        if isinstance(parsed, dict) and isinstance(parsed.get("events"), list):
+            return [e for e in parsed["events"] if isinstance(e, dict)]
+    return []
+
+
+def _record_case_event(case: FhirResource, event: str, state: str,
+                       actor: str) -> None:
+    """Append one server-timestamped event to the case timeline
+    (mutation only — the caller flushes/commits)."""
+    body = dict(case.body or {})
+    events = case_timeline(body)
+    events.append({"event": event, "state": state, "at": _now_iso(),
+                   "by": actor})
+    _set_extension(body, CASE_TIMELINE_EXTENSION,
+                   valueString=json.dumps({"events": events}))
+    case.body = body
+
+
 def _case_entry(case: FhirResource, appointment: FhirResource) -> dict:
     room_ext = _get_extension(case.body or {}, OR_ROOM_EXTENSION) or {}
     appt_body = appointment.body or {}
@@ -1060,6 +1099,7 @@ def _case_entry(case: FhirResource, appointment: FhirResource) -> dict:
         "start": appt_body.get("start"),
         "end": appt_body.get("end"),
         "patient_ref": _subject_ref(case.body or {}),
+        "timeline": case_timeline(case.body or {}),
     }
 
 
@@ -1143,6 +1183,10 @@ async def schedule_case(request: Request, session: Session = Depends(get_db),
             {"url": OR_ROOM_EXTENSION, "valueString": room_code},
             {"url": CASE_APPOINTMENT_EXTENSION,
              "valueReference": {"reference": f"Appointment/{appointment_id}"}},
+            {"url": CASE_TIMELINE_EXTENSION,
+             "valueString": json.dumps({"events": [
+                 {"event": "scheduled", "state": "scheduled",
+                  "at": _now_iso(), "by": user.username}]})},
         ],
     }
     case = fhir.create_resource("Procedure", procedure_body, session, user)
@@ -1255,6 +1299,7 @@ async def transition_case(case_id: str, request: Request,
             detail=f"Illegal surgery case transition '{current}' -> '{target}'")
     _check_transition_role(roles, current, target, user, "surgery case")
     _set_status(case, target)
+    _record_case_event(case, target, target, user.username)
     if target == "done":
         _set_status(appointment, "fulfilled")
     elif target == "cancelled":

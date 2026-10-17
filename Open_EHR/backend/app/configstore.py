@@ -20,7 +20,7 @@ from .models import ConfigStatus, Role, StudioConfig
 # ---------------------------------------------------------------------------
 
 CONFIG_KINDS = ("form", "workflow", "terminology", "navigation", "branding", "permissions",
-                "cohort", "integration")
+                "cohort", "integration", "orderset", "measure")
 
 # The one key under which the role/capability matrix lives (kind=permissions).
 PERMISSIONS_KEY = "role-matrix"
@@ -67,6 +67,61 @@ CAPABILITY_DEFAULTS: dict[str, tuple[str, ...]] = {
     "radiology.work": ("admin", "configurator", "clinician"),
     "radiology.verify": ("admin", "clinician"),
     "surgery.work": ("admin", "configurator", "clinician"),
+    # Phase 5 (orders + documentation). Placing/signing orders and
+    # authoring documentation are clinical write work (fhir.write
+    # pattern); reads follow the staff-read pattern incl. viewer.
+    # Per-transition restrictions (e.g. who may SIGN) live in the
+    # published order-flow workflow config, not here.
+    "orders.read": ("admin", "configurator", "clinician", "viewer"),
+    "orders.place": ("admin", "configurator", "clinician"),
+    "notes.read": ("admin", "configurator", "clinician", "viewer"),
+    "notes.write": ("admin", "configurator", "clinician"),
+    # Phase 6 (inpatient operations). Reads follow the boards pattern
+    # (staff incl. viewer; the census is staff-only operational data —
+    # the patient role is deliberately absent); bed/ADT work is
+    # clinical-operations work on the fhir.write pattern. Housekeeping
+    # flips (cleaning -> available) ride inpatient.work in v1; a site
+    # can split them out by publishing a permissions override plus a
+    # capability of its own.
+    "inpatient.read": ("admin", "configurator", "clinician", "viewer"),
+    "inpatient.work": ("admin", "configurator", "clinician"),
+    # Phase 7 (access & revenue cycle). Referral intake/triage,
+    # authorisations, eligibility checks and the waitlist are
+    # registration/access work: reads follow the staff-read pattern,
+    # writes follow the fhir.write pattern. HIM coding is revenue-cycle
+    # work: coders read the queue (billing.view pattern — no viewer)
+    # and assign codes under a billing.manage-like gate; the queue
+    # surfaces clinical documentation references, so the patient role
+    # is deliberately absent from both.
+    "access.read": ("admin", "configurator", "clinician", "viewer"),
+    "access.work": ("admin", "configurator", "clinician"),
+    "coding.read": ("admin", "configurator", "clinician"),
+    "coding.work": ("admin", "configurator"),
+    # Phase 8 (interoperability). The interface log is staff operational
+    # data (message metadata + patient refs, never message bodies in
+    # list views beyond the raw text an interface analyst needs) —
+    # reads follow the staff-read pattern; dispatch / replay are
+    # interface-engine operations (admin + configurator, like
+    # studio.manage). Bulk export is a SYSTEM-LEVEL, record-level
+    # extract: admin/configurator only, every job and download audited.
+    "interop.read": ("admin", "configurator", "clinician", "viewer"),
+    "interop.manage": ("admin", "configurator"),
+    "interop.export": ("admin", "configurator"),
+    # Phase 9 (engagement + quality/research). Secure messaging is
+    # clinical communication: staff write/read under one capability;
+    # the patient side is scoped to the caller's own record in
+    # app.engagement (the portal pattern), not by this capability.
+    "messages.use": ("admin", "configurator", "clinician"),
+    # Patient self-scheduling: the portal appointment-request endpoint.
+    # A site turns it off (or on for more roles) by publishing a
+    # permissions override — the solo-practice profile pack does
+    # exactly that. Staff confirm requests through the ordinary
+    # Appointment ADT machine either way.
+    "portal.self-schedule": ("admin", "clinician", "patient"),
+    # Research workbench aggregate export (app.pophealth): a
+    # de-identified, aggregate-only extract — gated like
+    # interop.export (admin/configurator), every export audited.
+    "pophealth.export": ("admin", "configurator"),
 }
 
 ROLE_NAMES = tuple(r.value for r in Role)
@@ -130,6 +185,7 @@ _DEFAULT_NAV_MODULES: tuple[tuple[str, str, list[str]], ...] = (
     ("ed", "ED board", _STAFF),
     ("radiology", "Radiology", _STAFF),
     ("surgery", "Surgery board", _STAFF),
+    ("beds", "Bed board", _STAFF),
     ("studio", "System Studio", ["admin", "configurator"]),
     ("portal", "My results", ["patient"]),
 )
@@ -355,6 +411,13 @@ def validate_workflow(payload) -> None:
                                     or not isinstance(max_appeals, int)
                                     or max_appeals < 0):
         _fail("'maxAppeals' must be a non-negative integer")
+    # Phase 7: the claim lifecycle may additionally carry
+    # `requireCoding` (boolean) — when true, app.billing refuses claim
+    # generation for an encounter with no HIM coding record. Absent =
+    # false (the pre-Phase-7 behaviour).
+    require_coding = payload.get("requireCoding")
+    if require_coding is not None and not isinstance(require_coding, bool):
+        _fail("'requireCoding' must be a boolean")
 
 
 def validate_terminology(payload) -> None:
@@ -517,7 +580,14 @@ def validate_integration(payload) -> None:
     sections are objects; `viewer`, when present, must carry a string
     `baseUrl` (an http(s) URL the web app appends the study UID to).
     Unknown extra sections pass through: they are data for the owning
-    integration, not structure."""
+    integration, not structure.
+
+    Phase 8 adds the HL7 interface-engine sections (used by the
+    `hl7-endpoints` key): `facility` (MSH identity strings), `retry`
+    ({maxAttempts, backoffSeconds}) and `endpoints` — a list of
+    {name, host, port, messageTypes, enabled, receivingApplication?,
+    receivingFacility?}. Those sections are validated when present so
+    a malformed endpoint can never reach the dispatcher."""
     payload = _require_obj(payload)
     viewer = payload.get("viewer")
     if viewer is not None:
@@ -529,6 +599,171 @@ def validate_integration(payload) -> None:
                 _fail("'viewer.baseUrl' must be an http(s) URL string")
         if "name" in viewer and not isinstance(viewer["name"], str):
             _fail("'viewer.name' must be a string")
+    facility = payload.get("facility")
+    if facility is not None:
+        if not isinstance(facility, dict):
+            _fail("'facility' must be an object")
+        for field in ("sendingApplication", "sendingFacility"):
+            if field in facility and not isinstance(facility[field], str):
+                _fail(f"'facility.{field}' must be a string")
+    retry = payload.get("retry")
+    if retry is not None:
+        if not isinstance(retry, dict):
+            _fail("'retry' must be an object")
+        if "maxAttempts" in retry:
+            value = retry["maxAttempts"]
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                _fail("'retry.maxAttempts' must be a positive integer")
+        if "backoffSeconds" in retry:
+            value = retry["backoffSeconds"]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+                _fail("'retry.backoffSeconds' must be a non-negative number")
+    endpoints = payload.get("endpoints")
+    if endpoints is not None:
+        if not isinstance(endpoints, list):
+            _fail("'endpoints' must be a list")
+        seen_names: set[str] = set()
+        for i, endpoint in enumerate(endpoints):
+            if not isinstance(endpoint, dict):
+                _fail(f"endpoints[{i}] must be an object")
+            name = _require_str(endpoint.get("name"), f"endpoints[{i}].name")
+            if name in seen_names:
+                _fail(f"Duplicate endpoint name '{name}'")
+            seen_names.add(name)
+            _require_str(endpoint.get("host"), f"endpoints[{i}].host")
+            port = endpoint.get("port")
+            if isinstance(port, bool) or not isinstance(port, int) \
+                    or not (1 <= port <= 65535):
+                _fail(f"endpoints[{i}].port must be an integer in 1..65535")
+            types = endpoint.get("messageTypes")
+            if not isinstance(types, list) or not types \
+                    or not all(isinstance(t, str) and t for t in types):
+                _fail(f"endpoints[{i}].messageTypes must be a non-empty list of strings")
+            if "enabled" in endpoint and not isinstance(endpoint["enabled"], bool):
+                _fail(f"endpoints[{i}].enabled must be a boolean")
+            for field in ("receivingApplication", "receivingFacility"):
+                if field in endpoint and not isinstance(endpoint[field], str):
+                    _fail(f"endpoints[{i}].{field} must be a string")
+
+
+def validate_orderset(payload) -> None:
+    """Order set (Phase 5): a named bundle of order templates that CPOE
+    expands into individual orders on placement. Shape: {name, orders:
+    [{type, code, ...}]} — each item names an order TYPE (validated
+    against the published order-types catalogue at placement time, not
+    here: a set must remain publishable before/after catalogue edits)
+    and a code. Extra item fields (display, performerRole, modality,
+    dosage text, ...) pass through unvalidated: they are placement
+    fields for the owning orders module, not structure."""
+    payload = _require_obj(payload)
+    _require_str(payload.get("name"), "name")
+    if "description" in payload and not isinstance(payload["description"], str):
+        _fail("'description' must be a string")
+    orders = payload.get("orders")
+    if not isinstance(orders, list) or not orders:
+        _fail("Order set config requires a non-empty 'orders' list")
+    for i, item in enumerate(orders):
+        if not isinstance(item, dict):
+            _fail(f"orders[{i}] must be an object")
+        _require_str(item.get("type"), f"orders[{i}].type")
+        _require_str(item.get("code"), f"orders[{i}].code")
+        if "display" in item and not isinstance(item["display"], str):
+            _fail(f"orders[{i}].display must be a string")
+
+
+def _validate_lab_rule(lab, field: str) -> None:
+    """One lab criterion — the cohort `lab` shape (latest value vs
+    threshold, optional window), shared by cohort and measure configs."""
+    if not isinstance(lab, dict):
+        _fail(f"'{field}' must be an object")
+    _require_str(lab.get("code"), f"{field}.code")
+    if lab.get("comparator") not in COHORT_COMPARATORS:
+        _fail(f"'{field}.comparator' must be one of {list(COHORT_COMPARATORS)}")
+    threshold = lab.get("threshold")
+    if isinstance(threshold, bool) or not isinstance(threshold, (int, float)):
+        _fail(f"'{field}.threshold' must be a number")
+    window = lab.get("windowDays")
+    if window is not None and (isinstance(window, bool)
+                               or not isinstance(window, int) or window <= 0):
+        _fail(f"'{field}.windowDays' must be a positive integer")
+
+
+def _validate_code_list(values, field: str) -> None:
+    if not isinstance(values, list):
+        _fail(f"'{field}' must be a list of {{system, code}} objects")
+    for i, c in enumerate(values):
+        if not isinstance(c, dict):
+            _fail(f"{field}[{i}] must be an object with 'system' and 'code'")
+        _require_str(c.get("code"), f"{field}[{i}].code")
+        if "system" in c and not isinstance(c["system"], str):
+            _fail(f"{field}[{i}].system must be a string")
+
+
+def _validate_measure_criteria(criteria, field: str) -> None:
+    """One side (denominator or numerator) of a quality measure: a set
+    of criteria in the SAME style as a cohort definition (condition
+    codes and/or lab rules — evaluated by the same warehouse code in
+    app.pophealth / app.quality), extended with `labs` (several lab
+    rules, ALL must hold), `procedureCodes` and `ageRange`. At least
+    one criterion is required; criteria combine as AND."""
+    if not isinstance(criteria, dict):
+        _fail(f"'{field}' must be an object of measure criteria")
+    present = False
+    if criteria.get("conditionCodes") is not None:
+        _validate_code_list(criteria["conditionCodes"], f"{field}.conditionCodes")
+        present = present or bool(criteria["conditionCodes"])
+    if criteria.get("procedureCodes") is not None:
+        _validate_code_list(criteria["procedureCodes"], f"{field}.procedureCodes")
+        present = present or bool(criteria["procedureCodes"])
+    if criteria.get("lab") is not None:
+        _validate_lab_rule(criteria["lab"], f"{field}.lab")
+        present = True
+    if criteria.get("labs") is not None:
+        labs = criteria["labs"]
+        if not isinstance(labs, list) or not labs:
+            _fail(f"'{field}.labs' must be a non-empty list of lab rules")
+        for i, lab in enumerate(labs):
+            _validate_lab_rule(lab, f"{field}.labs[{i}]")
+        present = True
+    age = criteria.get("ageRange")
+    if age is not None:
+        if not isinstance(age, list) or len(age) != 2:
+            _fail(f"'{field}.ageRange' must be a [low, high] pair")
+        low, high = age
+        for bound in (low, high):
+            if isinstance(bound, bool) or not isinstance(bound, int) or bound < 0:
+                _fail(f"'{field}.ageRange' bounds must be non-negative integers")
+        if high < low:
+            _fail(f"'{field}.ageRange' high must be >= low")
+        present = True
+    if not present:
+        _fail(f"'{field}' requires at least one criterion (conditionCodes, "
+              "procedureCodes, lab, labs or ageRange)")
+
+
+def validate_measure(payload) -> None:
+    """Quality measure definition (Phase 9): {name, title?,
+    description?, denominator, numerator, smallCellThreshold?}. The
+    numerator/denominator are cohort-style criteria (see
+    _validate_measure_criteria); the measure ENGINE (app.quality)
+    evaluates them with the population-health evaluator over the
+    warehouse — a measure is configuration, never code."""
+    payload = _require_obj(payload)
+    _require_str(payload.get("name"), "name")
+    for field in ("title", "description"):
+        if field in payload and not isinstance(payload[field], str):
+            _fail(f"'{field}' must be a string")
+    if "denominator" not in payload:
+        _fail("Measure config requires a 'denominator' criteria object")
+    if "numerator" not in payload:
+        _fail("Measure config requires a 'numerator' criteria object")
+    _validate_measure_criteria(payload["denominator"], "denominator")
+    _validate_measure_criteria(payload["numerator"], "numerator")
+    threshold_cells = payload.get("smallCellThreshold")
+    if threshold_cells is not None and (isinstance(threshold_cells, bool)
+                                        or not isinstance(threshold_cells, int)
+                                        or threshold_cells < 1):
+        _fail("'smallCellThreshold' must be a positive integer")
 
 
 VALIDATORS = {
@@ -540,6 +775,8 @@ VALIDATORS = {
     "permissions": validate_permissions,
     "cohort": validate_cohort,
     "integration": validate_integration,
+    "orderset": validate_orderset,
+    "measure": validate_measure,
 }
 
 

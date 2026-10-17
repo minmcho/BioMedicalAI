@@ -50,7 +50,19 @@ SUPPORTED = ("Patient", "Encounter", "Observation", "Condition", "Procedure",
              "Claim", "MedicationDispense", "MedicationAdministration",
              # Phase 4B: imaging studies; the governed radiology workflow
              # (study creation, DICOMweb, report verify) is app.boards.
-             "ImagingStudy")
+             "ImagingStudy",
+             # Phase 5: clinical documentation (DocumentReference — the
+             # governed author/sign/amend lifecycle is app.documentation)
+             # and the allergy list the CPOE decision support reads
+             # (app.orders).
+             "DocumentReference", "AllergyIntolerance",
+             # Phase 6: hospital locations (facility/unit/room/bed) —
+             # materialised from Studio terminology config and governed
+             # by app.inpatient (bed status, ADT events, census).
+             "Location",
+             # Phase 9: secure patient <-> care-team messaging — the
+             # governed thread/reply/read workflow is app.engagement.
+             "Communication")
 
 # Lab result visibility (Phase 2): results created by the lab module carry
 # this meta.tag until they are RELEASED through the lab verification flow.
@@ -170,6 +182,26 @@ def _validate(resource_type: str, body: dict) -> None:
         _require(has_uid,
                  "ImagingStudy requires an 'identifier' with system 'urn:dicom:uid' "
                  "(the DICOM Study Instance UID)")
+    elif resource_type == "DocumentReference":
+        _require(bool(body.get("status")), "DocumentReference requires 'status'")
+        _require(bool(_subject_ref(body)),
+                 "DocumentReference requires 'subject.reference'")
+    elif resource_type == "AllergyIntolerance":
+        _require(bool(body.get("code")), "AllergyIntolerance requires 'code'")
+        patient = body.get("patient") or {}
+        _require(isinstance(patient, dict) and bool(patient.get("reference")),
+                 "AllergyIntolerance requires 'patient.reference'")
+    elif resource_type == "Location":
+        _require(bool(body.get("name")), "Location requires 'name'")
+    elif resource_type == "Communication":
+        _require(bool(body.get("status")), "Communication requires 'status'")
+        _require(bool(_subject_ref(body)),
+                 "Communication requires 'subject.reference'")
+        payload = body.get("payload") or []
+        _require(any(isinstance(p, dict) and bool(p.get("contentString"))
+                     for p in payload),
+                 "Communication requires at least one 'payload' entry "
+                 "with 'contentString'")
 
 
 def _participant_ref(body: dict, prefix: str) -> str | None:
@@ -185,8 +217,9 @@ def _participant_ref(body: dict, prefix: str) -> str | None:
 def _patient_ref(resource_type: str, body: dict, resource_id: str) -> str | None:
     if resource_type == "Patient":
         return f"Patient/{resource_id}"
-    if resource_type == "Claim":
-        # FHIR Claim names the patient in `patient`, not `subject`.
+    if resource_type in ("Claim", "AllergyIntolerance"):
+        # FHIR Claim and AllergyIntolerance name the patient in
+        # `patient`, not `subject`.
         patient = body.get("patient") or {}
         ref = patient.get("reference") if isinstance(patient, dict) else None
         return ref if ref and ref.startswith("Patient/") else None

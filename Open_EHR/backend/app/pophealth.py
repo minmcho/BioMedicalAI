@@ -26,7 +26,8 @@ from sqlalchemy.orm import Session
 from . import etl, warehouse as wh
 from .audit import append_audit
 from .configstore import published_config, published_configs
-from .models import ConfigStatus, OutboxEvent, StudioConfig, User
+from .models import (CohortSnapshot, ConfigStatus, OutboxEvent, StudioConfig,
+                     User)
 from .outbox import outbox_counts
 from .security import get_db, require_capability
 
@@ -329,6 +330,103 @@ async def explore(request: Request, session: Session = Depends(get_db),
                         "comparator": comparator if lab_code else None,
                         "threshold": threshold if lab_code else None},
             **_cell(count, cell_threshold)}
+
+
+# ---------------------------------------------------------------------------
+# Research workbench (Phase 9): cohort snapshots + aggregate export.
+#
+# Saved cohort DEFINITIONS already exist — they are the published
+# Studio `cohort` configs above, authored through the ordinary
+# draft -> publish governance. What the workbench adds is (a) a
+# point-in-time COUNT history per cohort (snapshots store the count
+# and the definition version, never membership) and (b) a
+# de-identified aggregate EXPORT: the registry summary (counts and
+# distributions, small-cell suppressed by construction) plus the
+# definition and export provenance. There is deliberately NO
+# row-level export anywhere in this module — aggregate only.
+# ---------------------------------------------------------------------------
+
+def _snapshot_out(row: CohortSnapshot) -> dict:
+    return {"id": row.id, "cohort_key": row.cohort_key,
+            "member_count": row.member_count,
+            "definition_version": row.definition_version,
+            "taken_by": row.taken_by,
+            "taken_at": row.created_at.isoformat() if row.created_at else None}
+
+
+@router.post("/registries/{key}/snapshots", status_code=201)
+def take_snapshot(key: str, session: Session = Depends(get_db),
+                  user: User = Depends(require_capability("pophealth.run"))):
+    """Capture the cohort's current member count (admin — the same
+    gate as the ETL trigger). The count comes from the aggregate
+    registry summary; the snapshot stores no membership data."""
+    cfg = published_config(session, "cohort", key)
+    if cfg is None:
+        raise HTTPException(status_code=404, detail=f"No published cohort config '{key}'")
+    factory = wh.warehouse_session_factory()
+    with factory() as wh_session:
+        wh.ensure_concept_map(wh_session)
+        summary = registry_summary(wh_session, key, cfg.payload or {})
+    row = CohortSnapshot(cohort_key=key,
+                         member_count=summary["member_count"],
+                         definition_version=cfg.version,
+                         taken_by=user.username)
+    session.add(row)
+    session.flush()
+    append_audit(session, actor=user.username, action="pophealth.snapshot",
+                 entity=f"cohort:{key}",
+                 payload={"member_count": row.member_count,
+                          "definition_version": cfg.version,
+                          "snapshot_id": row.id})
+    session.commit()
+    return _snapshot_out(row)
+
+
+@router.get("/registries/{key}/snapshots")
+def list_snapshots(key: str, session: Session = Depends(get_db),
+                   user: User = Depends(require_capability("pophealth.view"))):
+    """The cohort's snapshot time series, oldest first."""
+    cfg = published_config(session, "cohort", key)
+    if cfg is None:
+        raise HTTPException(status_code=404, detail=f"No published cohort config '{key}'")
+    rows = session.scalars(
+        select(CohortSnapshot).where(CohortSnapshot.cohort_key == key)
+        .order_by(CohortSnapshot.id.asc())).all()
+    return {"cohort": key, "snapshots": [_snapshot_out(r) for r in rows],
+            "total": len(rows)}
+
+
+@router.get("/registries/{key}/export")
+def export_registry(key: str, session: Session = Depends(get_db),
+                    user: User = Depends(require_capability("pophealth.export"))):
+    """De-identified AGGREGATE export of one cohort: its definition,
+    its (already suppressed) aggregate summary, and export
+    provenance. Counts and distributions only — there are no
+    patient-level rows to export, by design. Every export is
+    audited; the gate is the research-export capability
+    (admin/configurator), following the interop.export pattern."""
+    cfg = published_config(session, "cohort", key)
+    if cfg is None:
+        raise HTTPException(status_code=404, detail=f"No published cohort config '{key}'")
+    factory = wh.warehouse_session_factory()
+    with factory() as wh_session:
+        wh.ensure_concept_map(wh_session)
+        summary = registry_summary(wh_session, key, cfg.payload or {})
+    append_audit(session, actor=user.username, action="pophealth.export",
+                 entity=f"cohort:{key}",
+                 payload={"member_count": summary["member_count"],
+                          "definition_version": cfg.version})
+    session.commit()
+    return {
+        "registry": key,
+        "definition": cfg.payload,
+        "definition_version": cfg.version,
+        "summary": summary,
+        "exported_by": user.username,
+        "notice": ("De-identified aggregate export: counts and "
+                   "distributions only, small-cell suppressed. No "
+                   "patient-level rows exist in this export."),
+    }
 
 
 # ---------------------------------------------------------------------------

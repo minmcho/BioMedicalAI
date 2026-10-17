@@ -20,8 +20,10 @@ schedule at generation time — a caller never supplies a price.
 syntactically structured X12 837P-style EDI document (ISA/GS/ST envelope,
 CLM + LX/SV1 service lines, SE/GE/IEA trailers) whose control counts and
 amounts reconcile with the stored claim. It is a format-correct EXPORT
-for review/testing — there is NO clearinghouse connection, no payer
-submission, and no 835/remittance processing in this codebase.
+for review/testing — there is NO clearinghouse connection and no
+payer submission in this codebase. (835 remittance POSTING arrived in
+Phase 7 as app.revenue: a local ingest endpoint for 835 files, still
+with no clearinghouse connection.)
 
 Attribution rule for charge capture (documented in
 contracts/fhir-resources.md): Procedures and Observations are charged to
@@ -45,7 +47,8 @@ from .audit import append_audit
 from .configstore import (load_workflow_machine, published_config,
                           role_allowed, transition_role_allowed,
                           workflow_payload)
-from .models import ConfigStatus, FhirResource, Role, StudioConfig, User
+from .models import (CodingRecord, ConfigStatus, FhirResource, Role,
+                     StudioConfig, User)
 from .security import get_current_user, get_db, require_capability
 
 router = APIRouter(prefix="/billing", tags=["billing"])
@@ -231,6 +234,23 @@ def _max_appeals(session: Session) -> int:
     return 1
 
 
+def _require_coding(session: Session) -> bool:
+    """True when the published claim-lifecycle payload sets
+    `requireCoding` (Phase 7): claim generation then refuses an
+    encounter that has no HIM coding record (app.revenue). Absent or
+    false — the seeded default — preserves the pre-Phase-7 behaviour
+    exactly: coding is consumed when present, never required."""
+    value = (workflow_payload(session, CLAIM_WORKFLOW_KEY) or {}).get("requireCoding")
+    return value is True
+
+
+def coding_record_for(session: Session, encounter_id: str) -> CodingRecord | None:
+    """The HIM coding record for one encounter, or None (Phase 7)."""
+    return session.scalars(
+        select(CodingRecord).where(
+            CodingRecord.encounter_id == str(encounter_id))).first()
+
+
 # ---------------------------------------------------------------------------
 # Claim body helpers (appeals + status history ride in FHIR-plausible
 # places: an extension for the appeal counter, supportingInfo entries for
@@ -381,6 +401,21 @@ async def generate_claim(request: Request, session: Session = Depends(get_db),
     patient_id = patient_ref.split("/", 1)[1]
     fhir._get_row("Patient", patient_id, session)  # 404 if the patient is unknown
 
+    # Phase 7 (HIM coding): when a coding record exists for the
+    # encounter it is the coded truth for the claim — its diagnoses
+    # form the diagnosis section and its procedures become claim
+    # lines. When the published claim config sets `requireCoding`,
+    # an uncoded encounter cannot generate a claim at all (409).
+    coding = coding_record_for(session, str(encounter_id))
+    if coding is None and _require_coding(session):
+        raise HTTPException(
+            status_code=409,
+            detail=(f"Encounter/{encounter_id} has not been coded: the "
+                    "published claim-lifecycle config sets "
+                    "'requireCoding', so a HIM coding record "
+                    "(POST /billing/coding/{encounter_id}) must exist "
+                    "before a claim can be generated"))
+
     fees = _fee_index(session)
 
     def rows_of(resource_type: str) -> list[FhirResource]:
@@ -417,20 +452,76 @@ async def generate_claim(request: Request, session: Session = Depends(get_db),
             ],
         })
 
+    coded_procedure_codes: set[str] = set()
+    if coding is not None:
+        # The coding record's diagnoses ARE the claim's diagnosis
+        # section (the problem list still charges its evaluation
+        # lines below, as before).
+        for entry in coding.diagnoses or []:
+            if not isinstance(entry, dict) or not entry.get("code"):
+                continue
+            diagnoses.append({
+                "sequence": len(diagnoses) + 1,
+                "diagnosisCodeableConcept": {
+                    "coding": [{"system": entry.get("system"),
+                                "code": entry.get("code"),
+                                "display": entry.get("display")}],
+                    "text": entry.get("display"),
+                },
+            })
+        coded_procedure_codes = {
+            entry.get("code") for entry in (coding.procedures or [])
+            if isinstance(entry, dict) and entry.get("code")}
+
     for row in rows_of("Condition"):
         system, code, display = _first_coding(row.body or {})
-        diagnoses.append({
-            "sequence": len(diagnoses) + 1,
-            "diagnosisCodeableConcept": {
-                "coding": [{"system": system, "code": code, "display": display}],
-                "text": display,
-            },
-        })
+        if coding is None:
+            diagnoses.append({
+                "sequence": len(diagnoses) + 1,
+                "diagnosisCodeableConcept": {
+                    "coding": [{"system": system, "code": code, "display": display}],
+                    "text": display,
+                },
+            })
         add_line("Condition", row)
     for resource_type in ("Procedure", "Observation"):
         for row in rows_of(resource_type):
-            if _attributed(str(encounter_id), encounter_body, resource_type, row.body or {}):
-                add_line(resource_type, row)
+            if not _attributed(str(encounter_id), encounter_body, resource_type, row.body or {}):
+                continue
+            if resource_type == "Procedure" and coding is not None:
+                # A chart procedure the coder also coded is charged
+                # ONCE — as the coded line below (the coded record is
+                # the HIM truth for the encounter). An uncoded chart
+                # procedure still charges: a charge is never dropped.
+                _, chart_code, _ = _first_coding(row.body or {})
+                if chart_code in coded_procedure_codes:
+                    continue
+            add_line(resource_type, row)
+    if coding is not None:
+        for entry in coding.procedures or []:
+            if not isinstance(entry, dict) or not entry.get("code"):
+                continue
+            system_c, code_c, display_c = entry.get("system"), entry.get("code"), \
+                entry.get("display")
+            price_c = price_for(fees, system_c, code_c)
+            priced_c = price_c is not None
+            unit_price_c = price_c if priced_c else 0.0
+            lines.append({
+                "sequence": len(lines) + 1,
+                "productOrService": {
+                    "coding": [{"system": system_c, "code": code_c,
+                                "display": display_c}],
+                    "text": display_c,
+                },
+                "quantity": {"value": 1},
+                "unitPrice": {"value": unit_price_c, "currency": CURRENCY},
+                "net": {"value": round(unit_price_c, 2), "currency": CURRENCY},
+                "extension": [
+                    {"url": CHARGE_SOURCE_EXTENSION,
+                     "valueString": f"CodingRecord/{encounter_id}"},
+                    {"url": PRICED_EXTENSION, "valueBoolean": priced_c},
+                ],
+            })
 
     if not lines:
         raise HTTPException(

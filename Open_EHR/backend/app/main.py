@@ -3,7 +3,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import billing, boards, fhir, lab, outbox, pharmacy, pophealth, studio, studio_config  # noqa: F401
+from . import access, billing, boards, documentation, engagement, fhir, inpatient, interop, lab, lab_benches, orders, outbox, pharmacy, pophealth, quality, revenue, studio, studio_config  # noqa: F401
 from .db import Base, make_engine, make_session_factory
 from .security import seed_users
 
@@ -20,8 +20,16 @@ def create_app(database_url: str | None = None) -> FastAPI:
         billing.ensure_billing_defaults(session)
         pharmacy.ensure_pharmacy_defaults(session)
         boards.ensure_boards_defaults(session)
+        orders.ensure_orders_defaults(session)
+        documentation.ensure_documentation_defaults(session)
+        inpatient.ensure_inpatient_defaults(session)
+        access.ensure_access_defaults(session)
+        revenue.ensure_revenue_defaults(session)
+        interop.ensure_interop_defaults(session)
+        engagement.ensure_engagement_defaults(session)
+        quality.ensure_quality_defaults(session)
 
-    app = FastAPI(title="OpenCare EHR", version="0.6.0",
+    app = FastAPI(title="OpenCare EHR", version="0.7.0",
                   description=("Open-source, FHIR-native EHR. Phase 1 core EHR "
                                "plus the Studio customization engine: forms, "
                                "workflows, terminology, navigation, branding "
@@ -48,7 +56,74 @@ def create_app(database_url: str | None = None) -> FastAPI:
                                "external OHIF viewer link from Studio "
                                "integration config) and the surgery board "
                                "(OR rooms as config, room-overlap "
-                               "double-booking refused server-side)."))
+                               "double-booking refused server-side). "
+                               "Phase 5: general orders / CPOE — order "
+                               "types, lifecycle and order sets as Studio "
+                               "config, allergy + duplicate decision "
+                               "support, consult Tasks + inbox, and the "
+                               "computed MAR (app.orders) — clinical "
+                               "documentation: notes (DocumentReference "
+                               "author/sign/amend on Studio form "
+                               "templates) and Questionnaire-driven "
+                               "flowsheets (app.documentation) — and "
+                               "deployment-profile packs (solo practice "
+                               "/ clinic) whose configuration is applied "
+                               "at pack enable time (app.studio). Phase 6: "
+                               "inpatient operations (app.inpatient) — "
+                               "locations & beds materialised from Studio "
+                               "terminology config, the ADT event system "
+                               "(A01 admit / A02 transfer / A03 discharge / "
+                               "A08 update) over the Encounter lifecycle, "
+                               "census + bed board, case management and "
+                               "discharge planning (checklist form, "
+                               "dispositions, expected-discharges feed), "
+                               "and perioperative depth on the surgery "
+                               "board: pre-op checklist, anaesthesia record "
+                               "+ vitals flowsheet, PACU note type, and a "
+                               "server-timestamped case timeline. "
+                               "Phase 7: access & full revenue cycle — "
+                               "referrals + prior authorisations on "
+                               "Studio payer/service/workflow config "
+                               "with an auth gate at order signing, "
+                               "recorded local-config eligibility "
+                               "checks (no live payer EDI), and the "
+                               "appointment waitlist (app.access) — "
+                               "HIM/coding queues on published ICD-10/"
+                               "CPT value sets feeding claim generation "
+                               "(optional requireCoding gate), X12 835 "
+                               "remittance posting with batch "
+                               "exceptions, the denials workqueue with "
+                               "rebill, and patient statements + "
+                               "recorded payments (app.revenue). "
+                               "Phase 8: live interoperability — one "
+                               "shared HL7 v2 module (app.hl7), an "
+                               "interface outbox fed in-transaction by "
+                               "the ADT/order-signing/lab-release "
+                               "events, a real MLLP listener service "
+                               "(app.mllp_server) routing inbound ORU "
+                               "into the existing lab ingest and "
+                               "recording inbound ADT as external "
+                               "events (never mutating census), a "
+                               "retrying/dead-lettering dispatcher, "
+                               "public-health ELR from the published "
+                               "reportable-conditions list, and FHIR "
+                               "bulk ($export-style) NDJSON jobs "
+                               "behind the interop.export capability "
+                               "(app.interop). Phase 9: specialty "
+                               "operations as governed Studio packs "
+                               "(backend/packs/specialty-*.pack.json) on "
+                               "this same core, plus patient engagement "
+                               "— secure messaging on FHIR Communication, "
+                               "telehealth visits (external provider "
+                               "join link as config data; no video "
+                               "stack), self-scheduling over the "
+                               "published slot types (app.engagement) — "
+                               "a config-defined quality-measure engine "
+                               "reusing the population-health evaluator "
+                               "over the warehouse (app.quality), and "
+                               "the research cohort workbench: snapshot "
+                               "count history + audited aggregate-only "
+                               "exports (app.pophealth)."))
     app.state.engine = engine
     app.state.session_factory = session_factory
 
@@ -73,13 +148,14 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     @app.get("/health")
     def health():
-        return {"status": "ok", "service": "opencare-ehr", "phase": "4b"}
+        return {"status": "ok", "service": "opencare-ehr", "phase": "9"}
 
     app.include_router(studio.router)
     app.include_router(studio_config.router)
     app.include_router(fhir.router)
     app.include_router(fhir.portal_router)
     app.include_router(lab.router)
+    app.include_router(lab_benches.router)
     app.include_router(pophealth.router)
     app.include_router(pophealth.warehouse_router)
     app.include_router(billing.router)
@@ -88,6 +164,17 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(boards.radiology_router)
     app.include_router(boards.dicomweb_router)
     app.include_router(boards.surgery_router)
+    app.include_router(orders.router)
+    app.include_router(documentation.notes_router)
+    app.include_router(documentation.flowsheets_router)
+    app.include_router(inpatient.router)
+    app.include_router(access.router)
+    app.include_router(revenue.router)
+    app.include_router(interop.router)
+    app.include_router(engagement.router)
+    app.include_router(engagement.engagement_router)
+    app.include_router(engagement.portal_router)
+    app.include_router(quality.router)
     return app
 
 
