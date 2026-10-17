@@ -1,0 +1,398 @@
+{
+  "api_endpoints": [],
+  "configuration": [
+    {
+      "key": "main",
+      "kind": "navigation",
+      "payload": {
+        "items": [
+          {
+            "label": "Patients",
+            "module": "patients",
+            "order": 1,
+            "roles": [
+              "admin",
+              "configurator",
+              "clinician",
+              "viewer"
+            ],
+            "visible": true
+          },
+          {
+            "label": "Results inbox",
+            "module": "inbox",
+            "order": 2,
+            "roles": [
+              "admin",
+              "configurator",
+              "clinician"
+            ],
+            "visible": true
+          },
+          {
+            "label": "Scheduling",
+            "module": "scheduling",
+            "order": 3,
+            "roles": [
+              "admin",
+              "configurator",
+              "clinician"
+            ],
+            "visible": true
+          },
+          {
+            "label": "Laboratory",
+            "module": "lab",
+            "order": 4,
+            "roles": [
+              "admin",
+              "configurator",
+              "clinician",
+              "viewer"
+            ],
+            "visible": true
+          },
+          {
+            "label": "Billing",
+            "module": "billing",
+            "order": 5,
+            "roles": [
+              "admin",
+              "configurator",
+              "clinician",
+              "patient"
+            ],
+            "visible": true
+          },
+          {
+            "label": "Pharmacy",
+            "module": "pharmacy",
+            "order": 6,
+            "roles": [
+              "admin",
+              "configurator",
+              "clinician",
+              "viewer"
+            ],
+            "visible": true
+          },
+          {
+            "label": "Recalls & registries",
+            "module": "pophealth",
+            "order": 7,
+            "roles": [
+              "admin",
+              "clinician"
+            ],
+            "visible": true
+          },
+          {
+            "label": "System Studio",
+            "module": "studio",
+            "order": 8,
+            "roles": [
+              "admin",
+              "configurator"
+            ],
+            "visible": true
+          },
+          {
+            "label": "My results",
+            "module": "portal",
+            "order": 9,
+            "roles": [
+              "patient"
+            ],
+            "visible": true
+          }
+        ]
+      }
+    },
+    {
+      "key": "role-matrix",
+      "kind": "permissions",
+      "payload": {
+        "capabilities": {
+          "portal.self-schedule": {
+            "admin": true,
+            "clinician": true,
+            "configurator": false,
+            "patient": true,
+            "viewer": false
+          }
+        }
+      }
+    },
+    {
+      "key": "lab-order-flow-poct",
+      "kind": "workflow",
+      "payload": {
+        "governedStates": [
+          "resulted",
+          "released"
+        ],
+        "specimenStates": [
+          "collected",
+          "received",
+          "in-process",
+          "resulted",
+          "released",
+          "rejected"
+        ],
+        "states": [
+          "cancelled",
+          "collected",
+          "in-process",
+          "ordered",
+          "received",
+          "rejected",
+          "released",
+          "resulted"
+        ],
+        "transitions": [
+          {
+            "from": "ordered",
+            "to": "collected"
+          },
+          {
+            "from": "ordered",
+            "to": "cancelled"
+          },
+          {
+            "from": "collected",
+            "to": "received"
+          },
+          {
+            "from": "collected",
+            "to": "rejected"
+          },
+          {
+            "from": "received",
+            "to": "in-process"
+          },
+          {
+            "from": "received",
+            "to": "rejected"
+          },
+          {
+            "from": "in-process",
+            "to": "resulted"
+          },
+          {
+            "from": "in-process",
+            "to": "rejected"
+          },
+          {
+            "from": "resulted",
+            "to": "released"
+          }
+        ]
+      }
+    },
+    {
+      "key": "default",
+      "kind": "branding",
+      "payload": {
+        "orgName": "{{orgName}}",
+        "portalTitle": "My results",
+        "primaryColor": "#0b6e4f"
+      }
+    },
+    {
+      "key": "diabetes-recall",
+      "kind": "cohort",
+      "payload": {
+        "ageBands": [
+          [
+            0,
+            17,
+            "0-17"
+          ],
+          [
+            18,
+            44,
+            "18-44"
+          ],
+          [
+            45,
+            64,
+            "45-64"
+          ],
+          [
+            65,
+            74,
+            "65-74"
+          ],
+          [
+            75,
+            null,
+            "75+"
+          ]
+        ],
+        "conditionCodes": [
+          {
+            "code": "44054006",
+            "system": "http://snomed.info/sct"
+          }
+        ],
+        "description": "Recall registry for the practice panel: patients with type 2 diabetes whose latest HbA1c is at or above 7.0% within 365 days are due a review.",
+        "lab": {
+          "code": "4548-4",
+          "comparator": ">=",
+          "system": "http://loinc.org",
+          "threshold": 7.0,
+          "windowDays": 365
+        },
+        "name": "Diabetes recall \u2014 HbA1c review due",
+        "smallCellThreshold": 5
+      }
+    },
+    {
+      "key": "annual-physical-recall",
+      "kind": "cohort",
+      "payload": {
+        "ageBands": [
+          [
+            0,
+            17,
+            "0-17"
+          ],
+          [
+            18,
+            44,
+            "18-44"
+          ],
+          [
+            45,
+            64,
+            "45-64"
+          ],
+          [
+            65,
+            74,
+            "65-74"
+          ],
+          [
+            75,
+            null,
+            "75+"
+          ]
+        ],
+        "conditionCodes": [
+          {
+            "code": "44054006",
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "38341003",
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "55822004",
+            "system": "http://snomed.info/sct"
+          }
+        ],
+        "description": "The practice's chronic-care panel (diabetes, hypertension, hyperlipidemia), recalled for annual physicals.",
+        "name": "Annual physical recall \u2014 chronic-care panel",
+        "smallCellThreshold": 5
+      }
+    },
+    {
+      "key": "flu-recall",
+      "kind": "cohort",
+      "payload": {
+        "ageBands": [
+          [
+            0,
+            17,
+            "0-17"
+          ],
+          [
+            18,
+            44,
+            "18-44"
+          ],
+          [
+            45,
+            64,
+            "45-64"
+          ],
+          [
+            65,
+            74,
+            "65-74"
+          ],
+          [
+            75,
+            null,
+            "75+"
+          ]
+        ],
+        "conditionCodes": [
+          {
+            "code": "195967001",
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "44054006",
+            "system": "http://snomed.info/sct"
+          }
+        ],
+        "description": "Patients in influenza risk groups (asthma, diabetes) recalled for seasonal vaccination.",
+        "name": "Influenza vaccination recall \u2014 risk groups",
+        "smallCellThreshold": 5
+      }
+    }
+  ],
+  "description": "Deployment profile: single-doctor office (roadmap \u00a75). Enabling this pack APPLIES its configuration as new published Studio versions: a navigation subset (no ED / radiology / surgery departments), the permissions variant with the patient self-scheduling request flag on (portal.self-schedule capability), the POCT lab workflow (single-step result entry for office point-of-care tests \u2014 orders flagged poct only; the hospital two-step verify/release path is untouched), a branding variant (org name from the enable-time {{orgName}} parameter, defaulting to the current org name), and panel-scale recall registries (diabetes, annual physical, influenza). Disabling the pack does NOT unpublish the applied configuration \u2014 roll it back through Studio config like any other change.",
+  "forms": [],
+  "modules": [
+    {
+      "enabled": false,
+      "id": "patients",
+      "name": "Patients"
+    },
+    {
+      "enabled": false,
+      "id": "inbox",
+      "name": "Inbox"
+    },
+    {
+      "enabled": false,
+      "id": "scheduling",
+      "name": "Scheduling"
+    },
+    {
+      "enabled": false,
+      "id": "lab",
+      "name": "Lab"
+    },
+    {
+      "enabled": false,
+      "id": "billing",
+      "name": "Billing"
+    },
+    {
+      "enabled": false,
+      "id": "pharmacy",
+      "name": "Pharmacy"
+    },
+    {
+      "enabled": false,
+      "id": "pophealth",
+      "name": "Pophealth"
+    },
+    {
+      "enabled": false,
+      "id": "studio",
+      "name": "Studio"
+    },
+    {
+      "enabled": false,
+      "id": "portal",
+      "name": "Portal"
+    }
+  ],
+  "name": "profile-solo-practice",
+  "version": "1.0.0"
+}
