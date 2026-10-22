@@ -27,6 +27,51 @@ GOLD_PATH = "/tmp/opencare_lakehouse/gold_patient_summary"
 
 # COMMAND ----------
 
+# Setup: create the synthetic raw sample at RAW_PATH if absent.
+# (The repo also carries this exact sample as raw_observations.json; a real
+# uploaded file at RAW_PATH still wins — this cell only fills the gap.)
+import json, os
+os.makedirs(os.path.dirname(RAW_PATH), exist_ok=True)
+if not os.path.exists(RAW_PATH):
+    sample = [
+        {"resourceType": "Observation", "status": "final",
+         "code": {"coding": [{"system": "http://loinc.org", "code": "4548-4"}]},
+         "subject": {"reference": "Patient/p1"},
+         "effectiveDateTime": "2026-01-10T09:00:00Z",
+         "valueQuantity": {"value": 5.4, "unit": "%"}},
+        {"resourceType": "Observation", "status": "final",
+         "code": {"coding": [{"system": "http://loinc.org", "code": "4548-4"}]},
+         "subject": {"reference": "Patient/p1"},
+         "effectiveDateTime": "2026-04-10T09:00:00Z",
+         "valueQuantity": {"value": 5.9, "unit": "%"}},
+        {"resourceType": "Observation", "status": "final",
+         "code": {"coding": [{"system": "http://loinc.org", "code": "4548-4"}]},
+         "subject": {"reference": "Patient/p1"},
+         "effectiveDateTime": "2026-04-10T09:00:00Z",
+         "valueQuantity": {"value": 5.9, "unit": "%"}},
+        {"resourceType": "Observation", "status": "final",
+         "code": {"coding": [{"system": "http://loinc.org", "code": "4548-4"}]},
+         "subject": {"reference": "Patient/p2"},
+         "effectiveDateTime": "2026-02-01T10:00:00Z",
+         "valueQuantity": {"value": 7.2, "unit": "%"}},
+        {"resourceType": "Observation", "status": "entered-in-error",
+         "code": {"coding": [{"system": "http://loinc.org", "code": "4548-4"}]},
+         "subject": {"reference": "Patient/p2"},
+         "effectiveDateTime": "2026-03-01T10:00:00Z",
+         "valueQuantity": {"value": 9.9, "unit": "%"}},
+        {"resourceType": "Observation", "status": "final",
+         "code": {"coding": [{"system": "http://loinc.org", "code": "2339-0"}]},
+         "subject": {"reference": "Patient/p3"},
+         "effectiveDateTime": "2026-02-15T08:30:00Z",
+         "valueQuantity": {"value": 6.1, "unit": "%"}},
+        {"resourceType": "Patient", "id": "p9"},
+    ]
+    with open(RAW_PATH, "w") as f:
+        json.dump(sample, f)
+print("raw sample ready at", RAW_PATH)
+
+# COMMAND ----------
+
 # Bronze: land as-is plus ingestion metadata.
 from pyspark.sql import functions as F
 
