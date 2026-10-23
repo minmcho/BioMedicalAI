@@ -27,13 +27,35 @@ XM_ORDER = "BB-XM"
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _patient(client, pid):
-    r = client.post("/fhir/Patient",
-                    json={"resourceType": "Patient", "id": pid,
-                          "name": [{"family": "Synthetic", "given": ["6B"]}]},
-                    headers=CLINICIAN)
+def _patient(client, pid, dob=None):
+    body = {"resourceType": "Patient", "id": pid,
+            "name": [{"family": "Synthetic", "given": ["6B"]}]}
+    if dob:
+        # Wave A (LAB-M1): bedside transfusion verification checks
+        # the supplied date of birth against the Patient record.
+        body["birthDate"] = dob
+    r = client.post("/fhir/Patient", json=body, headers=CLINICIAN)
     assert r.status_code == 201, r.text
     return pid
+
+
+def _type_and_screen_released(client, group="O POS", screen="Negative",
+                              patient="pat-1"):
+    """Wave A (LAB-B1): the issue gate consumes RELEASED type &
+    screen results — run a BB-TS through the standard spine."""
+    return _run_released(client, TS_ORDER, [
+        {"code": "883-9", "value": group},
+        {"code": "890-4", "value": screen},
+    ], patient=patient)
+
+
+def _transfusion_payload(unit_id, patient="pat-1", dob="1990-01-01"):
+    """Wave A (LAB-M1): the BCMA-pattern transfusion payload."""
+    return {"unit_id": unit_id, "wristband_patient_id": patient,
+            "date_of_birth": dob,
+            "vitals": {"temperature_c": 36.8, "pulse_bpm": 72,
+                       "systolic_bp": 118, "diastolic_bp": 76,
+                       "resp_rate": 16}}
 
 
 def _order(client, code, patient="pat-1", expect=201, **extra):
@@ -397,7 +419,11 @@ def test_blood_bank_type_screen_results_on_standard_spine(client):
 
 
 def test_blood_unit_inventory_issue_transfuse(client):
-    _patient(client, "pat-1")
+    # Wave A: the patient carries a birthDate (LAB-M1 identifier 2)
+    # and a RELEASED type & screen (LAB-B1 gate: O POS group +
+    # Negative screen makes the O POS RBC unit eXM-eligible).
+    _patient(client, "pat-1", dob="1990-01-01")
+    _type_and_screen_released(client)
     _unit(client)
     _unit(client, unit_id="SYN-U1", expect=409)          # duplicate id
     _unit(client, unit_id="SYN-U2", product="whole-blood", expect=422)
@@ -418,9 +444,9 @@ def test_blood_unit_inventory_issue_transfuse(client):
     r = client.post("/lab/blood-bank/units/SYN-U1/issue",
                     json={"order_id": xm["id"]}, headers=CLINICIAN)
     assert r.status_code == 409, r.text
-    # transfusion record links unit -> patient
+    # transfusion record links unit -> patient (LAB-M1 payload)
     r = client.post("/lab/blood-bank/transfusions",
-                    json={"unit_id": "SYN-U1"}, headers=CLINICIAN)
+                    json=_transfusion_payload("SYN-U1"), headers=CLINICIAN)
     assert r.status_code == 201, r.text
     procedure = r.json()["transfusion"]
     assert procedure["subject"]["reference"] == "Patient/pat-1"
@@ -431,6 +457,10 @@ def test_blood_unit_inventory_issue_transfuse(client):
 
 def test_blood_unit_expired_cannot_be_issued(client):
     _patient(client, "pat-1")
+    # Wave A: the LAB-B1 gate runs before the expiry refusal, so the
+    # patient needs a released type & screen for the expiry path to
+    # be what refuses this issue.
+    _type_and_screen_released(client)
     _unit(client, unit_id="SYN-OLD", expiry="2000-01-01")
     xm = _order(client, XM_ORDER)
     r = client.post("/lab/blood-bank/units/SYN-OLD/issue",
@@ -442,14 +472,17 @@ def test_blood_unit_expired_cannot_be_issued(client):
 
 
 def test_transfusion_reaction_hold_and_clear(client):
-    _patient(client, "pat-1")
+    # Wave A: birthDate for LAB-M1 + released type & screen for the
+    # LAB-B1 issue gate, as in the inventory/issue test above.
+    _patient(client, "pat-1", dob="1990-01-01")
+    _type_and_screen_released(client)
     _unit(client, unit_id="SYN-R1")
     _unit(client, unit_id="SYN-R2")
     xm = _order(client, XM_ORDER)
     client.post("/lab/blood-bank/units/SYN-R1/issue",
                 json={"order_id": xm["id"]}, headers=CLINICIAN)
     client.post("/lab/blood-bank/transfusions",
-                json={"unit_id": "SYN-R1"}, headers=CLINICIAN)
+                json=_transfusion_payload("SYN-R1"), headers=CLINICIAN)
     # reaction: unit quarantined + hold placed on the patient
     r = client.post("/lab/blood-bank/units/SYN-R1/reaction",
                     json={"symptoms": "Fever and rigors 20 minutes in"},
@@ -816,6 +849,47 @@ def test_instrument_registry_log_and_ingest_metadata(client):
                           "instrument_id": "SYN-UNKNOWN"},
                     headers=CLINICIAN)
     assert r.status_code == 422, r.text
+    # LAB-m2 RECONCILIATION (Lab Depth W3, LAB-D6a — deliberate
+    # behaviour change, recorded in the W3 report): SYN-AN-01 is in
+    # MAINTENANCE at this point. The pre-LAB-m2 expectation here was
+    # 201 — ingest silently accepted results from an instrument in
+    # maintenance. The governed behaviour refuses the batch 409 and
+    # QUARANTINES it by name: zero results are written, and the held
+    # quarantine record carries the ingest metadata instead.
+    r = client.post("/lab/ingest",
+                    json={"format": "csv", "content": content,
+                          "instrument_id": "SYN-AN-01"},
+                    headers=CLINICIAN)
+    assert r.status_code == 409, r.text
+    assert "Ingest quarantined" in r.json()["detail"]
+    assert "SYN-AN-01" in r.json()["detail"]
+    assert "in-maintenance" in r.json()["detail"]
+    # zero silent write: the order still has no report at all
+    detail = client.get("/lab/orders/ord-inst-1", headers=CLINICIAN).json()
+    assert detail["reports"] == []
+    # the quarantine record carries the metadata (asserted against
+    # the store directly — the pattern this file's TAT test uses —
+    # because the analyser router is coordinator-wired separately)
+    from sqlalchemy import select as sa_select
+
+    from app.lab_analyser import LabIngestQuarantine
+    factory = client.app.state.session_factory
+    with factory() as session:
+        rows = session.scalars(sa_select(LabIngestQuarantine)).all()
+    assert len(rows) == 1
+    held = rows[0]
+    assert held.instrument_id == "SYN-AN-01"
+    assert held.source_format == "csv"
+    assert held.status == "held"
+    assert "in-maintenance" in held.reason
+    assert held.payload["kind"] == "groups"
+    assert held.payload["groups"][0][0] == "ord-inst-1"
+    # Return the instrument to service and ingest the same batch
+    # afresh: NOW the original metadata assertions apply verbatim —
+    # the instrument identity lands on the created report.
+    r = client.post("/lab/instruments/SYN-AN-01/status",
+                    json={"status": "active"}, headers=CLINICIAN)
+    assert r.status_code == 200 and r.json()["status"] == "active"
     r = client.post("/lab/ingest",
                     json={"format": "csv", "content": content,
                           "instrument_id": "SYN-AN-01"},

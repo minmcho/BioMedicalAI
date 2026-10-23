@@ -1,0 +1,331 @@
+# OpenCare — default values (local / kind-class cluster shape).
+# NO SECRETS IN THIS FILE. Every credential is referenced by Secret
+# name + key only (see the *Secret / existingSecret fields). Create the
+# referenced Secrets out-of-band (kubectl create secret, SealedSecrets,
+# ExternalSecrets, ...) before installing. See infra/helm/README.md.
+
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+  storageClass: ""
+
+nameOverride: ""
+fullnameOverride: ""
+
+# ---------------------------------------------------------------------------
+# Shared non-secret configuration (rendered into a ConfigMap)
+# ---------------------------------------------------------------------------
+config:
+  authMode: "dev"            # dev | oidc  (backend/app/security.py AUTH_MODE)
+  oidcJwksUrl: ""
+  oidcIssuer: ""
+  oidcAudience: ""
+  viteAuthMode: "dev"        # baked into the web image at build time in compose;
+                             # in Kubernetes set it via the image build arg —
+                             # this value is exposed for documentation/CI only.
+  adkRuntimeUrl: ""          # empty => http://<release>-adk:8100 (templated)
+  openCareApiBase: ""        # empty => http://<release>-backend:8000 (templated)
+  agentModel: ""             # LiteLLM model string, e.g. ollama_chat/llama3.2:3b
+                             # empty = honest-off: ADK /run answers 503.
+  extraEnv: []               # [{name: FOO, value: bar}] appended to backend env
+
+# ---------------------------------------------------------------------------
+# Backend — FastAPI core (compose service: app; backend/Dockerfile)
+# ---------------------------------------------------------------------------
+backend:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: opencare/backend
+    tag: ""                  # empty => Chart.appVersion
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8000
+  resources:
+    requests: { cpu: "250m", memory: "512Mi" }
+    limits: { cpu: "1000m", memory: "1Gi" }
+  livenessProbe:  { httpGet: { path: /health, port: http }, initialDelaySeconds: 15, periodSeconds: 10 }
+  readinessProbe: { httpGet: { path: /health, port: http }, initialDelaySeconds: 5,  periodSeconds: 5 }
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 80
+  podSecurityContext: { runAsNonRoot: true, runAsUser: 1000, fsGroup: 1000 }
+  securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  # Database wiring. Preferred (production): a single Secret key holding
+  # the full DATABASE_URL. Alternative: let the chart build the URL from
+  # non-secret components + a password sourced from a Secret key.
+  databaseUrlSecret:
+    name: "opencare-secrets"   # Secret to read DATABASE_URL from
+    key: "database-url"
+    # Set name to "" to use the constructed-URL mode below instead.
+  database:
+    host: ""                 # empty => bundled postgresql service (if enabled)
+    port: 5432
+    name: openehr
+    user: openehr
+    passwordSecret: { name: "opencare-secrets", key: "db-password" }
+    sslMode: ""              # e.g. require (appended as query handling is the driver's)
+  warehouse:
+    # Second database (OMOP warehouse, WAREHOUSE_DATABASE_URL).
+    # Empty => warehouse features use the backend's SQLite default inside
+    # the pod (ephemeral — set this for any real deployment).
+    databaseUrlSecret: { name: "", key: "warehouse-database-url" }
+    host: ""
+    port: 5432
+    name: warehouse
+    user: openehr
+    passwordSecret: { name: "opencare-secrets", key: "warehouse-db-password" }
+  valkeyUrlSecret: { name: "", key: "valkey-url" }  # empty => templated bundled/external valkey URL below
+
+# ---------------------------------------------------------------------------
+# MLLP — in-core HL7 v2 listener (compose service: mllp; same backend image,
+# command: python -m app.mllp_server --host 0.0.0.0 --port 2575)
+# ---------------------------------------------------------------------------
+mllp:
+  enabled: true
+  replicaCount: 1            # Keep 1 unless the site's senders tolerate fan-out.
+  image:
+    repository: opencare/backend
+    tag: ""
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 2575
+  resources:
+    requests: { cpu: "100m", memory: "256Mi" }
+    limits: { cpu: "500m", memory: "512Mi" }
+  podSecurityContext: { runAsNonRoot: true, runAsUser: 1000 }
+  securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
+  nodeSelector: {}
+  tolerations: []
+
+# ---------------------------------------------------------------------------
+# Web — nginx static client (compose service: web; web/Dockerfile, port 8080)
+# Same-origin API proxying is done by nginx.conf baked into the image
+# (proxy_pass http://app:8000). In Kubernetes the backend Service name
+# differs, so rebuild the web image with a matching nginx upstream or
+# set web.nginxBackendService to the release backend Service name and
+# rebuild — see infra/helm/README.md "Web / nginx note".
+# ---------------------------------------------------------------------------
+web:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: opencare/web
+    tag: ""
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8080
+  resources:
+    requests: { cpu: "50m", memory: "64Mi" }
+    limits: { cpu: "250m", memory: "256Mi" }
+  livenessProbe:  { httpGet: { path: /, port: http }, initialDelaySeconds: 10, periodSeconds: 10 }
+  readinessProbe: { httpGet: { path: /, port: http }, initialDelaySeconds: 3,  periodSeconds: 5 }
+  podSecurityContext: { runAsNonRoot: true, runAsUser: 101 }
+  securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
+  nodeSelector: {}
+  tolerations: []
+
+# ---------------------------------------------------------------------------
+# ADK — agent runtime (backend/adk; uvicorn app.main:app --port 8100).
+# NOT in docker-compose.yml — compose runs it as a host process per
+# backend/adk/README.md. The chart deploys it as a first-class service.
+# No Dockerfile ships in backend/adk/; build one equivalent to
+# agents/Dockerfile (python:3.12-slim, requirements.txt, port 8100).
+# ---------------------------------------------------------------------------
+adk:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: opencare/adk
+    tag: ""
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8100
+  runTimeoutSeconds: "120"   # ADK_RUN_TIMEOUT_S
+  resources:
+    requests: { cpu: "100m", memory: "256Mi" }
+    limits: { cpu: "500m", memory: "512Mi" }
+  livenessProbe:  { httpGet: { path: /health, port: http }, initialDelaySeconds: 15, periodSeconds: 10 }
+  readinessProbe: { httpGet: { path: /health, port: http }, initialDelaySeconds: 5,  periodSeconds: 5 }
+  podSecurityContext: { runAsNonRoot: true, runAsUser: 1000 }
+  securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
+  # Optional provider keys (e.g. a cloud LLM key) — by reference only.
+  envFromSecrets: []         # e.g. ["opencare-llm-secrets"]
+  nodeSelector: {}
+  tolerations: []
+
+# ---------------------------------------------------------------------------
+# Go MLLP gateway (compose service: mllp-gateway; services/go/Dockerfile,
+# binary mllp-gateway). Edge/gateway tier in front of the core's
+# offline-batch contract; spools durably to a PVC.
+# ---------------------------------------------------------------------------
+goGateway:
+  enabled: true
+  replicaCount: 1            # Spool is per-pod disk: keep 1 per site endpoint.
+  image:
+    repository: opencare/go-services
+    tag: ""
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    mllpPort: 2575           # compose maps host 2576 -> container 2575
+    healthPort: 8081
+  spool:
+    size: 1Gi
+    storageClass: ""         # empty => global.storageClass / cluster default
+    existingClaim: ""
+  gatewayTokenSecret: { name: "opencare-secrets", key: "gateway-token" }
+  resources:
+    requests: { cpu: "50m", memory: "64Mi" }
+    limits: { cpu: "250m", memory: "256Mi" }
+  podSecurityContext: { runAsNonRoot: true, runAsUser: 100 }
+  securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
+  nodeSelector: {}
+  tolerations: []
+
+# ---------------------------------------------------------------------------
+# Go edge node (compose service: edge-node, compose profile "edge").
+# Belongs at a clinic/site edge, NOT in the central stack — disabled by
+# default here exactly as the compose profile keeps it opt-in.
+# ---------------------------------------------------------------------------
+edgeNode:
+  enabled: false
+  replicaCount: 1
+  image:
+    repository: opencare/go-services
+    tag: ""
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8082
+  coreUrl: ""                # REQUIRED when enabled: https://core.example.org
+  queue:
+    size: 1Gi
+    storageClass: ""
+    existingClaim: ""
+  gatewayTokenSecret: { name: "opencare-secrets", key: "gateway-token" }
+  resources:
+    requests: { cpu: "50m", memory: "64Mi" }
+    limits: { cpu: "250m", memory: "256Mi" }
+  podSecurityContext: { runAsNonRoot: true, runAsUser: 100 }
+  securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
+  nodeSelector: {}
+  tolerations: []
+
+# ---------------------------------------------------------------------------
+# PostgreSQL + pgvector (compose service: db; pgvector/pgvector:pg16).
+# Production databases are deployer-managed: set enabled=false and point
+# backend.database / externalDatabase at the managed instance. The bundled
+# StatefulSet is for local / kind-class clusters and evaluation only.
+# Its superuser password comes from a Secret reference, never a value.
+# ---------------------------------------------------------------------------
+postgresql:
+  enabled: true
+  image:
+    repository: pgvector/pgvector
+    tag: "pg16"
+    pullPolicy: IfNotPresent
+  auth:
+    username: openehr
+    database: openehr
+    existingSecret: "opencare-secrets"   # must contain key: db-password
+    secretKey: "db-password"
+  service:
+    port: 5432
+  persistence:
+    size: 8Gi
+    storageClass: ""
+    existingClaim: ""
+  resources:
+    requests: { cpu: "250m", memory: "512Mi" }
+    limits: { cpu: "1000m", memory: "1Gi" }
+  nodeSelector: {}
+  tolerations: []
+
+# Deployer-managed database coordinates used when postgresql.enabled=false
+# (and as documentation of the expected shape when it is true).
+externalDatabase:
+  host: ""
+  port: 5432
+  name: openehr
+  user: openehr
+
+# ---------------------------------------------------------------------------
+# Valkey (compose service: valkey; valkey/valkey:8) — cache / broker.
+# ---------------------------------------------------------------------------
+valkey:
+  enabled: true
+  externalUrl: ""            # e.g. redis://valkey.example.org:6379/0 (non-secret host info only;
+                             # put credentials in backend.valkeyUrlSecret instead)
+  image:
+    repository: valkey/valkey
+    tag: "8"
+    pullPolicy: IfNotPresent
+  service:
+    port: 6379
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
+    existingClaim: ""
+  resources:
+    requests: { cpu: "50m", memory: "128Mi" }
+    limits: { cpu: "250m", memory: "512Mi" }
+  nodeSelector: {}
+  tolerations: []
+
+# ---------------------------------------------------------------------------
+# Rust steps (services/rust: opencare-deid, opencare-term) — CLI pipeline
+# steps invoked as subprocesses, NOT long-running services, and with no
+# Dockerfile or compose service. Represented as optional one-shot Jobs.
+# ---------------------------------------------------------------------------
+rustJobs:
+  enabled: false
+  image:
+    repository: opencare/rust-tools
+    tag: ""
+    pullPolicy: IfNotPresent
+  deid:
+    enabled: false
+    backoffLimit: 0
+  term:
+    enabled: false
+    backoffLimit: 0
+  resources:
+    requests: { cpu: "100m", memory: "128Mi" }
+    limits: { cpu: "500m", memory: "512Mi" }
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+
+# ---------------------------------------------------------------------------
+# Ingress — fronts the web service only. The backend is reached same-origin
+# through the web nginx proxy (see web note above); expose the backend
+# directly only behind your own gateway if you change that topology.
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: opencare.example.org
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+    # - secretName: opencare-tls   # pre-created TLS Secret (cert-manager etc.)
+    #   hosts: [opencare.example.org]

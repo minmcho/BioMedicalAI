@@ -1,0 +1,104 @@
+{{- if .Values.goGateway.enabled }}
+{{- if not .Values.goGateway.spool.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "opencare.fullname" . }}-gateway-spool
+  labels:
+    {{- include "opencare.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mllp-gateway
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources: { requests: { storage: {{ .Values.goGateway.spool.size }} } }
+  {{- $sc := .Values.goGateway.spool.storageClass | default .Values.global.storageClass }}
+  {{- if $sc }}
+  storageClassName: {{ $sc | quote }}
+  {{- end }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "opencare.fullname" . }}-mllp-gateway
+  labels:
+    {{- include "opencare.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mllp-gateway
+spec:
+  replicas: {{ .Values.goGateway.replicaCount }}
+  strategy: { type: Recreate }
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "opencare.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: mllp-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "opencare.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: mllp-gateway
+    spec:
+      serviceAccountName: {{ include "opencare.serviceAccountName" . }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.goGateway.podSecurityContext | nindent 8 }}
+      containers:
+        - name: mllp-gateway
+          image: {{ include "opencare.image" (dict "image" .Values.goGateway.image "Values" .Values "Chart" .Chart) }}
+          imagePullPolicy: {{ .Values.goGateway.image.pullPolicy }}
+          command: ["mllp-gateway"]
+          ports:
+            - { name: mllp, containerPort: 2575 }
+            - { name: health, containerPort: 8081 }
+          env:
+            - { name: MLLP_ADDR, value: ":2575" }
+            - { name: GATEWAY_HEALTH_ADDR, value: ":8081" }
+            - { name: GATEWAY_SPOOL_DIR, value: "/data/spool" }
+            - name: CORE_URL
+              value: {{ include "opencare.apiBase" . | quote }}
+            - name: OPENCARE_GATEWAY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.goGateway.gatewayTokenSecret.name }}
+                  key: {{ .Values.goGateway.gatewayTokenSecret.key }}
+          livenessProbe: { httpGet: { path: /health, port: health }, initialDelaySeconds: 10, periodSeconds: 10 }
+          readinessProbe: { httpGet: { path: /health, port: health }, initialDelaySeconds: 3, periodSeconds: 5 }
+          resources:
+            {{- toYaml .Values.goGateway.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.goGateway.securityContext | nindent 12 }}
+          volumeMounts:
+            - { name: spool, mountPath: /data/spool }
+      volumes:
+        - name: spool
+          persistentVolumeClaim:
+            claimName: {{ .Values.goGateway.spool.existingClaim | default (printf "%s-gateway-spool" (include "opencare.fullname" .)) }}
+      {{- with .Values.goGateway.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.goGateway.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "opencare.fullname" . }}-mllp-gateway
+  labels:
+    {{- include "opencare.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mllp-gateway
+spec:
+  type: {{ .Values.goGateway.service.type | default "ClusterIP" }}
+  selector:
+    app.kubernetes.io/name: {{ include "opencare.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mllp-gateway
+  ports:
+    - { name: mllp, port: {{ .Values.goGateway.service.mllpPort }}, targetPort: mllp }
+    - { name: health, port: {{ .Values.goGateway.service.healthPort }}, targetPort: health }
+{{- end }}

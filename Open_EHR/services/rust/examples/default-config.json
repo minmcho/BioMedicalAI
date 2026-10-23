@@ -1,0 +1,174 @@
+{
+  "custom_patterns": [],
+  "date_mode": "year-only",
+  "identifier_keys": {
+    "account": [
+      "account",
+      "accountnumber",
+      "healthplannumber",
+      "healthplanid",
+      "memberid",
+      "policynumber",
+      "insuranceid",
+      "subscriberid",
+      "claimnumber",
+      "visitnumber",
+      "encounternumber"
+    ],
+    "address": [
+      "address",
+      "street",
+      "streetaddress",
+      "addressline1",
+      "addressline2",
+      "mailingaddress",
+      "homeaddress",
+      "billingaddress",
+      "line"
+    ],
+    "city": [
+      "city",
+      "town",
+      "cityname"
+    ],
+    "date": [
+      "dob",
+      "dateofbirth",
+      "birthdate",
+      "birthdatetime",
+      "dod",
+      "dateofdeath"
+    ],
+    "device": [
+      "deviceid",
+      "deviceidentifier",
+      "serialnumber",
+      "udi",
+      "deviceudi",
+      "implantid"
+    ],
+    "email": [
+      "email",
+      "emailaddress",
+      "mail"
+    ],
+    "ipv4": [
+      "ip",
+      "ipaddress",
+      "ipv4",
+      "ipv4address",
+      "hostaddress"
+    ],
+    "mrn": [
+      "mrn",
+      "medicalrecordnumber",
+      "medicalrecord",
+      "chartnumber",
+      "patientmrn"
+    ],
+    "name": [
+      "name",
+      "patientname",
+      "fullname",
+      "firstname",
+      "lastname",
+      "middlename",
+      "givenname",
+      "familyname",
+      "family",
+      "given",
+      "mothername",
+      "mothersmaidenname",
+      "contactname",
+      "emergencycontactname",
+      "subscribername",
+      "guarantorname"
+    ],
+    "phone": [
+      "phone",
+      "phonenumber",
+      "telephone",
+      "mobile",
+      "cellphone",
+      "fax",
+      "faxnumber",
+      "contactphone",
+      "homenumber",
+      "workphone"
+    ],
+    "ssn": [
+      "ssn",
+      "socialsecuritynumber",
+      "socialsecurity"
+    ],
+    "url": [
+      "url",
+      "website",
+      "webpage",
+      "homepage"
+    ],
+    "zip": [
+      "zip",
+      "zipcode",
+      "postalcode",
+      "postal"
+    ]
+  },
+  "label_patterns": [
+    "Patient Name:",
+    "Name:",
+    "Address:",
+    "Home Address:",
+    "Mailing Address:",
+    "MRN:",
+    "MRN #",
+    "Medical Record Number:",
+    "Medical Record No.:",
+    "Chart #:",
+    "Chart No.:",
+    "Acct #",
+    "Acct:",
+    "Account #",
+    "Account No.:",
+    "Member ID:",
+    "Policy #:",
+    "Claim #:",
+    "Device ID:",
+    "Serial #:",
+    "Serial No.:",
+    "Visit #:",
+    "Encounter #:",
+    "SSN:",
+    "Social Security #:"
+  ],
+  "record_key_field": "id",
+  "replacements": {
+    "account": "[ACCOUNT]",
+    "address": "[ADDRESS]",
+    "city": "[CITY]",
+    "device": "[DEVICE]",
+    "email": "[EMAIL]",
+    "identifier": "[ID]",
+    "ipv4": "[IP]",
+    "mrn": "[MRN]",
+    "name": "[NAME]",
+    "phone": "[PHONE]",
+    "ssn": "[SSN]",
+    "url": "[URL]"
+  },
+  "rules": {
+    "custom_patterns": true,
+    "dates": true,
+    "email": true,
+    "ipv4": true,
+    "json_keys": true,
+    "label_identifiers": true,
+    "phone": true,
+    "ssn": true,
+    "url": true,
+    "zip": true
+  },
+  "shift_max_days": 180,
+  "shift_salt": "change-me-per-deployment",
+  "zip_mode": "truncate3"
+}

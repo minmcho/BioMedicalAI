@@ -1,0 +1,58 @@
+{{- if and .Values.rustJobs.enabled .Values.rustJobs.deid.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "opencare.fullname" . }}-deid
+  labels:
+    {{- include "opencare.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rust-deid
+spec:
+  backoffLimit: {{ .Values.rustJobs.deid.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "opencare.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: rust-deid
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "opencare.serviceAccountName" . }}
+      containers:
+        - name: deid
+          image: {{ include "opencare.image" (dict "image" .Values.rustJobs.image "Values" .Values "Chart" .Chart) }}
+          imagePullPolicy: {{ .Values.rustJobs.image.pullPolicy }}
+          # Placeholder invocation: the deployer supplies --config/--in/--out
+          # via values/job args in their own overlay. The binary defaults to
+          # stdin->stdout with built-in Safe Harbor-style defaults.
+          args: ["opencare-deid", "check"]
+          resources:
+            {{- toYaml .Values.rustJobs.resources | nindent 12 }}
+{{- end }}
+{{- if and .Values.rustJobs.enabled .Values.rustJobs.term.enabled }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "opencare.fullname" . }}-term
+  labels:
+    {{- include "opencare.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rust-term
+spec:
+  backoffLimit: {{ .Values.rustJobs.term.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "opencare.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: rust-term
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "opencare.serviceAccountName" . }}
+      containers:
+        - name: term
+          image: {{ include "opencare.image" (dict "image" .Values.rustJobs.image "Values" .Values "Chart" .Chart) }}
+          imagePullPolicy: {{ .Values.rustJobs.image.pullPolicy }}
+          args: ["opencare-term", "--help"]
+          resources:
+            {{- toYaml .Values.rustJobs.resources | nindent 12 }}
+{{- end }}

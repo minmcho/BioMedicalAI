@@ -1,0 +1,38 @@
+OpenCare EHR installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+What was deployed (defaults):
+  backend      {{ include "opencare.fullname" . }}-backend :{{ .Values.backend.service.port }} (compose: app)
+  web          {{ include "opencare.fullname" . }}-web :{{ .Values.web.service.port }} (compose: web)
+  mllp         {{ include "opencare.fullname" . }}-mllp :{{ .Values.mllp.service.port }} (compose: mllp, TCP)
+  mllp-gateway {{ include "opencare.fullname" . }}-mllp-gateway (compose: mllp-gateway)
+  adk          {{ include "opencare.fullname" . }}-adk :{{ .Values.adk.service.port }} (not in compose)
+{{- if .Values.postgresql.enabled }}
+  postgresql   bundled StatefulSet (evaluation/local only — use an external
+               deployer-managed database in production: postgresql.enabled=false)
+{{- else }}
+  postgresql   EXTERNAL at {{ .Values.externalDatabase.host }}:{{ .Values.externalDatabase.port }}
+{{- end }}
+{{- if .Values.valkey.enabled }}
+  valkey       bundled Deployment
+{{- else }}
+  valkey       EXTERNAL ({{ .Values.valkey.externalUrl }})
+{{- end }}
+  edge-node    {{ if .Values.edgeNode.enabled }}enabled{{ else }}disabled (compose profile "edge" equivalent){{ end }}
+  rust jobs    {{ if .Values.rustJobs.enabled }}enabled{{ else }}disabled (CLI steps, not services){{ end }}
+
+Secrets: this chart creates NO Secrets. It references by name only:
+  - backend DATABASE_URL / DB password via opencare-secrets (see values)
+  - gateway token via opencare-secrets key gateway-token
+Create/verify those Secrets before expecting pods to become Ready.
+
+Access:
+{{- if .Values.ingress.enabled }}
+  Ingress enabled — open https://{{ (index .Values.ingress.hosts 0).host }}/
+{{- else }}
+  No Ingress. Port-forward the web service:
+    kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "opencare.fullname" . }}-web 8080:{{ .Values.web.service.port }}
+    # then http://127.0.0.1:8080/
+{{- end }}
+  Health: kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "opencare.backendServiceName" . }} 8000:{{ .Values.backend.service.port }}  # GET /health
+
+See infra/helm/README.md for the full deployer path.

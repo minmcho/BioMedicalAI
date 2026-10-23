@@ -130,10 +130,28 @@ def test_navigation_and_branding_seeded_as_published_config(client):
     items = nav.json()["payload"]["items"]
     # Phase 6 added the `beds` module (bed board) to the seeded
     # navigation — a mechanism snapshot of the seed, extended for the
-    # new module exactly as earlier phases extended it.
+    # new module exactly as earlier phases extended it. Phase 12
+    # extends it again with the six care-continuum modules, and
+    # Phase 13 with workforce, reports and the import centre.
+    # Phase 14 adds devices and data-platform before studio.
+    # Phase 15 adds support (support services) after safety.
+    # Phase 16 adds federation, research, analytics and documents
+    # after data-platform. The Workforce, Teams & Panels pass adds
+    # teams after workforce. The Home & Module UX pass re-seeds the
+    # order group-contiguous under the ten regrouped nav groups
+    # (labels + order only; module set and roles unchanged).
     assert [i["module"] for i in items] == [
-        "patients", "inbox", "scheduling", "lab", "pophealth", "billing",
-        "pharmacy", "ed", "radiology", "surgery", "beds", "studio", "portal"]
+        "patients", "inbox", "portal",
+        "scheduling", "billing",
+        "ed", "radiology", "surgery",
+        "lab", "pharmacy",
+        "beds", "command", "er-ops", "unit-board", "clinic", "aftercare",
+        "safety", "support", "inventory",
+        "workforce", "teams",
+        "pophealth", "reports", "analytics",
+        "devices", "data-platform",
+        "federation", "research", "documents",
+        "studio", "imports"]
     by_module = {i["module"]: i for i in items}
     assert by_module["studio"]["roles"] == ["admin", "configurator"]
     assert by_module["portal"]["roles"] == ["patient"]
@@ -158,7 +176,7 @@ def test_published_nav_without_a_module_is_the_effective_nav(client):
     _publish_config(client, "navigation", "main", payload)
     eff = _effective(client, "navigation", "main")
     assert "lab" not in [i["module"] for i in eff["items"]]
-    assert len(eff["items"]) == 12  # 13 seeded modules (Phase 6: beds) - lab
+    assert len(eff["items"]) == 30  # 31 seeded modules (Inventory pass: +inventory) - lab
 
 
 # ---------------------------------------------------------------------------
@@ -404,6 +422,14 @@ def test_esi_range_comes_from_terminology_config(client):
 
 
 def test_bcma_rights_subset_comes_from_formulary_config(client):
+    """Wave A (PHARM-M2) supersedes this test's original premise: the
+    BCMA-lite endpoint whose rights subset came from the formulary's
+    `bcmaRights` config is RETIRED — there is exactly one
+    administration engine (the five-rights BCMA scan), and no
+    published subset can weaken it. What remains provable here: the
+    retired endpoint is gone, and the surviving scan still refuses
+    a wrong patient absolutely (the right the subset test enforced
+    even in its weakest configuration)."""
     _patient(client)
     r = client.post("/fhir/MedicationRequest", json={
         "resourceType": "MedicationRequest", "id": "med-1",
@@ -413,6 +439,10 @@ def test_bcma_rights_subset_comes_from_formulary_config(client):
             "code": LISINOPRIL, "display": "Lisinopril 10 MG Oral Tablet"}]},
         "subject": {"reference": "Patient/pat-1"}}, headers=CLINICIAN)
     assert r.status_code == 201, r.text
+    # Wave A (PHARM-B1): dispensing requires a current verification.
+    r = client.post("/pharmacy/verification/med-1/verify", json={},
+                    headers=CLINICIAN)
+    assert r.status_code == 201, r.text
     r = client.post("/pharmacy/dispense",
                     json={"medication_request_id": "med-1"}, headers=CLINICIAN)
     assert r.status_code == 201, r.text
@@ -421,16 +451,23 @@ def test_bcma_rights_subset_comes_from_formulary_config(client):
     payload = _effective(client, "terminology", "formulary")
     payload["bcmaRights"] = ["right-patient"]
     _publish_config(client, "terminology", "formulary", payload)
-    # Wrong wristband still fails (right-patient enforced)...
+    # The weak typed-ID path is gone regardless of the published subset.
     r = client.post("/pharmacy/administer", json={
         "wristband_id": "pat-999", "medication_code": LISINOPRIL,
         "dispense_id": dispense_id}, headers=CLINICIAN)
+    assert r.status_code == 404
+    # The surviving BCMA scan refuses a wrong patient absolutely.
+    from app.pharmacy_ops import _make_payload, default_ops_payload
+    forged_wb = _make_payload(default_ops_payload(), "OCWB1",
+                              "pat-999", "19750101")
+    ml = client.post("/pharmacy/barcodes/med-label",
+                     json={"dispense_id": dispense_id}, headers=CLINICIAN)
+    assert ml.status_code == 200, ml.text
+    r = client.post("/pharmacy/bcma/administer", json={
+        "wristband_payload": forged_wb,
+        "med_label_payload": ml.json()["payload"],
+        "override_reason": "subset probe"}, headers=CLINICIAN)
     assert r.status_code == 422 and "Right patient" in r.json()["detail"]
-    # ...but the medication code is no longer checked.
-    r = client.post("/pharmacy/administer", json={
-        "wristband_id": "pat-1", "medication_code": "000000",
-        "dispense_id": dispense_id}, headers=CLINICIAN)
-    assert r.status_code == 201, r.text
 
 
 def _catalog_with_qc(client, qc):

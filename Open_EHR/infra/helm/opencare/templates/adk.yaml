@@ -1,0 +1,89 @@
+{{- if .Values.adk.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "opencare.fullname" . }}-adk
+  labels:
+    {{- include "opencare.labels" . | nindent 4 }}
+    app.kubernetes.io/component: adk
+spec:
+  replicas: {{ .Values.adk.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "opencare.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: adk
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "opencare.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: adk
+    spec:
+      serviceAccountName: {{ include "opencare.serviceAccountName" . }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.adk.podSecurityContext | nindent 8 }}
+      containers:
+        - name: adk
+          image: {{ include "opencare.image" (dict "image" .Values.adk.image "Values" .Values "Chart" .Chart) }}
+          imagePullPolicy: {{ .Values.adk.image.pullPolicy }}
+          args: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8100"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.adk.service.port }}
+          env:
+            - name: AGENT_MODEL
+              value: {{ .Values.config.agentModel | quote }}
+            - name: ADK_RUN_TIMEOUT_S
+              value: {{ .Values.adk.runTimeoutSeconds | quote }}
+            - name: OPENCARE_API_BASE
+              value: {{ include "opencare.apiBase" . | quote }}
+          {{- with .Values.adk.envFromSecrets }}
+          envFrom:
+            {{- range . }}
+            - secretRef: { name: {{ . }} }
+            {{- end }}
+          {{- end }}
+          {{- with .Values.adk.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.adk.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.adk.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.adk.securityContext | nindent 12 }}
+      {{- with .Values.adk.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.adk.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "opencare.fullname" . }}-adk
+  labels:
+    {{- include "opencare.labels" . | nindent 4 }}
+    app.kubernetes.io/component: adk
+spec:
+  type: {{ .Values.adk.service.type }}
+  selector:
+    app.kubernetes.io/name: {{ include "opencare.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: adk
+  ports:
+    - name: http
+      port: {{ .Values.adk.service.port }}
+      targetPort: http
+{{- end }}

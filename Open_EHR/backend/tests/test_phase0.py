@@ -32,7 +32,13 @@ def test_admin_install_and_list_packs(client):
 
 
 def test_studio_lifecycle_happy_path(client):
-    r = client.post("/studio/packs/clinical-core/install", headers=ADMIN)
+    # Phase 17 adjustment: clinical-core is now seeded ENABLED at
+    # startup (pack-gate default-ON rollout), so its installation
+    # already exists in `enabled` and cannot walk the lifecycle from
+    # a draft. The from-draft lifecycle is proven unchanged on a
+    # non-seeded file pack (specialty-cardiology); assertions are
+    # identical.
+    r = client.post("/studio/packs/specialty-cardiology/install", headers=ADMIN)
     assert r.status_code == 201
     inst = r.json()
     assert inst["status"] == "installed_draft"

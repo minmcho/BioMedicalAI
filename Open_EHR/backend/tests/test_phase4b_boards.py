@@ -395,7 +395,43 @@ def test_surgery_flow_and_board_grouping(client):
     url = f"/surgery/cases/{case['id']}/transition"
     assert client.post(url, json={"to_status": "in-op"},
                        headers=CLINICIAN).status_code == 409  # skips pre-op
+    # Depth pass (Workstream 2): the WHO safety-checklist gate ships
+    # seeded TRUE in workflow/surgery-flow, so the flow records the
+    # time-out before in-op and the sign-out before done — without
+    # them those transitions are 409s naming the missing section
+    # (proven in tests/test_depth_journeys.py).
+    def _safety(section, codes):
+        r = client.post(f"/surgery/cases/{case['id']}/safety-checklist",
+                        json={"section": section,
+                              "answers": [{"linkId": c,
+                                           "answer": [{"valueBoolean": True}]}
+                                          for c in codes]},
+                        headers=CLINICIAN)
+        assert r.status_code == 201, r.text
+
     for target in ("pre-op", "in-op", "pacu", "done"):
+        if target == "in-op":
+            _safety("time-out", ["timeout-introductions",
+                                 "timeout-verbal-confirmation",
+                                 "timeout-antibiotics", "timeout-imaging",
+                                 "timeout-concerns"])
+        if target == "done":
+            _safety("sign-out", ["signout-procedure-recorded",
+                                 "signout-counts", "signout-specimen",
+                                 "signout-recovery"])
+            # Phase 15 (E): the PACU discharge gate also ships seeded
+            # TRUE in workflow/surgery-flow (pacuScoreGate), so a
+            # passing Aldrete-style score (total 9 = the published
+            # threshold) is recorded before done — the gate itself is
+            # proven in tests/test_phase15_surgery.py.
+            r = client.post(
+                f"/surgery/cases/{case['id']}/pacu-score",
+                json={"scores": {"activity": 2, "respiration": 2,
+                                 "circulation": 2, "consciousness": 2,
+                                 "oxygen-saturation": 1}},
+                headers=CLINICIAN)
+            assert r.status_code == 201, r.text
+            assert r.json()["passes"] is True
         r = client.post(url, json={"to_status": target}, headers=CLINICIAN)
         assert r.status_code == 200, r.text
     assert r.json()["case"]["status"] == "done"

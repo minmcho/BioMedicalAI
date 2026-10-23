@@ -1,0 +1,84 @@
+{{- if .Values.mllp.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "opencare.fullname" . }}-mllp
+  labels:
+    {{- include "opencare.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mllp
+spec:
+  replicas: {{ .Values.mllp.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "opencare.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: mllp
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "opencare.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: mllp
+    spec:
+      serviceAccountName: {{ include "opencare.serviceAccountName" . }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.mllp.podSecurityContext | nindent 8 }}
+      containers:
+        - name: mllp
+          image: {{ include "opencare.image" (dict "image" .Values.mllp.image "Values" .Values "Chart" .Chart) }}
+          imagePullPolicy: {{ .Values.mllp.image.pullPolicy }}
+          command: ["python", "-m", "app.mllp_server", "--host", "0.0.0.0", "--port", "2575"]
+          ports:
+            - name: mllp
+              containerPort: 2575
+          env:
+            {{- if .Values.backend.databaseUrlSecret.name }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.backend.databaseUrlSecret.name }}
+                  key: {{ .Values.backend.databaseUrlSecret.key }}
+            {{- else }}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.backend.database.passwordSecret.name }}
+                  key: "db-password"
+            - name: DATABASE_URL
+              value: "postgresql+psycopg://{{ .Values.backend.database.user }}:$(DB_PASSWORD)@{{ include "opencare.dbHost" . }}:{{ .Values.backend.database.port }}/{{ .Values.backend.database.name }}"
+            {{- end }}
+          resources:
+            {{- toYaml .Values.mllp.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.mllp.securityContext | nindent 12 }}
+      {{- with .Values.mllp.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.mllp.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "opencare.fullname" . }}-mllp
+  labels:
+    {{- include "opencare.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mllp
+spec:
+  type: {{ .Values.mllp.service.type }}
+  selector:
+    app.kubernetes.io/name: {{ include "opencare.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mllp
+  ports:
+    - name: mllp
+      port: {{ .Values.mllp.service.port }}
+      targetPort: mllp
+{{- end }}

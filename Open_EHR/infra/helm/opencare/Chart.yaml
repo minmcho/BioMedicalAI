@@ -1,0 +1,25 @@
+apiVersion: v2
+name: opencare
+description: >-
+  OpenCare EHR — full-system Helm chart. Mirrors the docker-compose.yml
+  topology (FastAPI backend, in-core MLLP listener, Go MLLP gateway,
+  Go edge node, web/nginx, PostgreSQL+pgvector, Valkey) plus the ADK
+  runtime service (backend/adk, port 8100) which compose does not yet
+  include, and the Rust de-identification / terminology CLI steps as
+  optional Jobs. Production databases are deployer-managed: the chart
+  supports an external database via values and references all secrets
+  by name only — no secret values ever appear in values files.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/minmcho/Open_EHR
+keywords:
+  - ehr
+  - fhir
+  - healthcare
+maintainers:
+  - name: OpenCare contributors
+annotations:
+  category: Healthcare
+  opencare/chart-mirrors: docker-compose.yml (db, valkey, app, mllp, mllp-gateway, edge-node, web)
+  opencare/chart-adds: "adk (backend/adk, not in compose), rust-jobs (CLI steps, not long-running services)"

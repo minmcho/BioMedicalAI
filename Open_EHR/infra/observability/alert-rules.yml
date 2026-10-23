@@ -1,0 +1,32 @@
+# Alert rules as code — Phase 17 (BD-61). Loaded by Prometheus via
+# infra/observability/prometheus.yml (rule_files). No alertmanager
+# runs in the local stack; rules evaluate and are visible on the
+# Prometheus /rules + /alerts surfaces (firing state is the evidence).
+groups:
+  - name: opencare-availability
+    rules:
+      - alert: OpenCareTargetDown
+        expr: up == 0
+        for: 1m
+        labels: { severity: page }
+        annotations:
+          summary: "Scrape target {{ $labels.job }} is down"
+          description: "Prometheus cannot scrape {{ $labels.instance }}."
+      - alert: OpenCareOutboxBacklog
+        expr: opencare_outbox_pending > 1000
+        for: 5m
+        labels: { severity: warn }
+        annotations:
+          summary: "Warehouse outbox backlog above 1000 pending events"
+      - alert: OpenCareGatewaySpoolGrowing
+        expr: opencare_gateway_spooled_messages > 100
+        for: 5m
+        labels: { severity: warn }
+        annotations:
+          summary: "MLLP gateway spool holds >100 messages (core unreachable?)"
+      - alert: OpenCareGraphQLErrors
+        expr: rate(opencare_graphql_errors_total[5m]) > 0.1
+        for: 5m
+        labels: { severity: warn }
+        annotations:
+          summary: "GraphQL lane error rate above 0.1/s"

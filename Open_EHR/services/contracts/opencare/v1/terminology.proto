@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+// Terminology normalisation — Phase 17 (BD-67, ARC-07).
+//
+// The versioned gRPC contract for the terminology boundary the
+// polyglot build actually created: the Python core's pipeline step
+// `terminology-normalise` (backend/app/pipelines.py::_step_normalise)
+// and its Rust tier counterpart (services/rust/src/term.rs,
+// `opencare-term normalise`) implement IDENTICAL semantics over a
+// JSON batch {codeMap, rows} -> {rows, unmapped}. This contract
+// carries that same batch over gRPC: rows travel as JSON text
+// (one object per row) so arbitrary row shapes survive losslessly,
+// exactly as they do on the Rust CLI's stdin/stdout contract.
+//
+// Semantics (normative, mirroring term.rs / _step_normalise):
+//   - The lookup table is built from the code map entries: the
+//     (from_system, from_code) key maps to the entry (later entries
+//     overwrite earlier ones); the generic ("", from_code) key keeps
+//     the FIRST entry seen for that code.
+//   - Per row, only the `code` field is mapped. The row's `system`
+//     field, when present and truthy, selects the system-specific
+//     entry; otherwise the generic entry applies.
+//   - On a hit the row gains `source_code` (the original code value),
+//     `code` becomes the entry's to_code (or the original when the
+//     entry has none), `system` becomes to_system when truthy, and
+//     `normalised` is set true.
+//   - On a miss the row passes through unchanged and its code is
+//     reported in unmapped_codes (sorted, de-duplicated) and counted
+//     in unmapped_rows.
+//   - Rows whose `code` is missing or falsy pass through unchanged
+//     and are NOT reported as unmapped.
+package opencare.terminology.v1;
+
+option go_package = "opencare/services/gen/opencare/v1;v1";
+
+service TerminologyService {
+  // Normalise one batch of rows against a governed code map.
+  rpc Normalise(NormaliseRequest) returns (NormaliseResponse);
+}
+
+message CodeMapEntry {
+  string from_code = 1;
+  string from_system = 2;  // optional; "" = generic entry
+  string to_code = 3;      // optional; "" keeps the original code
+  string to_system = 4;    // optional; "" keeps the row's system
+}
+
+message NormaliseRequest {
+  // The governed code map (published terminology/code-map payload's
+  // mapping entries).
+  repeated CodeMapEntry mappings = 1;
+  // One JSON object per row, as text (the CLI contract's shape).
+  repeated string rows_json = 2;
+}
+
+message NormaliseResponse {
+  // The normalised rows, one JSON object per row, input order.
+  repeated string rows_json = 1;
+  // Sorted, de-duplicated codes that had no mapping.
+  repeated string unmapped_codes = 2;
+  // Count of ROWS that were unmapped (a repeated code counts per row).
+  int32 unmapped_rows = 3;
+  // Count of rows that were mapped.
+  int32 mapped_rows = 4;
+}

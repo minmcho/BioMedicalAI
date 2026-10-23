@@ -1,0 +1,13 @@
+apiVersion: 1
+providers:
+  - name: opencare
+    orgId: 1
+    folder: OpenCare
+    type: file
+    disableDeletion: true
+    options:
+      # Grafana provisioning requires an absolute path on the machine
+      # running Grafana: point this at this repo's
+      # infra/observability/grafana/dashboards directory on yours.
+      # (The live-stack drill used the workspace path of that folder.)
+      path: /etc/grafana/dashboards/opencare

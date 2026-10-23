@@ -1,0 +1,36 @@
+# OpenTelemetry Collector — Phase 17 (BD-61) config as code.
+# The live stack runs this file verbatim:
+#   ~/workspace/live-stack/otelcol/start.sh
+# Receives OTLP/HTTP traces from the backend (OTEL_EXPORTER_OTLP_ENDPOINT
+# = http://127.0.0.1:4318/v1/traces), writes them to a JSONL file
+# (the drill's evidence surface) and exposes its own Prometheus
+# metrics on :8888.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 127.0.0.1:4318
+      grpc:
+        endpoint: 127.0.0.1:4317
+
+processors:
+  batch: {}
+
+exporters:
+  file:
+    # Relative to the collector's working directory. In the live-stack
+    # drill the collector ran from ~/workspace/live-stack/otelcol/, so
+    # traces landed in that directory's traces.jsonl.
+    path: traces.jsonl
+  debug:
+    verbosity: basic
+
+service:
+  telemetry:
+    metrics:
+      address: 127.0.0.1:8888
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [file, debug]

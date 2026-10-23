@@ -20,7 +20,7 @@ LISINOPRIL = "1049221"
 
 def _patient(client, pid):
     r = client.post("/fhir/Patient", json={
-        "resourceType": "Patient", "id": pid,
+        "resourceType": "Patient", "id": pid, "birthDate": "1980-01-01",
         "name": [{"family": "Synth", "given": ["Mar"]}]}, headers=CLINICIAN)
     assert r.status_code == 201, r.text
     return pid
@@ -29,7 +29,14 @@ def _patient(client, pid):
 def _signed_med_order(client, pid, code=LISINOPRIL, timing=None):
     body = {"type": "medication", "code": code, "patient": pid}
     if timing:
-        body["dosageInstruction"] = [{"timing": {"repeat": timing}}]
+        # Wave A (CHART-B3): a structured sig must be complete
+        # against the published medication-sig vocabulary.
+        body["dosageInstruction"] = [{
+            "text": "1 tablet by mouth as scheduled",
+            "doseAndRate": [{"doseQuantity": {"value": 1,
+                                               "unit": "tablets"}}],
+            "route": {"coding": [{"code": "oral", "display": "Oral"}]},
+            "timing": {"repeat": timing}}]
     r = client.post("/orders", json=body, headers=CLINICIAN)
     assert r.status_code == 201, r.text
     oid = r.json()["order"]["id"]
@@ -93,13 +100,28 @@ def test_mar_given_and_missed_computed_from_bcma_records(client, monkeypatch):
     oid = _signed_med_order(client, pid, timing={
         "frequency": 1, "period": 24, "periodUnit": "h"})
     # Dispense + administer through the EXISTING pharmacy/BCMA path.
+    # Wave A: dispensing requires a current verification (PHARM-B1),
+    # and administration is the five-rights BCMA scan only — the
+    # BCMA-lite typed-ID path was retired (PHARM-M2). The fixture
+    # order's sig is complete (dose 1 tablet, oral, scheduled), so
+    # the scan passes all five rights with no override.
+    r = client.post(f"/pharmacy/verification/{oid}/verify", json={},
+                    headers=CLINICIAN)
+    assert r.status_code == 201, r.text
     r = client.post("/pharmacy/dispense",
                     json={"medication_request_id": oid}, headers=CLINICIAN)
     assert r.status_code == 201, r.text
     dispense_id = r.json()["dispense"]["id"]
-    r = client.post("/pharmacy/administer", json={
-        "wristband_id": pid, "medication_code": LISINOPRIL,
-        "dispense_id": dispense_id}, headers=CLINICIAN)
+    wb = client.post("/pharmacy/barcodes/wristband",
+                     json={"patient_id": pid}, headers=CLINICIAN)
+    assert wb.status_code == 200, wb.text
+    ml = client.post("/pharmacy/barcodes/med-label",
+                     json={"dispense_id": dispense_id}, headers=CLINICIAN)
+    assert ml.status_code == 200, ml.text
+    r = client.post("/pharmacy/bcma/administer", json={
+        "wristband_payload": wb.json()["payload"],
+        "med_label_payload": ml.json()["payload"]},
+        headers=CLINICIAN)
     assert r.status_code == 201, r.text
 
     mar = client.get(f"/orders/mar/due?patient={pid}",
@@ -258,7 +280,18 @@ def test_disabling_profile_does_not_unpublish_configuration(client):
 
 
 def test_plain_pack_enable_still_just_enables(client):
-    r, _ = _enable_pack(client, "clinical-core")
+    # Phase 17 adjustment: clinical-core is now seeded ENABLED at
+    # startup (pack-gate default-ON rollout), so it can no longer be
+    # enabled from a draft here. A plain authored pack (no
+    # `configuration` list — exactly clinical-core's shape) carries
+    # the same assertion: enabling just enables, applying nothing.
+    r = client.post("/studio/packs", headers=ADMIN, json={
+        "name": "plain-probe", "version": "1.0.0",
+        "manifest": {"name": "plain-probe", "version": "1.0.0",
+                     "description": "Plain pack, no configuration.",
+                     "api_endpoints": [], "modules": [], "forms": []}})
+    assert r.status_code == 201, r.text
+    r, _ = _enable_pack(client, "plain-probe")
     assert r.status_code == 200 and r.json()["status"] == "enabled"
     assert r.json()["applied_configuration"] == []
 

@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+// De-identification — Phase 17 (BD-67, ARC-07).
+//
+// The versioned gRPC contract for the de-identification boundary the
+// polyglot build actually created: the Rust tier
+// (services/rust, crate opencare-deid: deid_text / deid_json /
+// check_text / check_json, driven by a JSON Config) is invoked today
+// by the Python core's pipeline steps as a subprocess CLI. This
+// contract names the same operations for a network boundary. The
+// Rust side does NOT implement this service yet (its shape is a
+// batch CLI, not a server) — this file is the versioned contract of
+// record; the Go terminology service in
+// services/go/internal/termgrpc is the boundary with a live gRPC
+// implementation in this phase. Method (honesty carried from the
+// crate): rule-based, HIPAA Safe Harbor-style identifier removal /
+// generalisation per 45 CFR 164.514(b)(2) categories mechanically
+// implementable in text/JSON. NOT an expert-certification
+// determination under 164.514(b)(1).
+package opencare.deidentification.v1;
+
+option go_package = "opencare/services/gen/opencare/v1;v1";
+
+service DeidentificationService {
+  // De-identify free text under a JSON config (the crate's Config).
+  rpc DeidentifyText(DeidentifyTextRequest)
+      returns (DeidentifyTextResponse);
+  // De-identify a JSON document (structure preserved).
+  rpc DeidentifyJson(DeidentifyJsonRequest)
+      returns (DeidentifyJsonResponse);
+  // Count identifier-category hits (check / DQ-gate mode).
+  rpc Check(CheckRequest) returns (CheckResponse);
+}
+
+message DeidentifyTextRequest {
+  string config_json = 1;   // the crate Config as JSON; "" = defaults
+  string record_key = 2;    // per-record key for date shifting
+  string text = 3;
+}
+
+message DeidentifyTextResponse {
+  string text = 1;
+}
+
+message DeidentifyJsonRequest {
+  string config_json = 1;
+  string record_key = 2;    // optional explicit record key
+  string document_json = 3;
+}
+
+message DeidentifyJsonResponse {
+  string document_json = 1;
+}
+
+message CheckRequest {
+  string config_json = 1;
+  string payload = 2;       // text, or JSON when format = "json"
+  string format = 3;        // "auto" | "json" | "text"
+}
+
+message CheckResponse {
+  // Identifier-category -> hit count.
+  map<string, int64> counts = 1;
+  int64 total_hits = 2;
+}

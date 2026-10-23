@@ -12,7 +12,11 @@ from datetime import date, datetime, timedelta, timezone
 
 from tests.conftest import ADMIN, CLINICIAN, CONFIG, PATIENT, VIEWER
 
-TODAY = date.today().isoformat()
+# "Today" in UTC: the server's date defaults are UTC (e.g.
+# /inpatient/expected-discharges "defaults to today, UTC"), so a
+# local-zone date here made this module fail whenever the local and
+# UTC dates differed (17:00-24:00 PDT). Parent gate, 2026-10-18.
+TODAY = datetime.now(timezone.utc).date().isoformat()
 
 
 def _patient(client, pid="pat-9", family="Inpatient"):
@@ -469,6 +473,20 @@ def test_anaesthesia_flowsheet_attach_and_case_timeline(client):
                     ]}, headers=CLINICIAN)
     assert r.status_code == 200, r.text
     _move_case(client, case_id, "pre-op")
+    # Depth pass (Workstream 2): the WHO safety-checklist gate ships
+    # seeded TRUE, so the time-out section is recorded before the
+    # case may move to in-op (gate proven in test_depth_journeys.py).
+    r = client.post(f"/surgery/cases/{case_id}/safety-checklist",
+                    json={"section": "time-out",
+                          "answers": [{"linkId": c,
+                                       "answer": [{"valueBoolean": True}]}
+                                      for c in ("timeout-introductions",
+                                                "timeout-verbal-confirmation",
+                                                "timeout-antibiotics",
+                                                "timeout-imaging",
+                                                "timeout-concerns")]},
+                    headers=CLINICIAN)
+    assert r.status_code == 201, r.text
     _move_case(client, case_id, "in-op")
     # Anaesthesia record (published form) attaches to the case.
     r = client.post(f"/inpatient/surgery-cases/{case_id}/anaesthesia",

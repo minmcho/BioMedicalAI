@@ -1,0 +1,100 @@
+# OpenCare — EXAMPLE production-ish values. Copy, rename, and adapt.
+# This file contains NO secret values and NO real hostnames/credentials.
+# Every credential below is a Secret NAME + KEY reference only. Create
+# those Secrets in the target namespace before installing, e.g.:
+#
+#   kubectl -n opencare create secret generic opencare-secrets \
+#     --from-literal=database-url='postgresql+psycopg://USER:PASSWORD@HOST:5432/DB' \
+#     --from-literal=db-password='PASSWORD' \
+#     --from-literal=gateway-token='TOKEN'
+#   kubectl -n opencare create secret tls opencare-tls \
+#     --cert=path/to/tls.crt --key=path/to/tls.key   # or use cert-manager
+#
+# (Values shown in those commands are placeholders for the deployer's
+# own secret-management step — never commit the real ones.)
+
+global:
+  imageRegistry: "registry.example.org"
+  imagePullSecrets: ["registry-credentials"]
+
+config:
+  authMode: "oidc"
+  oidcJwksUrl: "https://idp.example.org/realms/opencare/protocol/openid-connect/certs"
+  oidcIssuer: "https://idp.example.org/realms/opencare"
+  oidcAudience: "opencare"
+  agentModel: ""             # keep "" for local-model / honest-off, or name the governed model
+
+backend:
+  replicaCount: 3
+  image: { repository: opencare/backend, tag: "0.1.0", pullPolicy: IfNotPresent }
+  resources:
+    requests: { cpu: "500m", memory: "1Gi" }
+    limits: { cpu: "2000m", memory: "2Gi" }
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  # External, deployer-managed PostgreSQL (pgvector available):
+  databaseUrlSecret: { name: "opencare-secrets", key: "database-url" }
+  database: { host: "postgres.example.org", port: 5432, name: openehr, user: openehr }
+  warehouse:
+    databaseUrlSecret: { name: "opencare-secrets", key: "warehouse-database-url" }
+    host: "warehouse.example.org"
+    port: 5432
+    name: warehouse
+    user: openehr
+
+mllp:
+  replicaCount: 1
+  service: { type: LoadBalancer, port: 2575 }  # or NodePort per site firewall design
+
+web:
+  replicaCount: 2
+  image: { repository: opencare/web, tag: "0.1.0", pullPolicy: IfNotPresent }
+  resources:
+    requests: { cpu: "100m", memory: "128Mi" }
+    limits: { cpu: "500m", memory: "512Mi" }
+
+adk:
+  replicaCount: 2
+  image: { repository: opencare/adk, tag: "0.1.0", pullPolicy: IfNotPresent }
+  envFromSecrets: ["opencare-llm-secrets"]     # reference only; may be omitted
+
+goGateway:
+  replicaCount: 1
+  image: { repository: opencare/go-services, tag: "0.1.0", pullPolicy: IfNotPresent }
+  spool: { size: 5Gi, storageClass: "standard" }
+  gatewayTokenSecret: { name: "opencare-secrets", key: "gateway-token" }
+
+edgeNode:
+  enabled: false             # edge nodes are installed per-site, not centrally
+
+# Bundled database/cache OFF — production data services are external.
+postgresql:
+  enabled: false
+externalDatabase:
+  host: "postgres.example.org"
+  port: 5432
+  name: openehr
+  user: openehr
+valkey:
+  enabled: false
+  externalUrl: "redis://valkey.example.org:6379/0"
+
+rustJobs:
+  enabled: false
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: opencare.example.org
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: opencare-tls
+      hosts: ["opencare.example.org"]

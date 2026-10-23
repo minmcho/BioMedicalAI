@@ -254,7 +254,12 @@ def test_psychiatry_clozapine_anc_gate(client):
     assert "below the required minimum" in r.json()["detail"]
 
     # A current, in-range ANC -> the dispense proceeds, stock moves.
+    # (Wave A: verification is recorded once the ANC is in range —
+    # PHARM-B1/M1: the same blocker would refuse verification too.)
     _observation(client, "psy-1", ANC, 2.8, _now())
+    r = client.post(f"/pharmacy/verification/{oid}/verify", json={},
+                    headers=CLINICIAN)
+    assert r.status_code == 201, r.text
     r = client.post("/pharmacy/dispense",
                     json={"medication_request_id": oid}, headers=CLINICIAN)
     assert r.status_code == 201, r.text
@@ -291,7 +296,11 @@ def test_psychiatry_lithium_flag_warns_but_dispenses(client):
     oid = _active_med_order(client, "psy-4", LITHIUM)
 
     # No lithium level / creatinine on file: the rule's action is
-    # FLAG — the dispense proceeds and carries the warnings.
+    # FLAG — the dispense proceeds and carries the warnings. (Wave A:
+    # verification first — PHARM-B1; FLAG warnings never block it.)
+    r = client.post(f"/pharmacy/verification/{oid}/verify", json={},
+                    headers=CLINICIAN)
+    assert r.status_code == 201, r.text
     r = client.post("/pharmacy/dispense",
                     json={"medication_request_id": oid}, headers=CLINICIAN)
     assert r.status_code == 201, r.text
@@ -302,6 +311,9 @@ def test_psychiatry_lithium_flag_warns_but_dispenses(client):
     _observation(client, "psy-4", "14334-7", 0.9, _now())
     _observation(client, "psy-4", "2160-0", 1.0, _now())
     oid2 = _active_med_order(client, "psy-4", LITHIUM)
+    r = client.post(f"/pharmacy/verification/{oid2}/verify", json={},
+                    headers=CLINICIAN)
+    assert r.status_code == 201, r.text
     r = client.post("/pharmacy/dispense",
                     json={"medication_request_id": oid2}, headers=CLINICIAN)
     assert r.status_code == 201, r.text
@@ -315,6 +327,11 @@ def test_monitoring_gate_inert_without_pack(client):
     _patient(client, "plain-1")
     # Sertraline is in the SEEDED formulary and has no rule anywhere.
     oid = _active_med_order(client, "plain-1", "1048467")
+    # Wave A (PHARM-B1): a current verification is the one new
+    # precondition; the monitoring gate itself stays inert.
+    r = client.post(f"/pharmacy/verification/{oid}/verify", json={},
+                    headers=CLINICIAN)
+    assert r.status_code == 201, r.text
     r = client.post("/pharmacy/dispense",
                     json={"medication_request_id": oid}, headers=CLINICIAN)
     assert r.status_code == 201, r.text

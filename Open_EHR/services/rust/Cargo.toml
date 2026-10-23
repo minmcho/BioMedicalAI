@@ -1,0 +1,23 @@
+[package]
+name = "opencare-deid"
+version = "0.1.0"
+edition = "2021"
+description = "Rule-based de-identification step for OpenCare research extracts (text + JSON). Safe Harbor-style identifier removal/generalisation per JSON config. NOT an expert-certification determination."
+license = "Apache-2.0"
+
+[lib]
+name = "opencare_deid"
+path = "src/lib.rs"
+
+[[bin]]
+name = "opencare-deid"
+path = "src/main.rs"
+
+[[bin]]
+name = "opencare-term"
+path = "src/bin/opencare-term.rs"
+
+[dependencies]
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

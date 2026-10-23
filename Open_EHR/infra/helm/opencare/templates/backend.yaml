@@ -1,0 +1,151 @@
+{{- if .Values.backend.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "opencare.fullname" . }}-backend
+  labels:
+    {{- include "opencare.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  {{- if not .Values.backend.autoscaling.enabled }}
+  replicas: {{ .Values.backend.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "opencare.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "opencare.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: backend
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "opencare.serviceAccountName" . }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.backend.podSecurityContext | nindent 8 }}
+      containers:
+        - name: backend
+          image: {{ include "opencare.image" (dict "image" .Values.backend.image "Values" .Values "Chart" .Chart) }}
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.backend.service.port }}
+          env:
+            - name: AUTH_MODE
+              valueFrom: { configMapKeyRef: { name: {{ include "opencare.fullname" . }}-config, key: AUTH_MODE } }
+            - name: ADK_RUNTIME_URL
+              valueFrom: { configMapKeyRef: { name: {{ include "opencare.fullname" . }}-config, key: ADK_RUNTIME_URL } }
+            {{- if .Values.backend.databaseUrlSecret.name }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.backend.databaseUrlSecret.name }}
+                  key: {{ .Values.backend.databaseUrlSecret.key }}
+            {{- else }}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.backend.database.passwordSecret.name }}
+                  key: {{ .Values.backend.database.passwordSecret.key | default "db-password" }}
+            - name: DATABASE_URL
+              value: "postgresql+psycopg://{{ .Values.backend.database.user }}:$(DB_PASSWORD)@{{ include "opencare.dbHost" . }}:{{ .Values.backend.database.port }}/{{ .Values.backend.database.name }}"
+            {{- end }}
+            {{- if .Values.backend.warehouse.databaseUrlSecret.name }}
+            - name: WAREHOUSE_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.backend.warehouse.databaseUrlSecret.name }}
+                  key: {{ .Values.backend.warehouse.databaseUrlSecret.key }}
+            {{- else if .Values.backend.warehouse.host }}
+            - name: WAREHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.backend.warehouse.passwordSecret.name }}
+                  key: {{ .Values.backend.warehouse.passwordSecret.key | default "warehouse-db-password" }}
+            - name: WAREHOUSE_DATABASE_URL
+              value: "postgresql+psycopg://{{ .Values.backend.warehouse.user }}:$(WAREHOUSE_PASSWORD)@{{ .Values.backend.warehouse.host }}:{{ .Values.backend.warehouse.port }}/{{ .Values.backend.warehouse.name }}"
+            {{- end }}
+            {{- if .Values.backend.valkeyUrlSecret.name }}
+            - name: VALKEY_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.backend.valkeyUrlSecret.name }}
+                  key: {{ .Values.backend.valkeyUrlSecret.key }}
+            {{- else }}
+            - name: VALKEY_URL
+              value: {{ include "opencare.valkeyUrl" . | quote }}
+            {{- end }}
+            {{- with .Values.config.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.backend.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.backend.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.backend.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.backend.securityContext | nindent 12 }}
+      {{- with .Values.backend.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.backend.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.backend.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "opencare.backendServiceName" . }}
+  labels:
+    {{- include "opencare.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  type: {{ .Values.backend.service.type }}
+  selector:
+    app.kubernetes.io/name: {{ include "opencare.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: backend
+  ports:
+    - name: http
+      port: {{ .Values.backend.service.port }}
+      targetPort: http
+{{- if .Values.backend.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "opencare.fullname" . }}-backend
+  labels:
+    {{- include "opencare.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: {{ include "opencare.fullname" . }}-backend }
+  minReplicas: {{ .Values.backend.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.backend.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: {{ .Values.backend.autoscaling.targetCPUUtilizationPercentage }} }
+{{- end }}
+{{- end }}
