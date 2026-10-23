@@ -57,6 +57,56 @@ export interface MedicationRequest extends FhirResource {
   medicationCodeableConcept?: CodeableConcept;
   medicationReference?: Reference;
   subject?: Reference;
+  dosageInstruction?: DosageInstruction[];
+}
+
+/** FHIR Dosage — the structured sig shape the chart sig builder
+ *  emits (Wave A, CHART-B3). dose_quantity is read by the backend
+ *  from doseAndRate[0].doseQuantity and the timing from
+ *  timing.repeat (frequency per period periodUnit), exactly the
+ *  shapes app.pharmacy.dose_quantity_of / doses_per_day_of parse. */
+export interface DosageInstruction {
+  text?: string;
+  doseAndRate?: Array<{
+    doseQuantity?: { value?: number; unit?: string; code?: string };
+  }>;
+  doseQuantity?: { value?: number; unit?: string; code?: string };
+  route?: CodeableConcept;
+  timing?: {
+    repeat?: {
+      frequency?: number;
+      period?: number;
+      periodUnit?: string;
+      boundsDuration?: { value?: number; unit?: string; code?: string };
+    };
+    code?: CodeableConcept;
+  };
+  asNeededBoolean?: boolean;
+  asNeededCodeableConcept?: CodeableConcept;
+}
+
+/** AllergyIntolerance — first-class FHIR resource (app.fhir).
+ *  The chart allergies tab + banner read/write this shape; the
+ *  NKDA record is one whose code coding carries code
+ *  "no-known-allergy" (see AllergiesTab). */
+export interface AllergyIntolerance extends FhirResource {
+  resourceType: "AllergyIntolerance";
+  clinicalStatus?: CodeableConcept;
+  verificationStatus?: CodeableConcept;
+  type?: string;
+  category?: string[];
+  criticality?: string;
+  code?: CodeableConcept;
+  patient?: Reference;
+  recordedDate?: string;
+  recorder?: Reference;
+  onsetString?: string;
+  reaction?: Array<{
+    manifestation?: CodeableConcept[];
+    description?: string;
+    severity?: string;
+  }>;
+  note?: Array<{ text?: string }>;
 }
 
 export interface DiagnosticReport extends FhirResource {
@@ -188,6 +238,9 @@ export interface LabConcept {
   /** Phase 6B — qualitative concepts accept coded text values. */
   qualitative?: boolean;
   values?: string[];
+  /** Depth pass — cytology concepts on the pathology bench report
+   *  with the published cytology form, not the surgical synoptic. */
+  cytology?: boolean;
   deltaCheck?: LabDeltaCheck;
   autoVerify?: LabConceptAutoVerify;
 }
@@ -561,7 +614,26 @@ export type ConfigKind =
   | "permissions"
   | "cohort"
   | "integration"
-  | "orderset";
+  | "orderset"
+  // Phase 10 — Studio-managed agents, rules/automation, dashboards and
+  // regulatory packs are governed config kinds like everything above.
+  | "agent"
+  | "rule"
+  | "dashboard"
+  | "regulatory_pack"
+  // Phase 14 — pipeline definitions are a governed config kind.
+  | "pipeline"
+  // Platform pass WS10 (Studio full parity) — AI provider registry
+  // and the endpoint/tool declaration registries.
+  | "ai-provider"
+  | "endpoint"
+  | "tool"
+  // Phase 16 — supervised agent workflows, governed knowledge
+  // documents, MCP server registrations and analytics views.
+  | "agentflow"
+  | "knowledge"
+  | "mcp_server"
+  | "analytics_view";
 
 export type ConfigStatus = "draft" | "published" | "superseded" | "disabled";
 
@@ -794,6 +866,307 @@ export interface FormularyResponse {
   version: number | null;
 }
 
+// ---- Phase 11: pharmacy department depth — backend/app/pharmacy_ops.py ----
+// Inventory by lot + location with PAR levels, procurement with DSCSA
+// traceability, controlled substances, sterile compounding, the
+// pharmacist verification + DUR queues, barcode payloads and the
+// five-rights BCMA scan. Thresholds (PAR, SLA minutes, BUD hours,
+// barcode prefixes) are published pharmacy-ops Studio config on the
+// server; these interfaces mirror the endpoints' JSON.
+
+export interface PharmacyLocation {
+  code: string;
+  label: string;
+}
+
+export interface PharmacyLotItem {
+  medication_code: string;
+  location: string;
+  lot_number: string;
+  expiry_date: string | null;
+  quantity: number;
+  days_to_expiry: number | null;
+  expired: boolean;
+  expiring_soon: boolean;
+  par_level: number | null;
+  reorder_point: number | null;
+}
+
+export interface PharmacyInventoryResponse {
+  items: PharmacyLotItem[];
+  locations: PharmacyLocation[];
+  total: number;
+}
+
+export interface LowStockItem {
+  medication_code: string;
+  location: string;
+  on_hand: number;
+  par_level: number | null;
+  reorder_point: number | null;
+  suggested_order: number | null;
+}
+
+export interface InventoryWorklist {
+  low_stock: LowStockItem[];
+  expiring: PharmacyLotItem[];
+  expired: PharmacyLotItem[];
+  expiry_warning_days: number;
+}
+
+export interface AdjustStockResult {
+  lot: PharmacyLotItem;
+  stock_after: number | null;
+}
+
+export interface PurchaseOrderLine {
+  medication_code: string;
+  quantity: number;
+  received_quantity: number;
+}
+
+export interface PurchaseOrder {
+  po_id: string;
+  supplier: string;
+  status: string;
+  lines: PurchaseOrderLine[];
+  note: string | null;
+  created_by: string;
+  created_at: string | null;
+}
+
+export interface TraceabilityEntry {
+  entry_id: string;
+  event: string;
+  medication_code: string;
+  lot_number: string | null;
+  serial: string | null;
+  expiry_date: string | null;
+  quantity: number | null;
+  reference: string | null;
+  detail: { serials?: string[]; supplier?: string; location?: string };
+  actor: string;
+  created_at: string | null;
+}
+
+export interface AdcRestockItem {
+  medication_code: string;
+  display: string | null;
+  location: string;
+  on_hand: number;
+  par_level: number;
+  suggested_quantity: number;
+  recent_dispenses: number;
+}
+
+export interface RenalView {
+  crcl_ml_min: number | null;
+  threshold_ml_min: number | null;
+  flagged: boolean;
+}
+
+export interface VerificationQueueItem {
+  order_id: string;
+  patient_ref: string;
+  medication_code: string | null;
+  medication_display: string | null;
+  priority: string | null;
+  status: string | null;
+  authored_on: string | null;
+  wait_minutes: number | null;
+  sla_minutes: number | null;
+  sla_breached: boolean;
+  formulary_status: string;
+  restriction_note: string | null;
+  in_formulary: boolean;
+  allergy_conflict: { allergy_id: string; display: string } | null;
+  monitoring_blockers: Array<{ problem: string }>;
+  monitoring_warnings: Array<{ problem: string }>;
+  renal: RenalView;
+}
+
+export interface RuleFiring {
+  rule: string;
+  version: number;
+  event: string;
+  action: string;
+  detail: Record<string, unknown>;
+}
+
+export interface VerificationOutcome {
+  verification: {
+    order_id: string;
+    medication_code: string | null;
+    verified_by: string;
+    formulary_status: string;
+    restriction_acknowledged: boolean;
+    crcl_ml_min: number | null;
+  };
+  rule_firings: RuleFiring[];
+}
+
+export interface DurSignal {
+  type: string;
+  detail: string;
+}
+
+export interface DurQueueItem {
+  order_id: string;
+  patient_ref: string;
+  medication_code: string | null;
+  medication_display: string | null;
+  signals: DurSignal[];
+}
+
+export interface InteractionStatus {
+  status: string;
+  configured: boolean;
+  source: string | null;
+  message: string;
+}
+
+export interface DurQueueResponse {
+  items: DurQueueItem[];
+  total: number;
+  interaction_checking: InteractionStatus;
+}
+
+export interface InteractionCheckResult {
+  status: string;
+  configured: boolean;
+  source: string | null;
+  message: string;
+  medication_codes: string[];
+  pairs_checked: number;
+  findings: unknown[];
+}
+
+export interface CsBookItem {
+  medication_code: string;
+  display: string | null;
+  schedule: string | null;
+  location: string;
+  expected: number;
+  unresolved_discrepancies: number;
+  balanced: boolean;
+  last_count: CsCount | null;
+}
+
+export interface CsWasteRecord {
+  waste_id: string;
+  medication_code: string;
+  location: string;
+  lot_number: string;
+  quantity: number;
+  reason: string;
+  wasted_by: string;
+  witness: string;
+  created_at: string | null;
+}
+
+export interface CsBookResponse {
+  items: CsBookItem[];
+  open_discrepancies: CsCount[];
+  recent_waste: CsWasteRecord[];
+}
+
+export interface CsCount {
+  count_id: string;
+  medication_code: string;
+  location: string;
+  expected: number;
+  counted: number;
+  variance: number;
+  counter: string;
+  witness: string;
+  status: string;
+  resolution_reason: string | null;
+  resolved_by: string | null;
+  created_at: string | null;
+}
+
+export interface CsWasteResult {
+  waste_id: string;
+  medication_code: string;
+  location: string;
+  lot_number: string;
+  quantity: number;
+  lot_after: number;
+}
+
+export interface CompoundIngredient {
+  medication_code?: string;
+  name?: string;
+  quantity?: string;
+  lot_number: string;
+}
+
+export interface CompoundBatch {
+  batch_id: string;
+  preparation_name: string;
+  category: string;
+  storage: string;
+  compounded_at: string | null;
+  beyond_use_at: string | null;
+  ingredients: CompoundIngredient[];
+  patient_ref: string | null;
+  preparer: string;
+  verifier: string | null;
+  verified_at: string | null;
+  status: string;
+}
+
+export interface CompoundingQueueResponse {
+  items: CompoundBatch[];
+  total: number;
+  categories: Record<string, { label?: string; budHours?: Record<string, number> }>;
+}
+
+export interface WristbandPayload {
+  payload: string;
+  patient_id: string;
+  dob: string;
+}
+
+export interface MedLabelPayload {
+  payload: string;
+  dispense_id: string;
+  lot: string;
+}
+
+export interface BarcodeParseResult {
+  type: string;
+  patient_id?: string;
+  dob?: string;
+  dispense_id?: string;
+  lot?: string;
+}
+
+export interface BcmaCheck {
+  right: string;
+  result: string;
+  detail: string;
+}
+
+export interface BcmaOutcome {
+  administration: MedicationAdministration;
+  bcma: {
+    checks: BcmaCheck[];
+    override: { reason: string; rights: string[] } | null;
+  };
+}
+
+export interface PatientDispenseItem {
+  dispense_id: string;
+  status: string | null;
+  medication_code: string | null;
+  medication_display: string | null;
+  lot_number: string | null;
+  quantity: number | null;
+  when_handed_over: string | null;
+  request_ref: string | null;
+}
+
 // ---- Phase 4B: specialty boards — backend/app/boards.py ----
 // ED tracking states, surgery case states and the room/modality lists are
 // Studio configuration on the server; these interfaces mirror the board
@@ -923,6 +1296,35 @@ export interface OrderTypeConcept {
 
 export interface OrderTypesResponse {
   order_types: { name?: string; system?: string; concepts: OrderTypeConcept[] };
+  version?: number | null;
+  workflow?: unknown;
+  workflow_version?: number | null;
+  /** Wave A (CHART-B3): published terminology/medication-sig payload
+   *  from GET /orders/types — the real backend response shape. */
+  medication_sig?: MedicationSigVocabulary | null;
+  medication_sig_version?: number | null;
+}
+
+/** Governed sig vocabulary (terminology/medication-sig). Frequencies
+ *  carry timesPerDay plus the FHIR timing.repeat triple the backend
+ *  dose maths parses; as-needed has timesPerDay 0 and no repeat. */
+export interface SigVocabConcept {
+  code: string;
+  display?: string;
+  active?: boolean;
+}
+
+export interface SigFrequency extends SigVocabConcept {
+  timesPerDay: number;
+  repeat?: { frequency: number; period: number; periodUnit: string };
+}
+
+export interface MedicationSigVocabulary {
+  name?: string;
+  system?: string;
+  routes: SigVocabConcept[];
+  frequencies: SigFrequency[];
+  units: SigVocabConcept[];
 }
 
 export interface OrderSetItem {
@@ -1035,6 +1437,10 @@ export interface FormItem {
   text?: string;
   type: string;
   required?: boolean;
+  /** UX pass: a "text" item carrying "rich": true in its governed
+   *  form definition renders the shared rich-text editor instead
+   *  of a plain textarea (seeded for note-template prose). */
+  rich?: boolean;
   item?: FormItem[];
   answerOption?: FormAnswerOption[];
 }
@@ -1644,4 +2050,1367 @@ export interface AppointmentRequestOutcome {
   appointment: FhirResource;
   auto_confirmed: boolean;
   status: string;
+}
+
+// ---- Phase 10: agents (app.agents), rules (app.rules), compliance
+// ---- (app.compliance), privacy / break-the-glass (app.privacy) ----
+// Agents are governed Studio config (kind=agent). A published agent
+// still cannot run until separately enabled; with no model route the
+// runtime answers an honest 503 — the UI surfaces that verbatim.
+
+export interface AgentRosterEntry {
+  key: string;
+  version: number;
+  description: string;
+  model: string;
+  model_configured: boolean;
+  modalities: { text?: boolean; image?: boolean; audio?: boolean };
+  enabled: boolean;
+  /** C-AI governance (backend/app/ai_governance.py): rows gain these
+   *  over time — always optional, code defensively. `risk_tier` is the
+   *  contract spelling; `riskTier` is accepted as a fallback. */
+  risk_tier?: string | null;
+  riskTier?: string | null;
+  governance?: {
+    statementStatus?: string | null;
+    recordStatus?: string | null;
+    [key: string]: unknown;
+  } | null;
+}
+
+export interface AgentsResponse {
+  agents: AgentRosterEntry[];
+  runtime: {
+    url: string;
+    reachable: boolean;
+    model_configured?: boolean;
+    detail?: string;
+  };
+}
+
+export interface AgentRunRecord {
+  run_id: string;
+  agent: string;
+  version: number;
+  actor: string;
+  patient_ref: string | null;
+  input_hash: string;
+  output: string;
+  model: string | null;
+  disposition: "pending" | "accepted" | "rejected";
+  disposition_by: string | null;
+  created_at: string | null;
+}
+
+// ---- C-AI: clinical AI governance (/ai-governance) ----
+// Contract shapes for the governance surface in the Studio
+// Validation + ADK tabs. Statement `fields` is the §4.1 template of
+// the AI governance framework, kept open (index signature) because
+// the register stores the human-authored document as submitted.
+
+export type CaiRiskTier = "T1" | "T2" | "T3";
+
+export interface CaiTierRequirement {
+  minOverallPass: number;
+  minSliceFloor: number;
+  maxSliceDisparity: number;
+  statementValidityMonths: number;
+  approvals: string[];
+  monitoringCadence: string;
+}
+
+export interface CaiTierRequirements {
+  tiers: Partial<Record<CaiRiskTier, CaiTierRequirement>> & Record<string, CaiTierRequirement>;
+  source?: string;
+}
+
+export interface CaiStatementApproval {
+  approver: string;
+  kind: string;
+  conditions?: string | null;
+  decidedAt?: string | null;
+}
+
+export interface CaiStatementCurrency {
+  status: "current" | "expired" | "suspended" | "stale" | "missing" | string;
+  reason: string;
+}
+
+export interface CaiStatement {
+  statementId: string;
+  version: number;
+  agentKey: string;
+  agentConfigVersion?: number | null;
+  modelRoute?: string | null;
+  riskTier: string;
+  owner: string;
+  status: string;
+  author?: string;
+  fields: Record<string, unknown>;
+  approvals: CaiStatementApproval[];
+  reviewBy?: string | null;
+  approvedAt?: string | null;
+  currency: CaiStatementCurrency;
+}
+
+export interface CaiAgentGovernanceStatus {
+  agentKey: string;
+  tier?: string | null;
+  killSwitchActive?: boolean;
+  enabled?: boolean;
+  validation?: AgentValidationStatusLike | null;
+  statement?: { status: string; statementId?: string | null; reason?: string } | null;
+  governance?: Record<string, unknown> | null;
+  runtimeGate?: { allowed: boolean; reason: string } | null;
+}
+
+/** The existing agent-validation status shape, referenced loosely
+ *  from the governance status payload. */
+export interface AgentValidationStatusLike {
+  status?: string;
+  reason?: string;
+  [key: string]: unknown;
+}
+
+export interface CaiDisclosure {
+  agentKey: string;
+  attributes: Array<{ attribute: string; value: string; source: string }>;
+  generatedFrom?: Record<string, unknown>;
+}
+
+export interface CaiWorklistItem {
+  agentKey: string;
+  owner: string;
+  tier: string;
+  statementStatus: string;
+  statementDaysToExpiry: number | null;
+  recordStatus: string;
+  recordDaysToExpiry: number | null;
+  dueState: string;
+}
+
+export interface CaiKillSwitch {
+  active: boolean;
+  reason?: string | null;
+  engagedBy?: string | null;
+  engagedAt?: string | null;
+}
+
+export interface CaiIncident {
+  eventId: string;
+  reporter: string;
+  category: string;
+  harmLevel: string;
+  description: string;
+  status: string;
+  createdAt: string | null;
+}
+
+export interface ComplianceRequirement {
+  id: number;
+  body: string;
+  citation: string;
+  title: string;
+  control: string;
+  implementation_ref: string;
+  evidence_source: string;
+  created_by: string;
+  updated_by: string;
+}
+
+export interface ComplianceEvidence {
+  requirement_id: number;
+  source: string;
+  kind: "audit" | "config" | "reference" | "none";
+  entries?: Array<Record<string, unknown>>;
+  total?: number;
+  config?: { kind: string; key: string; version: number; status: string } | null;
+  note?: string;
+}
+
+export interface BreakGlassPolicy {
+  duration_minutes: number;
+  justification_window_hours: number;
+  review_expectation: string;
+  source: string;
+}
+
+export interface BreakGlassItem {
+  access_id: string;
+  patient_ref: string;
+  actor: string;
+  reason: string;
+  opened_at: string | null;
+  expires_at: string | null;
+  active: boolean;
+  justification_due_at: string | null;
+  overdue: boolean;
+  reviewed: boolean;
+  review_outcome: string | null;
+}
+
+export interface ReviewQueueResponse {
+  items: BreakGlassItem[];
+  total: number;
+  overdue: number;
+  policy: BreakGlassPolicy;
+}
+
+export interface RulesRegistry {
+  events: string[];
+  actions: string[];
+  signal_ops: string[];
+}
+
+/** A published `dashboard` config payload (kind=dashboard). Widgets
+ *  reference existing read endpoints; the generic view renders them.
+ *  Phase 13 extends the renderer with chart displays (line / bar /
+ *  gauge / table / big-number) alongside the Phase 10 total / count /
+ *  value: chart widgets read the endpoint's `items` list (or a FHIR
+ *  Bundle's `entry`) and plot `series` fields against `labelField`;
+ *  gauge thresholds are HIGHER-IS-BETTER (value >= warn is fine,
+ *  below critical is critical). */
+export interface DashboardWidgetConfig {
+  id: string;
+  title: string;
+  endpoint: string;
+  display:
+    | "total"
+    | "count"
+    | "value"
+    | "big-number"
+    | "line"
+    | "bar"
+    | "gauge"
+    | "table";
+  field?: string;
+  series?: Array<{ field: string; label?: string }>;
+  labelField?: string;
+  columns?: Array<{ field: string; title: string }>;
+  max?: number;
+  thresholds?: { warn?: number; critical?: number };
+  unit?: string;
+}
+
+export interface DashboardConfig {
+  title: string;
+  widgets: DashboardWidgetConfig[];
+  /** Phase 13: the audience this dashboard was composed for
+   *  (clinician / nurse / unit-manager / department-head / executive). */
+  audience?: string;
+  roles?: string[];
+}
+
+// ---- Phase 12: care-continuum operations (/continuum) ----
+// Every threshold these shapes carry (ESI targets, SLA minutes, risk
+// weights) is computed server-side from the published
+// terminology/continuum-ops config; the client only renders it.
+
+export interface ContinuumErEntry {
+  encounter: FhirResource;
+  patient_ref: string | null;
+  arrived_at: string;
+  wait_minutes: number;
+  acuity: number | null;
+  chief_complaint: string | null;
+  state: string;
+  target_minutes: number | null;
+  target_breached: boolean;
+  queue: "fast-track" | "main";
+}
+
+export interface ErOpsBoard {
+  generated_at: string;
+  groups: Record<string, ContinuumErEntry[]>;
+  entries: ContinuumErEntry[];
+  queues: { fast_track: ContinuumErEntry[]; main: ContinuumErEntry[] };
+  counts: {
+    waiting: number; triage: number; "in-treatment": number;
+    disposition: number; total: number; fast_track: number;
+    target_breaches: number;
+  };
+  diversion: string;
+  surge_level: string;
+}
+
+export interface BoardingItem {
+  encounter_id: string;
+  patient_ref: string | null;
+  source: "ed" | "direct";
+  origin_encounter_id: string | null;
+  requested_unit: string | null;
+  admitted_at: string | null;
+  wait_minutes: number;
+}
+
+export interface BoardingBoard {
+  items: BoardingItem[];
+  total: number;
+  ed_total: number;
+  oldest_wait_minutes: number;
+}
+
+export interface ActivationMilestone {
+  code: string;
+  display: string;
+  target_minutes: number;
+  recorded_at: string | null;
+  elapsed_minutes: number | null;
+  breached: boolean;
+}
+
+export interface Activation {
+  id: string;
+  encounter_id: string;
+  patient_ref: string | null;
+  pathway: string;
+  pathway_display: string;
+  target_minutes: number;
+  milestones: ActivationMilestone[];
+  status: "open" | "closed";
+  outcome: string | null;
+  started_by: string;
+  started_at: string;
+  closed_at: string | null;
+  elapsed_minutes: number;
+  target_breached: boolean;
+}
+
+export interface CallbackItem {
+  report_id: string;
+  patient_ref: string | null;
+  code_text: string | null;
+  status: string;
+  age_minutes: number;
+  sla_minutes: number;
+  breached: boolean;
+  order_released: boolean;
+}
+
+export interface CallbackQueue {
+  items: CallbackItem[];
+  completed: Array<Record<string, unknown>>;
+  total: number;
+  breached: number;
+}
+
+export interface NurseLoad {
+  nurse: string;
+  patients: number;
+  acuity_load: number;
+  overloaded: boolean;
+}
+
+export interface AssignmentBoard {
+  items: Array<{
+    encounter_id: string; patient_ref: string | null; unit: string | null;
+    bed: string | null; nurse: string; acuity: number;
+  }>;
+  nurses: NurseLoad[];
+  unassigned: Array<{ encounter_id: string; patient_ref: string | null;
+                      unit: string | null; bed: string | null }>;
+  total: number;
+  max_acuity_per_nurse: number;
+}
+
+export interface ReadinessItem {
+  encounter_id: string;
+  patient_ref: string | null;
+  unit: string | null;
+  bed: string | null;
+  target_date: string | null;
+  disposition: string | null;
+  barriers: string | null;
+  checklist_done: boolean;
+  teachback_done: boolean;
+  followup_booked: boolean;
+  missing: string[];
+  ready: boolean;
+}
+
+export interface DischargeReadiness {
+  items: ReadinessItem[];
+  total: number;
+  ready: number;
+}
+
+export interface EvsItem {
+  id: string;
+  bed_code: string;
+  encounter_id: string | null;
+  status: "open" | "in-progress" | "completed";
+  released_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  completed_by: string | null;
+  waiting_minutes: number;
+  turnaround_minutes: number | null;
+}
+
+export interface ClinicSessionState {
+  code: string;
+  display: string;
+  start_time: string;
+  slot_minutes: number;
+  capacity: number;
+  overbook_limit: number;
+  booked: number;
+  overbooked: number;
+}
+
+/** A session template as published in terminology/continuum-ops
+ *  (the templates endpoint returns the config documents themselves). */
+export interface ClinicSessionTemplate {
+  code: string;
+  display: string;
+  startTime: string;
+  slotMinutes: number;
+  capacity: number;
+  overbookLimit: number;
+}
+
+export interface ClinicDay {
+  date: string;
+  sessions: ClinicSessionState[];
+  appointments: FhirResource[];
+  /** The day's booked appointments awaiting check-in (UX audit
+   *  F-1) — the front desk's check-in worklist. */
+  arrivals: Array<{
+    appointment_id: string; patient_ref: string | null;
+    start: string | null; status: string; session: string | null;
+  }>;
+  rooming_queue: Array<{
+    appointment_id: string; patient_ref: string | null;
+    session: string | null; room: string | null; roomed_at: string | null;
+  }>;
+}
+
+export interface NoShowRiskItem {
+  appointment_id: string;
+  patient_ref: string | null;
+  history_total: number;
+  history_missed: number;
+  history_attended: number;
+  miss_rate: number | null;
+  high_risk: boolean;
+  basis: string;
+}
+
+export interface ReferralLoopItem {
+  id: string;
+  patient_ref: string | null;
+  service_code: string | null;
+  status: string;
+  stage: "sent" | "scheduled" | "awaiting-report" | "closed";
+  age_days: number;
+  stale: boolean;
+  report_back_at: string | null;
+}
+
+export interface ContinuumInboxItem {
+  type: "task" | "message" | "result" | "callback";
+  id: string;
+  title: string;
+  patient_ref: string | null;
+  created_at: string | null;
+  age_minutes: number;
+  sla_minutes: number | null;
+  breached: boolean;
+  task_id?: string;
+  report_id?: string;
+}
+
+export interface ContinuumInbox {
+  items: ContinuumInboxItem[];
+  total: number;
+  breached: number;
+  counts: Record<string, number>;
+}
+
+export interface CareGapItem {
+  gap_code: string;
+  display: string;
+  registry: string;
+  patient_ref: string;
+  reason: "missing" | "stale" | "out-of-range";
+  latest_value: number | null;
+  latest_at: string | null;
+  outreach_task_id: string | null;
+}
+
+export interface CallQueueItem {
+  encounter_id: string;
+  patient_ref: string | null;
+  discharged_at: string;
+  hours_since_discharge: number;
+  state: "scheduled" | "due" | "overdue";
+  window: { start_hours: number; end_hours: number };
+}
+
+export interface ReadmissionRiskItem {
+  encounter_id: string;
+  patient_ref: string | null;
+  discharged_at: string | null;
+  score: number;
+  factors: Record<string, number>;
+}
+
+export interface HahBoard {
+  eligible: string[];
+  census: Array<{
+    encounter_id: string; patient_ref: string | null;
+    status: string; open_visit_tasks: number;
+  }>;
+  total: number;
+  note: string;
+}
+
+export interface CommandOverview {
+  generated_at: string;
+  census: {
+    units: Array<{ code: string; display: string; beds_total: number;
+                   occupied: number; available: number; cleaning: number;
+                   blocked: number; occupancy_pct: number;
+                   beds: unknown[] }>;
+    totals: { beds_total: number; occupied: number; available: number;
+              cleaning: number; blocked: number; occupancy_pct: number };
+  };
+  ed: { counts: Record<string, number> };
+  boarding: BoardingBoard;
+  boarding_count: number;
+  ed_boarding_count: number;
+  oldest_boarding_minutes: number | null;
+  bed_requests: number;
+  accepted_transfers: number;
+  expected_discharges_today: {
+    date: string; discharges: Array<Record<string, unknown>>; total: number;
+  };
+  projection: {
+    projected_occupied_end_of_day: number;
+    projected_occupancy_pct: number;
+    basis: string;
+  };
+  discharges_today: { total: number; before_noon: number };
+  transport_open: number;
+  diversion: string;
+  surge_level: string;
+  scope?: {
+    region: string | null; location: string | null;
+    department: string | null; unit: string | null;
+    unit_codes: string[];
+  };
+}
+
+export interface TransferRequestItem {
+  id: string;
+  patient_name: string;
+  patient_age: number | null;
+  patient_sex: string | null;
+  referring_facility: string;
+  referring_clinician: string | null;
+  reason: string;
+  service_line: string | null;
+  urgency: string;
+  contact: string | null;
+  status: "pending" | "accepted" | "declined";
+  decision_reason: string | null;
+  decided_by: string | null;
+  decided_at: string | null;
+  admission_task_id: string | null;
+  created_by: string;
+  created_at: string;
+}
+
+export interface TransportItem {
+  id: string;
+  patient_ref: string | null;
+  from_location: string;
+  to_location: string;
+  priority: string;
+  reason: string | null;
+  status: "requested" | "assigned" | "in-transit" | "completed" | "cancelled";
+  transporter: string | null;
+  requested_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SafetyEventItem {
+  id: string;
+  reporter: string;
+  patient_ref: string | null;
+  unit: string | null;
+  category: string;
+  harm_level: string;
+  description: string;
+  confidential: boolean;
+  status: "reported" | "triaged" | "in-review" | "closed";
+  rca_required: boolean;
+  rca_status: "open" | "closed" | null;
+  occurred_at: string;
+  created_at: string;
+}
+
+export interface SafetyEventDetail extends SafetyEventItem {
+  messages: Array<{
+    id: number; author: string; author_role: "reporter" | "reviewer";
+    body: string; created_at: string;
+  }>;
+}
+
+export interface SafetySummary {
+  total: number;
+  open: number;
+  rca_open: number;
+  by_status: Record<string, number>;
+  by_harm: Record<string, number>;
+  by_category: Record<string, number>;
+  by_unit: Record<string, number>;
+}
+
+// ---- Phase 13: people & data platform (/people, /reports) ----
+// Workforce windows, shift templates, dashboard audiences and the
+// export threshold are all published Studio config server-side; the
+// client renders what the server computed.
+
+/** One level of a resolved placement (Organisation & Registration
+ *  Placement pass): the code plus its published display. */
+export interface PlacementRef {
+  code: string;
+  display?: string;
+}
+
+export interface PlacementView {
+  region: PlacementRef | null;
+  location: PlacementRef | null;
+  department: PlacementRef | null;
+  unit: PlacementRef | null;
+}
+
+export interface StaffMember {
+  staff_id: string;
+  username: string | null;
+  full_name: string;
+  job_role: string;
+  unit: string | null;
+  /** Flat placement codes (Organisation pass); unit stays the
+   *  long-standing field above. */
+  region?: string | null;
+  location?: string | null;
+  department?: string | null;
+  service_line: string | null;
+  status: string;
+  audience: string | null;
+  email?: string | null;
+  phone?: string | null;
+  credential_count?: number;
+}
+
+/** PUT /people/staff/{id} — every field optional; the server
+ *  validates against the published workforce config like create. */
+export interface StaffUpdate {
+  full_name?: string;
+  job_role?: string;
+  unit?: string | null;
+  service_line?: string | null;
+  status?: string;
+  email?: string | null;
+  phone?: string | null;
+  audience?: string | null;
+}
+
+export interface StaffCredential {
+  credential_id: string;
+  staff_id: string;
+  staff_name?: string;
+  type: string;
+  number: string | null;
+  issued_on: string | null;
+  expires_on: string;
+  days_to_expiry: number | null;
+  status: "valid" | "expiring" | "expired" | "unknown";
+  alert_window?: boolean;
+}
+
+export interface CredentialWorklist {
+  items: StaffCredential[];
+  total: number;
+  expired: number;
+  alert_window_days: number;
+  worklist_window_days: number;
+}
+
+export interface RosterShift {
+  shift_id: string;
+  staff_id: string;
+  staff_name?: string;
+  unit: string;
+  date: string;
+  template: string;
+  starts_at: string;
+  ends_at: string;
+  status: string;
+}
+
+export interface OnCallEntry {
+  staff_id: string;
+  staff_name: string;
+  role_on_call: string;
+  starts_at: string;
+  ends_at: string;
+}
+
+export interface OnCallNow {
+  now: string;
+  services: Array<{
+    service_line: string;
+    primary: OnCallEntry | null;
+    backup: OnCallEntry | null;
+  }>;
+  total: number;
+  covered: number;
+}
+
+export interface HomeDashboard {
+  audience: string | null;
+  basis: string;
+  staff_id: string | null;
+  dashboard_key: string | null;
+  dashboard: DashboardConfig | null;
+}
+
+// ---- Home & Module UX pass: GET /home/cards (backend app/home_cards.py) ----
+// One live indicator per staff module that has a REAL provider.
+// Modules without a provider are ABSENT from the response — the Home
+// card then shows purpose + "Open" only, never an invented number.
+// Status is always text (status_text) + tone, never colour alone.
+
+export type HomeCardTone = "ok" | "warn" | "bad" | "info" | "neutral";
+
+export interface HomeCard {
+  module: string;
+  value: string | number;
+  label: string;
+  status_text: string;
+  tone: HomeCardTone;
+  timer_text?: string;
+}
+
+export interface HomeCardsResponse {
+  cards: HomeCard[];
+}
+
+export interface WorkforceConfig {
+  units: Array<{ code: string; display?: string; serviceLine?: string; minOnShift?: number }>;
+  serviceLines: Array<{ code: string; display?: string }>;
+  concepts?: Array<{ code: string; display?: string; active?: boolean }>;
+  shiftTemplates: Array<{ code: string; display?: string; start: string; end: string }>;
+  credentialTypes: Array<{ code: string; display?: string }> | string[];
+  expiry: { worklistWindowDays: number; alertWindowDays: number };
+  audienceDashboards?: Record<string, string>;
+  audienceByRole?: Record<string, string>;
+  [key: string]: unknown;
+}
+
+// ---- Front Door pass: accounts, registration, unit-first home ----
+// Accounts govern identity, role, unit and status. Passwords are NOT
+// part of an account: production sign-in credentials live in the
+// identity provider (OIDC/Keycloak); in dev mode the server issues a
+// one-time dev token at creation (returned once, stored hashed).
+
+export interface UserAccount {
+  account_id: number;
+  username: string;
+  full_name: string;
+  role: Role;
+  unit: string | null;
+  service_line: string | null;
+  email: string | null;
+  phone: string | null;
+  staff_id: string | null;
+  patient_ref: string | null;
+  status: "active" | "disabled" | string;
+  /** Resolved org placement (Organisation pass); null when the
+   *  account is not placed. */
+  placement?: PlacementView | null;
+  has_dev_token: boolean;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface AccountInput {
+  username: string;
+  full_name: string;
+  role: Role;
+  unit?: string | null;
+  service_line?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  staff_id?: string | null;
+  patient_ref?: string | null;
+}
+
+export interface AccountUpdate {
+  full_name?: string;
+  role?: Role;
+  unit?: string | null;
+  service_line?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  staff_id?: string | null;
+  patient_ref?: string | null;
+}
+
+/** POST /accounts response: the account plus, in dev mode only, the
+ *  one-time dev token (never readable again afterwards). */
+export interface AccountCreated extends UserAccount {
+  dev_token?: string;
+  dev_token_note?: string;
+}
+
+export interface RegistrationInput {
+  family: string;
+  given: string;
+  birthDate: string;
+  gender: string;
+  phone?: string;
+  email?: string;
+  identifiers?: Array<{ system: string; value: string }>;
+  address?: {
+    line?: string;
+    city?: string;
+    state?: string;
+    postalCode?: string;
+    country?: string;
+  };
+  emergency_contact?: { name?: string; phone?: string };
+  confirm_duplicate?: boolean;
+}
+
+export interface DuplicateCandidate {
+  id: string;
+  name: string;
+  birthDate?: string;
+  gender?: string;
+  active: boolean;
+  identifiers: Array<{ system?: string; value?: string }>;
+}
+
+/** POST /registration/patients: the created FHIR Patient body plus
+ *  the assigned MRN and whether duplicates were confirmed. */
+export interface RegistrationResult extends Patient {
+  mrn: string;
+  duplicates_confirmed: boolean;
+}
+
+export interface DuplicateConflict {
+  detail: string;
+  candidates: DuplicateCandidate[];
+}
+
+/** One row of the unit-first home lists (my unit / my patients). */
+export interface HomePatientItem {
+  encounter_id: string;
+  patient_ref: string | null;
+  patient_id: string | null;
+  patient_name: string | null;
+  bed: string | null;
+  attending_staff_id: string | null;
+  attending_name: string | null;
+  admitted_at: string | null;
+  los_days: number | null;
+  discharge_ready: boolean;
+}
+
+export interface MyUnitPatients {
+  unit: string | null;
+  unit_display: string | null;
+  items: HomePatientItem[];
+  total: number;
+}
+
+export interface MyPatients {
+  staff_id: string | null;
+  items: HomePatientItem[];
+  total: number;
+}
+
+export interface FrontdeskTodayItem {
+  appointment_id: string;
+  start: string | null;
+  patient_ref: string | null;
+  patient_name: string | null;
+  session: string | null;
+  status: string | null;
+  roomed: boolean;
+}
+
+export interface FrontdeskToday {
+  date: string;
+  appointments_total: number;
+  awaiting_checkin: number;
+  awaiting_room: number;
+  waitlist_open: number;
+  registrations_today: number;
+  items: FrontdeskTodayItem[];
+}
+
+export interface LocationsDraftStatus {
+  published_version: number | null;
+  draft: { version: number; created_by: string | null; updated_by: string | null } | null;
+}
+
+export type LocationDraftOp =
+  | { op: "add-region"; code: string; display: string }
+  | { op: "add-department"; code: string; display: string; location: string }
+  | { op: "add-unit"; code: string; display: string; department?: string }
+  | { op: "add-bed"; code: string; display: string; unit: string; room?: string; bed?: string }
+  | { op: "rename"; code: string; display: string }
+  | { op: "retire"; code: string };
+
+export interface LocationsDraftResult {
+  version: number;
+  status: string;
+  operations_applied: number;
+  note: string;
+}
+
+export interface ReportDefinition {
+  key: string;
+  title: string;
+  description?: string;
+  source: string;
+  parameters: Array<{
+    name: string;
+    type: "string" | "number" | "date" | "choice";
+    required?: boolean;
+    default?: string | number;
+    choices?: string[];
+    label?: string;
+  }>;
+  formats: string[];
+  version: number;
+}
+
+export interface ExportDataset {
+  key: string;
+  title: string;
+  description: string;
+}
+
+export interface ImportProfile {
+  key: string;
+  entity_type: string;
+  description?: string;
+  columns: string[];
+  version: number;
+}
+
+export interface ImportValidation {
+  profile: string;
+  entity_type: string;
+  rows_total: number;
+  valid: boolean;
+  errors: Array<{ row: number; field: string; reason: string }>;
+  preview: Array<Record<string, unknown>>;
+}
+
+/** A downloaded file from the report/document/export endpoints. */
+export interface DownloadedFile {
+  blob: Blob;
+  filename: string;
+  rows: number | null;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 14 — devices, IoT, data lake & pipelines (backend app/devices.py +
+// app/pipelines.py + app/lake.py). Every feed in this deployment is
+// simulated or recorded; the `feed_label`/`source_label` fields carry
+// that label from the server and the pages render it verbatim.
+// ---------------------------------------------------------------------------
+
+export interface DeviceCalibration {
+  status: "ok" | "due-soon" | "overdue" | "unknown" | "not-required";
+  due: string | null;
+  days_remaining: number | null;
+}
+
+export interface DeviceItem {
+  device_key: string;
+  name: string;
+  device_type: string;
+  location: string;
+  serial: string;
+  status: string;
+  hl7_sender: string | null;
+  mqtt_topic_key: string | null;
+  calibration_due: string | null;
+  maintenance_due: string | null;
+  last_calibrated_at: string | null;
+  calibration: DeviceCalibration;
+  blocked_reason: string | null;
+  feed_label: string;
+}
+
+export interface DevicesResponse {
+  items: DeviceItem[];
+  total: number;
+  overdue: number;
+}
+
+export interface DeviceTypeConfig {
+  type: string;
+  label?: string;
+  calibrationIntervalDays?: number | null;
+  maintenanceIntervalDays?: number | null;
+  ranges?: Record<string, { low?: number; high?: number; unit?: string }>;
+  ownerRole?: string;
+}
+
+export interface DevicesConfigResponse {
+  devices: {
+    deviceTypes?: DeviceTypeConfig[];
+    mllpGate?: {
+      enabled?: boolean;
+      onUnknownDevice?: string;
+      onCalibrationOverdue?: string;
+      senderMap?: Record<string, string>;
+    };
+    vitalsThresholds?: Record<string, { low?: number; high?: number; unit?: string }>;
+    calibrationWorklistWindowDays?: number;
+    [key: string]: unknown;
+  };
+  mqtt_configured: boolean;
+  feed_label: string;
+}
+
+export interface FeedsStatus {
+  feed_label: string;
+  note: string;
+  devices: { total: number; overdue: number; blocked: number };
+  mllp_gate: {
+    enabled: boolean;
+    on_unknown_device: string | null;
+    on_calibration_overdue: string | null;
+  };
+  mqtt: {
+    configured: boolean;
+    state: string;
+    broker_url?: string | null;
+    counts?: Record<string, number>;
+    note?: string;
+  };
+  lake_entries: number;
+  quarantine_held: number;
+  dead_letters: number;
+}
+
+export interface DeviceReading {
+  id: number;
+  device_key: string;
+  metric: string;
+  value: number;
+  unit: string;
+  recorded_at: string | null;
+  received_at: string | null;
+  source: string;
+  source_label: string;
+  excursion: boolean;
+  raw_entry_id: number | null;
+}
+
+export interface LakeEntry {
+  id: number;
+  payload_type: string;
+  content_hash: string;
+  source: string;
+  source_label: string;
+  device_key: string | null;
+  interface: string | null;
+  patient_ref: string | null;
+  disposition: string;
+  supersedes_id: number | null;
+  received_at: string | null;
+  payload_bytes: number;
+  payload?: string;
+  curated_links?: Array<{ curated_ref: string; link_kind: string }>;
+}
+
+export interface LakeResponse {
+  items: LakeEntry[];
+  total_entries: number;
+  by_disposition: Record<string, number>;
+}
+
+export interface LineageResponse {
+  curated_ref: string;
+  total: number;
+  raw_entries: Array<LakeEntry & {
+    link_kind?: string;
+    device?: { device_key: string; name?: string; device_type?: string } | null;
+  }>;
+}
+
+export interface QuarantineItem {
+  id: number;
+  source: string;
+  reason: string;
+  detail: Record<string, unknown>;
+  raw_entry_id: number | null;
+  pipeline_run_id: string | null;
+  status: string;
+  decided_by: string | null;
+  decided_at: string | null;
+  decision_note: string | null;
+  created_at: string | null;
+}
+
+export interface PipelineDefinition {
+  key: string;
+  version: number;
+  name: string | null;
+  description: string | null;
+  source: string | null;
+  schedule: string | null;
+  enabled: boolean;
+  steps: Array<{ type: string; name?: string; checks: number }>;
+  last_run: { run_id: string; status: string } | null;
+}
+
+export interface PipelineStepRun {
+  step_index: number;
+  step_type: string;
+  status: string;
+  attempts: number;
+  rows_in: number;
+  rows_out: number;
+  idempotency_key: string;
+  detail: Record<string, unknown>;
+  error: string | null;
+}
+
+export interface PipelineRun {
+  run_id: string;
+  pipeline_key: string;
+  pipeline_version: number;
+  trigger: string;
+  window_start: string | null;
+  window_end: string | null;
+  status: string;
+  actor: string;
+  detail: Record<string, unknown>;
+  started_at: string | null;
+  finished_at: string | null;
+  steps: PipelineStepRun[];
+}
+
+export interface PipelineDeadLetter {
+  id: number;
+  pipeline_key: string;
+  run_id: string;
+  step_index: number;
+  step_type: string;
+  error: string;
+  detail: Record<string, unknown>;
+  status: string;
+  created_at: string | null;
+}
+
+export interface DedupCandidate {
+  id: number;
+  patient_a: string;
+  patient_b: string;
+  score: number;
+  reasons: Record<string, string>;
+  status: string;
+  reviewed_by: string | null;
+  review_note: string | null;
+  created_at: string | null;
+}
+
+
+// ---------------------------------------------------------------------------
+// Depth pass — laboratory completion (virology trends, send-outs,
+// POCT programme, post-analytical governance)
+// ---------------------------------------------------------------------------
+
+export interface LabTrendPoint {
+  observation_id: string;
+  value: number;
+  unit?: string | null;
+  effective?: string | null;
+  log10?: number | null;
+}
+
+export interface LabTrends {
+  patient: string;
+  code: string;
+  display?: string;
+  bench?: string;
+  points: LabTrendPoint[];
+  count: number;
+}
+
+export interface SendoutLabRef {
+  code?: string;
+  display?: string;
+  tat_hours?: number | null;
+}
+
+export interface SendoutItem {
+  order_id: string;
+  order_status?: string;
+  code: string;
+  display?: string;
+  patient?: string;
+  reference_lab: SendoutLabRef;
+  sendout: {
+    status: string;
+    lab?: string;
+    manifest_id?: string;
+    dispatched_at?: string;
+    returned_at?: string;
+    tracking_ref?: string | null;
+  };
+}
+
+export interface SendoutQueue {
+  items: SendoutItem[];
+  total: number;
+  laboratories: Array<{
+    code?: string;
+    display?: string;
+    tests?: string[];
+    tatHours?: number;
+  }>;
+}
+
+export interface SendoutManifest {
+  manifest: {
+    id: string;
+    lab?: string;
+    display?: string;
+    dispatched_at: string;
+    tracking_ref?: string | null;
+    orders: string[];
+  };
+}
+
+export interface SendoutTat {
+  laboratories: Array<{
+    lab?: string;
+    display?: string;
+    tat_hours?: number | null;
+    resulted: number;
+    in_flight: number;
+    avg_hours?: number | null;
+    within_tat_pct?: number | null;
+  }>;
+  generated_at: string;
+  source: string;
+}
+
+export interface PoctDeviceItem {
+  device_key: string;
+  name: string;
+  device_type: string;
+  location?: string;
+  status: string;
+  qc_today: Record<string, string | null>;
+  qc_current: boolean;
+}
+
+export interface PoctDevices {
+  programme_configured: boolean;
+  device_types: string[];
+  items: PoctDeviceItem[];
+  total: number;
+}
+
+export interface PoctQcRecord {
+  id: number;
+  device_key: string;
+  level: string;
+  result: string;
+  operator: string;
+  recorded_at?: string | null;
+}
+
+export interface PoctCompetency {
+  id: number;
+  staff_id: string;
+  test_code: string;
+  method: string;
+  assessed_on: string;
+  assessor: string;
+  status: string;
+  expires_on?: string | null;
+  recorded_at?: string | null;
+}
+
+export interface PoctOverview {
+  programme_configured: boolean;
+  config: { kind: string; key: string; edit_in: string };
+  enforcement: {
+    block_uncompetent_operator: boolean;
+    block_missing_daily_qc: boolean;
+    state_label: string;
+  };
+  devices_total: number;
+  devices_due_qc: string[];
+  qc_levels: string[];
+  competency_expiring: PoctCompetency[];
+  competency_expired: PoctCompetency[];
+}
+
+export interface LabGovernance {
+  config: { kind: string; key: string; version: number; edit_in: string };
+  auto_verify: {
+    enabled: boolean;
+    state_label: string;
+    rules: Array<{
+      code: string;
+      display?: string;
+      low?: number | null;
+      high?: number | null;
+    }>;
+    recent_auto_verified: Array<{
+      report_id: string;
+      order_id?: string;
+      rule_ids: string[];
+      at?: string | null;
+    }>;
+  };
+  reflex_rules: Array<{
+    id?: string;
+    triggerCode?: string;
+    when?: string;
+    matchValue?: string;
+    addCode?: string;
+    note?: string;
+  }>;
+  delta_checks: Array<{
+    code: string;
+    display?: string;
+    config: { absolute?: number; pct?: number; windowHours?: number };
+  }>;
+  stewardship: { duplicateCheckEnabled?: boolean; duplicateWindowHours?: number };
+}
+
+export interface StewardshipDuplicates {
+  window_hours?: number | null;
+  enabled: boolean;
+  groups: Array<{
+    patient: string;
+    code: string;
+    display?: string;
+    orders: Array<{
+      order_id: string;
+      status?: string;
+      authored_on?: string;
+    }>;
+  }>;
+  total: number;
 }

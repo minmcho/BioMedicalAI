@@ -11,7 +11,14 @@ export function LoginPage() {
 
   return (
     <main className="login">
-      <h1>{branding.orgName}</h1>
+      {/* Rich Design Elevation (§8.5): brand block — 56px accent
+          tile with the org initial, org name at display size. */}
+      <div className="login-brand">
+        <span className="login-brand-tile" aria-hidden="true">
+          {branding.orgName.charAt(0)}
+        </span>
+        <h1>{branding.orgName}</h1>
+      </div>
       <p className="tagline">Open-source, FHIR-native electronic health record.</p>
 
       {AUTH_MODE === "oidc" ? (
@@ -41,9 +48,15 @@ export function LoginPage() {
                   signIn({ token: account.token, role: account.role, username: account.username })
                 }
               >
-                <span className="account-label">{account.label}</span>
-                <span className="account-meta">
-                  {account.username} · role: {account.role}
+                <span className="account-top">
+                  <span className="account-label">{account.label}</span>
+                  <span className="badge">{account.role}</span>
+                </span>
+                <span className="account-bottom">
+                  <span className="account-meta">{account.username}</span>
+                  <span className="account-chevron" aria-hidden="true">
+                    ›
+                  </span>
                 </span>
               </button>
             ))}

@@ -3,8 +3,18 @@ import { ApiError, type ApiClient } from "../api/client";
 import { refLabel } from "../api/display";
 import type { EdBoardEntry, EdState, Role } from "../api/types";
 import { useRuntimeConfig } from "../auth/runtimeConfig";
+import { ModuleHeader, scrollToSection } from "../components/ModuleHeader";
+import { StatusBadge, type StatusTone } from "../components/StatusBadge";
 import { Empty, ErrorView, Loading } from "../components/StatusViews";
 import { useAsync } from "../hooks";
+
+/** ESI acuity tone map (UX spec P-3): 1 = resuscitation, 2 = emergent. */
+export function esiTone(acuity?: number | null): StatusTone {
+  if (acuity === 1) return "bad";
+  if (acuity === 2) return "warn";
+  if (acuity === 3) return "info";
+  return "neutral";
+}
 
 interface Props {
   client: ApiClient;
@@ -159,7 +169,7 @@ export function EdBoardPage({ client, role }: Props) {
         <div>
           <strong>{refLabel(entry.encounter.subject)}</strong>
           {entry.acuity != null && (
-            <span className="badge">ESI {entry.acuity}</span>
+            <StatusBadge tone={esiTone(entry.acuity)}>ESI {entry.acuity}</StatusBadge>
           )}
           <span className="badge">wait {entry.wait_minutes} min</span>
         </div>
@@ -228,7 +238,15 @@ export function EdBoardPage({ client, role }: Props) {
 
   return (
     <section>
-      <h2>Emergency department board</h2>
+      <ModuleHeader
+        icon="siren"
+        group="Clinical"
+        title="Emergency department board"
+        purpose="Live ED tracking: waiting, triage, treatment and disposition, with admit and depart."
+        primaryAction={canWork
+          ? { label: "Register arrival", onClick: () => scrollToSection("ed-arrival-form") }
+          : undefined}
+      />
       <p className="hint">
         Live ED census by tracking state (waiting → triage → in-treatment →
         disposition), driven by the published Studio workflow config
@@ -247,6 +265,7 @@ export function EdBoardPage({ client, role }: Props) {
 
       {canWork && (
         <form
+          id="ed-arrival-form"
           className="inline-form"
           onSubmit={(e) => {
             e.preventDefault();

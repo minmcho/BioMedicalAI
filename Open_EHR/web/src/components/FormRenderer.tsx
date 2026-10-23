@@ -4,6 +4,7 @@ import type {
   FormItem,
   QuestionnaireAnswerItem,
 } from "../api/types";
+import { RichTextEditor } from "./RichTextEditor";
 
 // Generic renderer for published Studio forms (Questionnaire payloads,
 // config kind=form). Phase 5 closes the audit gap that no page rendered
@@ -178,18 +179,34 @@ export function FormRenderer({ form, submitLabel = "Submit", onSubmit }: Props) 
             </select>
           </div>
         );
-      case "text":
+      case "text": {
+        // Rich prose items (the published definition carries
+        // "rich": true — seeded for note-template prose by
+        // documentation.py) render the rich-text editor; the value
+        // stays an HTML string and rides as valueString exactly like
+        // a plain text answer (the server sanitizes it on write).
+        const isRich = item.rich === true;
         return (
           <div key={item.linkId} className="form-field">
             {label}
-            <textarea
-              id={id}
-              value={String(raw)}
-              required={item.required}
-              onChange={(e) => set(item.linkId, e.target.value)}
-            />
+            {isRich ? (
+              <RichTextEditor
+                id={id}
+                value={String(raw)}
+                ariaLabel={item.text ?? item.linkId}
+                onChange={(html) => set(item.linkId, html)}
+              />
+            ) : (
+              <textarea
+                id={id}
+                value={String(raw)}
+                required={item.required}
+                onChange={(e) => set(item.linkId, e.target.value)}
+              />
+            )}
           </div>
         );
+      }
       case "integer":
       case "decimal":
       case "quantity":
@@ -260,7 +277,7 @@ export function FormRenderer({ form, submitLabel = "Submit", onSubmit }: Props) 
           {error}
         </p>
       )}
-      <button type="submit" disabled={busy}>
+      <button type="submit" className="btn-primary" disabled={busy}>
         {submitLabel}
       </button>
     </form>

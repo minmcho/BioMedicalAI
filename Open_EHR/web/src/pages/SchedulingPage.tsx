@@ -17,7 +17,10 @@ import type {
   WaitlistEntry,
 } from "../api/types";
 import { useRuntimeConfig } from "../auth/runtimeConfig";
+import { ModuleHeader } from "../components/ModuleHeader";
+import { StatusBadge, type StatusTone } from "../components/StatusBadge";
 import { Empty, ErrorView, Loading } from "../components/StatusViews";
+import { Tabs } from "../components/Tabs";
 import { useAsync } from "../hooks";
 
 interface Props {
@@ -33,11 +36,15 @@ function toIso(local: string): string | undefined {
 
 /** Scheduling — Appointment search by practitioner + date range, with ADT
  *  transition buttons driven by the real state machine. Buttons only ever
- *  offer transitions the server allows; terminal states offer none. */
+ *  offer transitions the server allows; terminal states offer none.
+ *  UX pass: the five stacked sections are tabs (P-7) — Appointments /
+ *  Referrals / Prior authorisations / Eligibility / Waitlist; the
+ *  access tabs exist only for roles holding access.read. */
 export function SchedulingPage({ client, role }: Props) {
   const { permissions } = useRuntimeConfig();
   const canReadAccess = permissions["access.read"]?.[role] === true;
   const canWorkAccess = permissions["access.work"]?.[role] === true;
+  const [tab, setTab] = useState("appointments");
   const [practitioner, setPractitioner] = useState("");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
@@ -90,9 +97,8 @@ export function SchedulingPage({ client, role }: Props) {
     }
   }
 
-  return (
-    <section>
-      <h2>Scheduling</h2>
+  const appointmentsPanel = (
+    <>
       <form
         className="inline-form"
         onSubmit={(e) => {
@@ -179,10 +185,43 @@ export function SchedulingPage({ client, role }: Props) {
           })}
         </ul>
       )}
+    </>
+  );
 
-      {canReadAccess && (
-        <AccessSections client={client} canWork={canWorkAccess} />
-      )}
+  const tabs = [{ key: "appointments", label: "Appointments" }];
+  const panels: Record<string, React.ReactNode> = {
+    appointments: appointmentsPanel,
+  };
+  if (canReadAccess) {
+    tabs.push(
+      { key: "referrals", label: "Referrals" },
+      { key: "authorisations", label: "Prior authorisations" },
+      { key: "eligibility", label: "Eligibility" },
+      { key: "waitlist", label: "Waitlist" },
+    );
+    panels.referrals = <ReferralsSection client={client} canWork={canWorkAccess} />;
+    panels.authorisations = (
+      <AuthorisationsSection client={client} canWork={canWorkAccess} />
+    );
+    panels.eligibility = <EligibilitySection client={client} canWork={canWorkAccess} />;
+    panels.waitlist = <WaitlistSection client={client} canWork={canWorkAccess} />;
+  }
+
+  return (
+    <section>
+      <ModuleHeader
+        icon="calendar"
+        group="Access & Revenue"
+        title="Scheduling"
+        purpose="Search appointments and move them through the ADT lifecycle; referrals, authorisations, eligibility and the waitlist are on their own tabs."
+      />
+      <Tabs
+        ariaLabel="Scheduling"
+        tabs={tabs}
+        activeKey={tab}
+        onChange={setTab}
+        panels={panels}
+      />
     </section>
   );
 }
@@ -193,6 +232,8 @@ export function SchedulingPage({ client, role }: Props) {
 // and the lifecycles are Studio configuration on the server; the
 // selects below mirror the seeded terminology and the server
 // validates everything against the published sets.
+// UX pass: each section is its own tab panel with its own data load
+// and feedback state (previously one stacked AccessSections block).
 // ---------------------------------------------------------------------------
 
 const REFERRAL_SERVICES = [
@@ -215,48 +256,32 @@ function accessError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function AccessSections({ client, canWork }: { client: ApiClient; canWork: boolean }) {
-  const [tick, setTick] = useState(0);
-  const bump = () => setTick((t) => t + 1);
+function referralTone(status: string | undefined): StatusTone {
+  if (status === "authorised" || status === "completed") return "ok";
+  if (status === "denied") return "bad";
+  if (status === "cancelled") return "neutral";
+  return "info";
+}
+
+function authTone(status: string): StatusTone {
+  if (status === "approved") return "ok";
+  if (status === "denied") return "bad";
+  if (status === "requested") return "warn";
+  return "neutral";
+}
+
+function waitlistTone(status: string): StatusTone {
+  if (status === "offered") return "warn";
+  if (status === "accepted" || status === "booked") return "ok";
+  if (status === "cancelled") return "neutral";
+  return "info";
+}
+
+/** Shared busy/notice/error state + action runner for an access tab. */
+function useAccessActions() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
-  const payersState = useAsync(() => client.payers(), [client]);
-  const payerCodes: string[] = (
-    payersState.data?.payers?.concepts ?? []
-  ).map((c) => c.code);
-
-  const queueState = useAsync(() => client.referralQueue(), [client, tick]);
-  const authsState = useAsync(() => client.authorisations(), [client, tick]);
-  const waitlistState = useAsync(() => client.waitlist(), [client, tick]);
-  const queue: Referral[] = queueState.data ?? [];
-  const auths: PriorAuth[] = authsState.data ?? [];
-  const entries: WaitlistEntry[] = waitlistState.data ?? [];
-
-  // Referral intake form
-  const [refPatient, setRefPatient] = useState("");
-  const [refService, setRefService] = useState(REFERRAL_SERVICES[0]);
-  const [refOrg, setRefOrg] = useState("");
-  const [refReason, setRefReason] = useState("");
-  const [refPayer, setRefPayer] = useState("");
-  // Authorisation form
-  const [authPatient, setAuthPatient] = useState("");
-  const [authPayer, setAuthPayer] = useState("");
-  const [authService, setAuthService] = useState("");
-  const [authUnits, setAuthUnits] = useState("");
-  // Eligibility form + result
-  const [eligPatient, setEligPatient] = useState("");
-  const [eligPayer, setEligPayer] = useState("");
-  const [eligService, setEligService] = useState("");
-  const [eligDate, setEligDate] = useState("");
-  const [eligResult, setEligResult] = useState<EligibilityCheckResult | null>(null);
-  // Waitlist form + offer/accept
-  const [wlPatient, setWlPatient] = useState("");
-  const [wlSlot, setWlSlot] = useState(SLOT_TYPES[1]);
-  const [wlPriority, setWlPriority] = useState("");
-  const [offerAppt, setOfferAppt] = useState("");
-  const [acceptStart, setAcceptStart] = useState<Record<string, string>>({});
 
   async function act(label: string, fn: () => Promise<unknown>) {
     setBusy(true);
@@ -265,7 +290,6 @@ function AccessSections({ client, canWork }: { client: ApiClient; canWork: boole
     try {
       await fn();
       setNotice(`${label} — done.`);
-      bump();
     } catch (err) {
       setError(`${label} failed: ${accessError(err)}`);
     } finally {
@@ -273,11 +297,51 @@ function AccessSections({ client, canWork }: { client: ApiClient; canWork: boole
     }
   }
 
+  return { error, notice, busy, setBusy, setError, act };
+}
+
+function AccessFeedback({
+  notice,
+  error,
+}: {
+  notice: string | null;
+  error: string | null;
+}) {
   return (
-    <div>
+    <>
       {notice && <p className="state state-empty" role="status">{notice}</p>}
       {error && <div className="state state-error" role="alert">{error}</div>}
+    </>
+  );
+}
 
+function usePayerCodes(client: ApiClient): string[] {
+  const payersState = useAsync(() => client.payers(), [client]);
+  return (payersState.data?.payers?.concepts ?? []).map((c) => c.code);
+}
+
+function ReferralsSection({
+  client,
+  canWork,
+}: {
+  client: ApiClient;
+  canWork: boolean;
+}) {
+  const [tick, setTick] = useState(0);
+  const { error, notice, busy, act } = useAccessActions();
+  const payerCodes = usePayerCodes(client);
+  const queueState = useAsync(() => client.referralQueue(), [client, tick]);
+  const queue: Referral[] = queueState.data ?? [];
+
+  const [refPatient, setRefPatient] = useState("");
+  const [refService, setRefService] = useState(REFERRAL_SERVICES[0]);
+  const [refOrg, setRefOrg] = useState("");
+  const [refReason, setRefReason] = useState("");
+  const [refPayer, setRefPayer] = useState("");
+
+  return (
+    <div>
+      <AccessFeedback notice={notice} error={error} />
       <h3>Referrals — triage queue</h3>
       <p className="hint">
         Inbound referrals arrive as ServiceRequests with a triage task and
@@ -290,14 +354,16 @@ function AccessSections({ client, canWork }: { client: ApiClient; canWork: boole
           className="toolbar"
           onSubmit={(e) => {
             e.preventDefault();
-            void act("Referral intake", () =>
-              client.createReferral({
+            void act("Referral intake", async () => {
+              await client.createReferral({
                 patient: refPatient.trim(),
                 service_code: refService,
                 referring_organization: refOrg.trim(),
                 reason: refReason.trim() || undefined,
                 payer: refPayer || undefined,
-              }));
+              });
+              setTick((t) => t + 1);
+            });
           }}
         >
           <label>
@@ -337,6 +403,11 @@ function AccessSections({ client, canWork }: { client: ApiClient; canWork: boole
           <button type="submit" disabled={busy || !refPatient.trim() || !refOrg.trim()}>
             Record referral
           </button>
+          {(!refPatient.trim() || !refOrg.trim()) && (
+            <span className="hint">
+              Patient id and referring organisation are required to record a referral.
+            </span>
+          )}
         </form>
       )}
       {queueState.loading && <Loading label="Loading referral queue…" />}
@@ -361,7 +432,9 @@ function AccessSections({ client, canWork }: { client: ApiClient; canWork: boole
                 <td>{refLabel(ref.subject)}</td>
                 <td>{codeLabel(ref.code)}</td>
                 <td>{ref.referringOrganization ?? "—"}</td>
-                <td><span className="badge">{ref.status}</span></td>
+                <td>
+                  <StatusBadge tone={referralTone(ref.status)}>{ref.status}</StatusBadge>
+                </td>
                 <td>
                   {canWork &&
                     (REFERRAL_NEXT[ref.status ?? ""] ?? []).map((target) => (
@@ -370,8 +443,10 @@ function AccessSections({ client, canWork }: { client: ApiClient; canWork: boole
                         type="button"
                         disabled={busy}
                         onClick={() =>
-                          void act(`Referral → ${target}`, () =>
-                            client.transitionReferral(ref.id as string, target))
+                          void act(`Referral → ${target}`, async () => {
+                            await client.transitionReferral(ref.id as string, target);
+                            setTick((t) => t + 1);
+                          })
                         }
                       >
                         {target}
@@ -383,7 +458,31 @@ function AccessSections({ client, canWork }: { client: ApiClient; canWork: boole
           </tbody>
         </table>
       )}
+    </div>
+  );
+}
 
+function AuthorisationsSection({
+  client,
+  canWork,
+}: {
+  client: ApiClient;
+  canWork: boolean;
+}) {
+  const [tick, setTick] = useState(0);
+  const { error, notice, busy, act } = useAccessActions();
+  const payerCodes = usePayerCodes(client);
+  const authsState = useAsync(() => client.authorisations(), [client, tick]);
+  const auths: PriorAuth[] = authsState.data ?? [];
+
+  const [authPatient, setAuthPatient] = useState("");
+  const [authPayer, setAuthPayer] = useState("");
+  const [authService, setAuthService] = useState("");
+  const [authUnits, setAuthUnits] = useState("");
+
+  return (
+    <div>
+      <AccessFeedback notice={notice} error={error} />
       <h3>Prior authorisations</h3>
       <p className="hint">
         Authorisations are payer decisions recorded as data (number, payer,
@@ -398,13 +497,15 @@ function AccessSections({ client, canWork }: { client: ApiClient; canWork: boole
           className="toolbar"
           onSubmit={(e) => {
             e.preventDefault();
-            void act("Authorisation requested", () =>
-              client.createAuthorisation({
+            void act("Authorisation requested", async () => {
+              await client.createAuthorisation({
                 patient: authPatient.trim(),
                 payer: authPayer || payerCodes[0] || "",
                 service_code: authService.trim(),
                 approved_units: authUnits ? Number(authUnits) : undefined,
-              }));
+              });
+              setTick((t) => t + 1);
+            });
           }}
         >
           <label>
@@ -421,6 +522,11 @@ function AccessSections({ client, canWork }: { client: ApiClient; canWork: boole
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
+            {payerCodes.length === 0 && (
+              <span className="hint">
+                No payers in the published terminology configuration yet.
+              </span>
+            )}
           </label>
           <label>
             Service code{" "}
@@ -435,6 +541,11 @@ function AccessSections({ client, canWork }: { client: ApiClient; canWork: boole
           <button type="submit" disabled={busy || !authPatient.trim() || !authService.trim()}>
             Request authorisation
           </button>
+          {(!authPatient.trim() || !authService.trim()) && (
+            <span className="hint">
+              Patient id and service code are required to request an authorisation.
+            </span>
+          )}
         </form>
       )}
       {auths.length > 0 && (
@@ -457,21 +568,27 @@ function AccessSections({ client, canWork }: { client: ApiClient; canWork: boole
                 <td>{auth.patient.replace("Patient/", "")}</td>
                 <td>{auth.payer}</td>
                 <td>{auth.service_code}</td>
-                <td><span className="badge">{auth.status}</span></td>
+                <td>
+                  <StatusBadge tone={authTone(auth.status)}>{auth.status}</StatusBadge>
+                </td>
                 <td>{auth.used_units} / {auth.approved_units ?? "∞"}</td>
                 <td>
                   {canWork && auth.status === "requested" && (
                     <>
                       <button type="button" disabled={busy}
                         onClick={() =>
-                          void act("Authorisation approved", () =>
-                            client.transitionAuthorisation(auth.id, "approved"))}>
+                          void act("Authorisation approved", async () => {
+                            await client.transitionAuthorisation(auth.id, "approved");
+                            setTick((t) => t + 1);
+                          })}>
                         Approve
                       </button>
                       <button type="button" disabled={busy}
                         onClick={() =>
-                          void act("Authorisation denied", () =>
-                            client.transitionAuthorisation(auth.id, "denied"))}>
+                          void act("Authorisation denied", async () => {
+                            await client.transitionAuthorisation(auth.id, "denied");
+                            setTick((t) => t + 1);
+                          })}>
                         Deny
                       </button>
                     </>
@@ -482,7 +599,29 @@ function AccessSections({ client, canWork }: { client: ApiClient; canWork: boole
           </tbody>
         </table>
       )}
+    </div>
+  );
+}
 
+function EligibilitySection({
+  client,
+  canWork,
+}: {
+  client: ApiClient;
+  canWork: boolean;
+}) {
+  const { error, notice, busy, setBusy, setError } = useAccessActions();
+  const payerCodes = usePayerCodes(client);
+
+  const [eligPatient, setEligPatient] = useState("");
+  const [eligPayer, setEligPayer] = useState("");
+  const [eligService, setEligService] = useState("");
+  const [eligDate, setEligDate] = useState("");
+  const [eligResult, setEligResult] = useState<EligibilityCheckResult | null>(null);
+
+  return (
+    <div>
+      <AccessFeedback notice={notice} error={error} />
       <h3>Eligibility check</h3>
       <p className="hint">
         A deterministic evaluation of the published payer configuration,
@@ -528,6 +667,11 @@ function AccessSections({ client, canWork }: { client: ApiClient; canWork: boole
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
+            {payerCodes.length === 0 && (
+              <span className="hint">
+                No payers in the published terminology configuration yet.
+              </span>
+            )}
           </label>
           <label>
             Service code{" "}
@@ -542,6 +686,11 @@ function AccessSections({ client, canWork }: { client: ApiClient; canWork: boole
           <button type="submit" disabled={busy || !eligPatient.trim()}>
             Check eligibility
           </button>
+          {!eligPatient.trim() && (
+            <span className="hint">
+              Patient id is required to check eligibility.
+            </span>
+          )}
         </form>
       )}
       {eligResult && (
@@ -555,7 +704,37 @@ function AccessSections({ client, canWork }: { client: ApiClient; canWork: boole
           · basis: {eligResult.basis}. {eligResult.disclaimer}
         </p>
       )}
+    </div>
+  );
+}
 
+function WaitlistSection({
+  client,
+  canWork,
+}: {
+  client: ApiClient;
+  canWork: boolean;
+}) {
+  const [tick, setTick] = useState(0);
+  const { error, notice, busy, act } = useAccessActions();
+  const waitlistState = useAsync(() => client.waitlist(), [client, tick]);
+  const entries: WaitlistEntry[] = waitlistState.data ?? [];
+
+  const [wlPatient, setWlPatient] = useState("");
+  const [wlSlot, setWlSlot] = useState(SLOT_TYPES[1]);
+  const [wlPriority, setWlPriority] = useState("");
+  const [offerAppt, setOfferAppt] = useState("");
+  const [acceptStart, setAcceptStart] = useState<Record<string, string>>({});
+
+  const bumpAfter = (label: string, fn: () => Promise<unknown>) =>
+    act(label, async () => {
+      await fn();
+      setTick((t) => t + 1);
+    });
+
+  return (
+    <div>
+      <AccessFeedback notice={notice} error={error} />
       <h3>Waitlist</h3>
       <p className="hint">
         Patients queue for a slot type (<code>terminology/slot-types</code>);
@@ -567,7 +746,7 @@ function AccessSections({ client, canWork }: { client: ApiClient; canWork: boole
           className="toolbar"
           onSubmit={(e) => {
             e.preventDefault();
-            void act("Added to waitlist", () =>
+            void bumpAfter("Added to waitlist", () =>
               client.joinWaitlist({
                 patient: wlPatient.trim(),
                 slot_type: wlSlot,
@@ -597,6 +776,11 @@ function AccessSections({ client, canWork }: { client: ApiClient; canWork: boole
           <button type="submit" disabled={busy || !wlPatient.trim()}>
             Join waitlist
           </button>
+          {!wlPatient.trim() && (
+            <span className="hint">
+              Patient id is required to join the waitlist.
+            </span>
+          )}
         </form>
       )}
       {canWork && (
@@ -604,7 +788,7 @@ function AccessSections({ client, canWork }: { client: ApiClient; canWork: boole
           className="toolbar"
           onSubmit={(e) => {
             e.preventDefault();
-            void act("Slot offered", async () => {
+            void bumpAfter("Slot offered", async () => {
               const res = await client.offerWaitlistSlot(offerAppt.trim());
               if (!res.entry) {
                 throw new Error(res.reason ?? "No waiting entry matched");
@@ -620,6 +804,11 @@ function AccessSections({ client, canWork }: { client: ApiClient; canWork: boole
           <button type="submit" disabled={busy || !offerAppt.trim()}>
             Offer freed slot
           </button>
+          {!offerAppt.trim() && (
+            <span className="hint">
+              Enter the cancelled appointment id to offer its freed slot.
+            </span>
+          )}
         </form>
       )}
       {entries.length > 0 && (
@@ -639,7 +828,9 @@ function AccessSections({ client, canWork }: { client: ApiClient; canWork: boole
                 <td>{entry.patient.replace("Patient/", "")}</td>
                 <td>{entry.slot_type}</td>
                 <td>{entry.priority}</td>
-                <td><span className="badge">{entry.status}</span></td>
+                <td>
+                  <StatusBadge tone={waitlistTone(entry.status)}>{entry.status}</StatusBadge>
+                </td>
                 <td>
                   {canWork && entry.status === "offered" && (
                     <span>
@@ -655,7 +846,7 @@ function AccessSections({ client, canWork }: { client: ApiClient; canWork: boole
                         type="button"
                         disabled={busy || !(acceptStart[entry.id] ?? "")}
                         onClick={() =>
-                          void act("Offer accepted — appointment booked", () =>
+                          void bumpAfter("Offer accepted — appointment booked", () =>
                             client.acceptWaitlistOffer(entry.id, {
                               start: new Date(acceptStart[entry.id]).toISOString(),
                             }))
@@ -663,6 +854,9 @@ function AccessSections({ client, canWork }: { client: ApiClient; canWork: boole
                       >
                         Accept & book
                       </button>
+                      {!(acceptStart[entry.id] ?? "") && (
+                        <span className="hint"> Choose a start time to accept.</span>
+                      )}
                     </span>
                   )}
                   {canWork && (entry.status === "waiting" || entry.status === "offered") && (
@@ -670,7 +864,7 @@ function AccessSections({ client, canWork }: { client: ApiClient; canWork: boole
                       type="button"
                       disabled={busy}
                       onClick={() =>
-                        void act("Waitlist entry cancelled", () =>
+                        void bumpAfter("Waitlist entry cancelled", () =>
                           client.transitionWaitlist(entry.id, "cancelled"))
                       }
                     >

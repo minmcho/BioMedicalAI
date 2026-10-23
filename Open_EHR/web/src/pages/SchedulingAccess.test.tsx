@@ -75,10 +75,18 @@ function stubClient(overrides: Record<string, unknown> = {}): ApiClient {
   } as unknown as ApiClient;
 }
 
+
+// UX pass: the access sections are tabs now — open the tab under
+// test first; every assertion below is unchanged.
+async function openTab(name: string) {
+  fireEvent.click(await screen.findByRole("tab", { name }));
+}
+
 describe("SchedulingPage Phase 7 access sections", () => {
   it("lists the triage queue and transitions a referral", async () => {
     const client = stubClient();
     render(<SchedulingPage client={client} role="clinician" />);
+    await openTab("Referrals");
     expect(await screen.findByText("Referrals — triage queue")).toBeTruthy();
     expect(await screen.findByText("Cardiology referral")).toBeTruthy();
     expect(screen.getByText("Synthetic Referring Clinic")).toBeTruthy();
@@ -91,6 +99,7 @@ describe("SchedulingPage Phase 7 access sections", () => {
   it("approves a requested authorisation", async () => {
     const client = stubClient();
     render(<SchedulingPage client={client} role="clinician" />);
+    await openTab("Prior authorisations");
     expect(await screen.findByText("AUTH-123")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     await waitFor(() => {
@@ -101,6 +110,7 @@ describe("SchedulingPage Phase 7 access sections", () => {
   it("runs an eligibility check and shows the local-config label", async () => {
     const client = stubClient();
     render(<SchedulingPage client={client} role="clinician" />);
+    await openTab("Eligibility");
     expect(await screen.findByText("Eligibility check")).toBeTruthy();
     expect(screen.getByText(/no live payer connection \(no EDI 270\/271\)/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Eligibility patient id"), {
@@ -118,7 +128,10 @@ describe("SchedulingPage Phase 7 access sections", () => {
   it("accepts an offered waitlist slot and books the appointment", async () => {
     const client = stubClient();
     render(<SchedulingPage client={client} role="clinician" />);
-    expect(await screen.findByText("Waitlist")).toBeTruthy();
+    await openTab("Waitlist");
+    expect(
+      await screen.findByRole("heading", { name: "Waitlist" }),
+    ).toBeTruthy();
     expect(await screen.findByText("offered")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Accept start for wl-1"), {
       target: { value: "2026-01-12T09:00" },

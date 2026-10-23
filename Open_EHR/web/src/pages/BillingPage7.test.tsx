@@ -105,10 +105,18 @@ function stubClient(overrides: Record<string, unknown> = {}): ApiClient {
   } as unknown as ApiClient;
 }
 
+// UX pass (spec S-5 / P-7): the Phase 7 sections are now tabs
+// (Claims / HIM coding / Remittance / Denials / Statements). Tests
+// open the section's tab first; every assertion is unchanged.
+async function openTab(name: string) {
+  fireEvent.click(await screen.findByRole("tab", { name }));
+}
+
 describe("BillingPage Phase 7 sections", () => {
   it("assigns codes from the HIM coding queue through the client", async () => {
     const client = stubClient();
     render(<BillingPage client={client} role="admin" />);
+    await openTab("HIM coding");
     expect(await screen.findByText("HIM coding queue")).toBeTruthy();
     expect(await screen.findByText("enc-1")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Diagnosis codes for enc-1"), {
@@ -129,6 +137,7 @@ describe("BillingPage Phase 7 sections", () => {
   it("posts an 835 remittance and reports posted + exception counts", async () => {
     const client = stubClient();
     render(<BillingPage client={client} role="admin" />);
+    await openTab("Remittance");
     expect(await screen.findByText("Remittance (X12 835)")).toBeTruthy();
     expect(screen.getByText(/no clearinghouse connection exists/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText("835 remittance text"), {
@@ -144,6 +153,7 @@ describe("BillingPage Phase 7 sections", () => {
   it("renders denial reasons and routes rebill + resolve through the client", async () => {
     const client = stubClient();
     render(<BillingPage client={client} role="admin" />);
+    await openTab("Denials");
     expect(await screen.findByText("Denials workqueue")).toBeTruthy();
     expect(await screen.findByText("claim-denied")).toBeTruthy();
     expect(screen.getByText(/CO\/197 \(authorisation\)/)).toBeTruthy();
@@ -168,6 +178,7 @@ describe("BillingPage Phase 7 sections", () => {
       ]),
     });
     render(<BillingPage client={client} role="patient" />);
+    await openTab("Statements");
     expect(await screen.findByText("Your statement")).toBeTruthy();
     expect(await screen.findByText("claim-partial")).toBeTruthy();
     expect(screen.getByText(/Payments recorded here are ledger entries/)).toBeTruthy();

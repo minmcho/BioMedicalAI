@@ -11,7 +11,10 @@ import type {
   StratumCell,
 } from "../api/types";
 import { useRuntimeConfig } from "../auth/runtimeConfig";
+import { ModuleHeader } from "../components/ModuleHeader";
+import { StatusBadge } from "../components/StatusBadge";
 import { Empty, ErrorView, Loading } from "../components/StatusViews";
+import { Tabs } from "../components/Tabs";
 import { useAsync } from "../hooks";
 
 interface Props {
@@ -42,7 +45,7 @@ function StrataList({ title, cells }: { title: string; cells: StratumCell[] }) {
             <span className="result-meta">
               {cell.suppressed ? (
                 <>
-                  {"<5"} <span className="badge badge-warn">suppressed</span>
+                  {"<5"} <StatusBadge tone="warn">suppressed</StatusBadge>
                 </>
               ) : (
                 cell.count
@@ -73,7 +76,7 @@ function MeasureCard({ client, entry }: { client: ApiClient; entry: QualityMeasu
       {result.data &&
         (result.data.suppressed ? (
           <p role="status">
-            <span className="badge badge-warn">small-cell suppressed</span> Counts under{" "}
+            <StatusBadge tone="warn">small-cell suppressed</StatusBadge> Counts under{" "}
             {result.data.small_cell_threshold} are hidden (denominator{" "}
             {result.data.denominator}, numerator {result.data.numerator}) and no rate is
             shown — a rate would reveal the suppressed numerator.
@@ -242,6 +245,7 @@ function RegistryCard({
 }
 
 export function PopHealthPage({ client, role }: Props) {
+  const [tab, setTab] = useState("registries");
   const [tick, setTick] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -281,6 +285,14 @@ export function PopHealthPage({ client, role }: Props) {
     e.preventDefault();
     setExploreResult(null);
     setExploreError(null);
+    if (labCode.trim() && !threshold.trim()) {
+      setExploreError("A threshold is required when a lab code is given.");
+      return;
+    }
+    if (labCode.trim() && Number.isNaN(Number(threshold))) {
+      setExploreError("The threshold must be a number when a lab code is given.");
+      return;
+    }
     try {
       const result = await client.exploreCohort({
         ...(conditionCode.trim() ? { conditionCode: conditionCode.trim() } : {}),
@@ -298,24 +310,8 @@ export function PopHealthPage({ client, role }: Props) {
   const canRunEtl = permissions["pophealth.run"]?.[role] === true;
   const canExport = permissions["pophealth.export"]?.[role] === true;
 
-  return (
-    <div>
-      <h2>Population health</h2>
-      <p className="hint">
-        Registries are Studio cohort configuration (kind <code>cohort</code>) computed over
-        the OMOP analytics warehouse — aggregate counts only, with small-cell suppression.
-      </p>
-      {notice && (
-        <p className="state state-empty" role="status">
-          {notice}
-        </p>
-      )}
-      {actionError && (
-        <div className="state state-error" role="alert">
-          {actionError}
-        </div>
-      )}
-
+  const registriesPanel = (
+    <>
       {registries.loading && <Loading label="Loading registries…" />}
       {registries.error != null && <ErrorView error={registries.error} />}
       {registries.data && registries.data.length === 0 && (
@@ -331,7 +327,11 @@ export function PopHealthPage({ client, role }: Props) {
           canExport={canExport}
         />
       ))}
+    </>
+  );
 
+  const measuresPanel = (
+    <>
       <h3>Quality measures</h3>
       <p className="hint">
         Measures are Studio configuration (kind <code>measure</code>) evaluated over the
@@ -346,7 +346,10 @@ export function PopHealthPage({ client, role }: Props) {
       {measures.data?.measures.map((entry) => (
         <MeasureCard key={entry.key} client={client} entry={entry} />
       ))}
+    </>
+  );
 
+  const explorerPanel = (
       <section className="card">
         <h3>Cohort explorer</h3>
         <p className="hint">
@@ -408,7 +411,9 @@ export function PopHealthPage({ client, role }: Props) {
           </p>
         )}
       </section>
+  );
 
+  const warehousePanel = (
       <section className="card">
         <h3>Warehouse &amp; ETL status</h3>
         {status.loading && <Loading label="Loading warehouse status…" />}
@@ -467,15 +472,61 @@ export function PopHealthPage({ client, role }: Props) {
               </>
             )}
             {canRunEtl ? (
-              <button type="button" onClick={onRunEtl} disabled={busy}>
-                {busy ? "Running ETL…" : "Run ETL now"}
-              </button>
+              <p className="hint">
+                Use “Run ETL now” in the page header to trigger a run.
+              </p>
             ) : (
               <p className="hint">ETL runs are triggered by an administrator.</p>
             )}
           </>
         )}
       </section>
+  );
+
+  return (
+    <div>
+      <ModuleHeader
+        icon="chart"
+        group="Insights"
+        title="Population health"
+        purpose="Registries are Studio cohort configuration (kind cohort) computed over the OMOP analytics warehouse — aggregate counts only, with small-cell suppression."
+        primaryAction={
+          canRunEtl
+            ? {
+                label: busy ? "Running ETL…" : "Run ETL now",
+                onClick: () => void onRunEtl(),
+                disabled: busy,
+              }
+            : undefined
+        }
+      />
+      {notice && (
+        <p className="state state-empty" role="status">
+          {notice}
+        </p>
+      )}
+      {actionError && (
+        <div className="state state-error" role="alert">
+          {actionError}
+        </div>
+      )}
+      <Tabs
+        ariaLabel="Population health"
+        tabs={[
+          { key: "registries", label: "Registries" },
+          { key: "measures", label: "Quality measures" },
+          { key: "explorer", label: "Cohort explorer" },
+          { key: "warehouse", label: "Warehouse & ETL" },
+        ]}
+        activeKey={tab}
+        onChange={setTab}
+        panels={{
+          registries: registriesPanel,
+          measures: measuresPanel,
+          explorer: explorerPanel,
+          warehouse: warehousePanel,
+        }}
+      />
     </div>
   );
 }

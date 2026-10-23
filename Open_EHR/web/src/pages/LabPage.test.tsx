@@ -35,28 +35,37 @@ function stubClient(overrides: Record<string, unknown> = {}): ApiClient {
   } as unknown as ApiClient;
 }
 
+// Depth pass: the lab page renders one tab panel at a time (the
+// shared Tabs component), so section assertions open their tab first.
+function clickTab(name: string) {
+  fireEvent.click(screen.getByRole("tab", { name }));
+}
+
 describe("LabPage", () => {
   it("renders the order queue, verification queue with critical + QC-block state, specimens and QC runs", async () => {
     render(<LabPage client={stubClient()} role="clinician" />);
 
-    // order queue
+    // order queue (the Orders & Results tab is the default panel)
     expect(await screen.findByText("ord-lab-1")).toBeTruthy();
-    // the panel name shows in the order row, the verification item and
-    // the order-form select — all are the same honest label
+    // the panel name shows in the order row and the order-form select —
+    // both are the same honest label
     expect(screen.getAllByText(/Basic metabolic panel \(synthetic\)/).length)
       .toBeGreaterThanOrEqual(2);
     // verification queue: stage, critical flag, QC block, result line
-    expect(screen.getByText(/awaiting verification/)).toBeTruthy();
+    clickTab("Verification");
+    expect(await screen.findByText(/awaiting verification/)).toBeTruthy();
     expect(screen.getByText("CRITICAL")).toBeTruthy();
     expect(screen.getByText(/QC blocked: 2823-3/)).toBeTruthy();
     expect(screen.getByText(/Potassium \(synthetic\): 6.4 mmol\/L \[HH\]/)).toBeTruthy();
     // the queue's Verify button is disabled while the QC gate is active
     const verify = screen.getByRole("button", { name: "Verify" }) as HTMLButtonElement;
     expect(verify.disabled).toBe(true);
-    // specimen tracking shows the accession id
-    expect(screen.getByText("ACC-20260115-0001")).toBeTruthy();
+    // specimen tracking shows the accession id (Specimens tab)
+    clickTab("Specimens");
+    expect(await screen.findByText("ACC-20260115-0001")).toBeTruthy();
     // QC section: the failed run renders FAIL and the gate banner names the analyte
-    expect(screen.getByText("FAIL")).toBeTruthy();
+    clickTab("QC & EQA");
+    expect(await screen.findByText("FAIL")).toBeTruthy();
     expect(screen.getByText(/QC gate active/)).toBeTruthy();
   });
 
@@ -67,6 +76,7 @@ describe("LabPage", () => {
       qcRuns: vi.fn(async () => []),
     });
     render(<LabPage client={client} role="clinician" />);
+    clickTab("Verification");
     const verify = await screen.findByRole("button", { name: "Verify" });
     fireEvent.click(verify);
     await waitFor(() => {
@@ -79,6 +89,7 @@ describe("LabPage", () => {
     expect(await screen.findByText("ord-lab-1")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Place order" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Verify" })).toBeNull();
-    expect(screen.getByText(/Verification is clinician\/admin only/)).toBeTruthy();
+    clickTab("Verification");
+    expect(await screen.findByText(/Verification is clinician\/admin only/)).toBeTruthy();
   });
 });

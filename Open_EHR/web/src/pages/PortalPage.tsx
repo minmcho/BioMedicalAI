@@ -1,5 +1,25 @@
 import { useState } from "react";
-import type { ApiClient } from "../api/client";
+import { ApiError, type ApiClient } from "../api/client";
+import {
+  PAYMENT_TEST_MODE_LABEL,
+  PROXY_SCOPES,
+  createProxyGrant,
+  listMyProxyGrants,
+  listMyTelehealthVisits,
+  listProxyPatients,
+  portalBillingBalance,
+  portalBillingPay,
+  portalTelehealthVisit,
+  proxyAppointments,
+  proxyMessages,
+  proxyResults,
+  revokeProxyGrant,
+  submitTelehealthOutcome,
+  telehealthOutcomeForm,
+  type PortalPaymentReceipt,
+  type ProxyGrant,
+  type TelehealthVisit,
+} from "../api/accessServices";
 import { useRuntimeConfig } from "../auth/runtimeConfig";
 import { codeLabel, observationValue, resourceDate, resourceStatus } from "../api/display";
 import type {
@@ -11,7 +31,9 @@ import type {
   TelehealthWorkspace,
 } from "../api/types";
 import { FormRenderer } from "../components/FormRenderer";
+import { ModuleHeader } from "../components/ModuleHeader";
 import { Empty, ErrorView, Loading } from "../components/StatusViews";
+import { Tabs } from "../components/Tabs";
 import { useAsync } from "../hooks";
 
 interface PortalData {
@@ -29,6 +51,7 @@ interface Props {
  *  search, which the server force-scopes to the caller's own record. */
 export function PortalPage({ client }: Props) {
   const { branding } = useRuntimeConfig();
+  const [tab, setTab] = useState("results");
   const { data, loading, error } = useAsync<PortalData>(async () => {
     const [results, conditions, medications] = await Promise.all([
       client.myResults(),
@@ -44,7 +67,30 @@ export function PortalPage({ client }: Props) {
 
   return (
     <section aria-label="Patient portal">
-      <h2>{branding.portalTitle}</h2>
+      <ModuleHeader
+        icon="heart"
+        group="Patient Care"
+        title={branding.portalTitle}
+        purpose="Your own results, conditions and medications, messages with your care team, appointments and virtual visits, bills and proxy access."
+        primaryAction={{
+          label: "Request an appointment",
+          onClick: () => setTab("visits"),
+        }}
+      />
+      <Tabs
+        ariaLabel="Patient portal"
+        tabs={[
+          { key: "results", label: "My results" },
+          { key: "messages", label: "Messages" },
+          { key: "visits", label: "Appointments & visits" },
+          { key: "billing", label: "Pay a bill" },
+          { key: "proxies", label: "Proxies" },
+        ]}
+        activeKey={tab}
+        onChange={setTab}
+        panels={{
+          results: (
+            <>
       {data.results.length === 0 ? (
         <Empty label="No results yet." />
       ) : (
@@ -89,9 +135,535 @@ export function PortalPage({ client }: Props) {
         </ul>
       )}
 
-      <MessagesSection client={client} />
-      <AppointmentsSection client={client} />
+            </>
+          ),
+          messages: <MessagesSection client={client} />,
+          visits: (
+            <>
+              <AppointmentsSection client={client} />
+              <TelehealthSection client={client} />
+            </>
+          ),
+          billing: <BillPaySection client={client} />,
+          proxies: <ProxySection client={client} />,
+        }}
+      />
     </section>
+  );
+}
+
+/** Phase 15 (BD-28) — My virtual visits. Lists the patient's own
+ *  Phase 15 telehealth visits (GET /portal/telehealth/visits); the
+ *  join link comes from the visit workspace, and a COMPLETED visit
+ *  without an outcome offers the governed outcome form
+ *  (form/telehealth-outcome) via the shared FormRenderer, submitted
+ *  to POST /portal/telehealth/visits/{id}/outcome (the server stores
+ *  a real QuestionnaireResponse; a second outcome is a 409). */
+function TelehealthSection({ client }: Props) {
+  const [tick, setTick] = useState(0);
+  // Loader guard (the LabPage sections' established pattern): stub
+  // clients without `request` render the empty state, never a throw.
+  const visits = useAsync(
+    () => (typeof client.request === "function"
+      ? listMyTelehealthVisits(client)
+      : Promise.resolve({ items: [] as TelehealthVisit[], total: 0 })),
+    [client, tick]);
+  const [openFormFor, setOpenFormFor] = useState<string | null>(null);
+  const [form, setForm] = useState<import("../api/types").FormDefinition | null>(null);
+  const [joinUrls, setJoinUrls] = useState<Record<string, string>>({});
+  const [note, setNote] = useState<string | null>(null);
+  const [errorText, setErrorText] = useState<string | null>(null);
+
+  async function openOutcome(visitId: string) {
+    setErrorText(null);
+    const definition = await telehealthOutcomeForm(client);
+    if (!definition) {
+      setErrorText("The outcome form could not be loaded.");
+      return;
+    }
+    setForm(definition);
+    setOpenFormFor(visitId);
+  }
+
+  async function loadJoin(visit: TelehealthVisit) {
+    setErrorText(null);
+    try {
+      const ws = await portalTelehealthVisit(client, visit.visit_id);
+      if (ws.join_url) {
+        setJoinUrls((m) => ({ ...m, [visit.visit_id]: ws.join_url as string }));
+      } else {
+        setErrorText("No join link is configured for this visit yet.");
+      }
+    } catch (err) {
+      setErrorText(portalErrorText(err));
+    }
+  }
+
+  return (
+    <>
+      <h3>My virtual visits</h3>
+      {visits.loading && <Loading label="Loading your virtual visits…" />}
+      {visits.error != null && <ErrorView error={visits.error} />}
+      {visits.data && visits.data.items.length === 0 && (
+        <Empty label="No virtual visits yet." />
+      )}
+      {visits.data && visits.data.items.length > 0 && (
+        <ul className="result-list">
+          {visits.data.items.map((v) => (
+            <li key={v.visit_id} className="result-row">
+              <span className="result-type">{v.service_line || "telehealth"}</span>
+              <span>Virtual visit {v.visit_id}</span>
+              <span className="result-meta">
+                {v.status}
+                {v.outcome_submitted ? " · outcome submitted" : ""}
+              </span>
+              {v.status !== "completed" && v.status !== "virtual-no-show" && (
+                joinUrls[v.visit_id] ? (
+                  <a href={joinUrls[v.visit_id]} target="_blank" rel="noreferrer">
+                    Join visit
+                  </a>
+                ) : (
+                  <button type="button" onClick={() => void loadJoin(v)}>
+                    Get join link
+                  </button>
+                )
+              )}
+              {v.status === "completed" && !v.outcome_submitted && (
+                <button type="button" onClick={() => void openOutcome(v.visit_id)}>
+                  Submit outcome
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {note && <p className="hint">{note}</p>}
+      {errorText && (
+        <div className="state state-error" role="alert">{errorText}</div>
+      )}
+      {openFormFor && form && (
+        <FormRenderer
+          form={form}
+          submitLabel="Submit outcome"
+          onSubmit={async (answers) => {
+            try {
+              await submitTelehealthOutcome(client, openFormFor, answers);
+              setNote("Outcome submitted — thank you.");
+              setOpenFormFor(null);
+              setForm(null);
+              setTick((t) => t + 1);
+            } catch (err) {
+              setErrorText(portalErrorText(err));
+            }
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+function portalErrorText(err: unknown): string {
+  if (err instanceof ApiError) return `${err.status ? `(${err.status}) ` : ""}${err.detail}`;
+  return err instanceof Error ? err.message : String(err);
+}
+
+function money(value?: number): string {
+  return typeof value === "number" ? `USD ${value.toFixed(2)}` : "—";
+}
+
+/** Phase 15 (BD-22) — Pay a bill. The balance is the PATIENT token's
+ *  own statement (GET /portal/billing/balance, computed by
+ *  revenue.patient_statement server-side) and payments post through
+ *  the governed payment provider, which is TEST MODE
+ *  (integration/payment-provider {mode:"test", live:false}): the
+ *  test-mode label and the server disclaimer are shown verbatim
+ *  wherever payment is offered and on the receipt. */
+function BillPaySection({ client }: Props) {
+  const [tick, setTick] = useState(0);
+  const [amount, setAmount] = useState("");
+  const [claimId, setClaimId] = useState("");
+  const [method, setMethod] = useState("card");
+  const [receipt, setReceipt] = useState<PortalPaymentReceipt | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const balanceState = useAsync(
+    async () =>
+      typeof client.request === "function" ? portalBillingBalance(client) : null,
+    [client, tick],
+  );
+  const balance = balanceState.data;
+  const payableClaims = (balance?.claims ?? []).filter(
+    (c) => (c.patient_due ?? 0) > 0,
+  );
+  const effectiveClaimId =
+    claimId || (payableClaims.length === 1 ? payableClaims[0].claim_id : "");
+
+  async function pay(e: React.FormEvent) {
+    e.preventDefault();
+    const value = Number(amount);
+    if (!Number.isFinite(value) || value <= 0) {
+      setError("Enter an amount greater than zero to pay.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await portalBillingPay(client, {
+        amount: value,
+        ...(effectiveClaimId ? { claim_id: effectiveClaimId } : {}),
+        method,
+      });
+      setReceipt(result);
+      setAmount("");
+      setTick((t) => t + 1);
+    } catch (err) {
+      setError(`Payment failed: ${portalErrorText(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <h3>Pay a bill</h3>
+      <p className="hint">
+        <strong>{PAYMENT_TEST_MODE_LABEL}</strong> — the payment provider is
+        in test mode (provider: test-mode, live: false). Paying here records
+        the payment in your statement ledger only.
+      </p>
+      {balanceState.loading && <Loading label="Loading your balance…" />}
+      {balanceState.error != null && <ErrorView error={balanceState.error} />}
+      {balance && (
+        <>
+          <p>
+            Balance due: <strong>{money(balance.patient_due)}</strong>
+            {typeof balance.patient_paid === "number"
+              ? ` · paid so far ${money(balance.patient_paid)}`
+              : ""}
+            {` · provider mode: ${balance.provider_mode} (live: false)`}
+          </p>
+          {balance.disclaimer && <p className="hint">{balance.disclaimer}</p>}
+          {payableClaims.length > 0 ? (
+            <form className="inline-form" onSubmit={pay}>
+              <label className="field">
+                Claim
+                <select
+                  aria-label="Claim to pay"
+                  value={effectiveClaimId}
+                  onChange={(e) => setClaimId(e.target.value)}
+                >
+                  {payableClaims.length > 1 && <option value="">First claim with a balance</option>}
+                  {payableClaims.map((c) => (
+                    <option key={c.claim_id} value={c.claim_id}>
+                      {c.claim_id} — {money(c.patient_due)} due
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                Amount (USD)
+                <input
+                  aria-label="Payment amount"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                />
+              </label>
+              <label className="field">
+                Method
+                <select
+                  aria-label="Payment method"
+                  value={method}
+                  onChange={(e) => setMethod(e.target.value)}
+                >
+                  {["card", "ach", "cash", "check"].map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </label>
+              <button type="submit" disabled={busy || !amount.trim()}>
+                Pay bill (test mode)
+              </button>
+            </form>
+          ) : (
+            <Empty label="No balance due — nothing to pay." />
+          )}
+        </>
+      )}
+      {error && <div className="state state-error" role="alert">{error}</div>}
+      {receipt && (
+        <div className="card" aria-label="Payment receipt">
+          <h4>Payment receipt</h4>
+          <p>
+            Paid <strong>{money(receipt.amount)}</strong> on claim{" "}
+            {receipt.claim_id} · provider: {receipt.provider} · provider
+            mode: {receipt.provider_mode} · live: {String(receipt.live)} ·
+            balance after: <strong>{money(receipt.balance_after)}</strong>
+          </p>
+          <p className="hint">{receipt.disclaimer}</p>
+        </div>
+      )}
+    </>
+  );
+}
+
+const PROXY_SCOPE_LABELS: Record<string, string> = {
+  schedule: "View appointments",
+  messages: "View message threads",
+  results: "View released results",
+};
+
+type ProxyScopeView = (typeof PROXY_SCOPES)[number];
+
+/** Phase 15 (BD-23) — portal proxy access. "My proxies" lists the
+ *  grants this patient has given (create + revoke ride
+ *  /portal/proxy/grants); "I am a proxy for" lists the patients whose
+ *  active grants name this account, with scoped views of their
+ *  appointments / messages / results limited to the granted scopes
+ *  (terminology/proxy-scopes). Every proxy read is audited
+ *  server-side on-behalf-of the patient. */
+function ProxySection({ client }: Props) {
+  const [tick, setTick] = useState(0);
+  const [proxyUsername, setProxyUsername] = useState("");
+  const [scopes, setScopes] = useState<string[]>(["schedule"]);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [selected, setSelected] = useState<ProxyGrant | null>(null);
+  const [scopeView, setScopeView] = useState<ProxyScopeView>("schedule");
+
+  const hasRequest = typeof client.request === "function";
+  const grantsState = useAsync(
+    async () => (hasRequest ? listMyProxyGrants(client) : null),
+    [client, tick],
+  );
+  const patientsState = useAsync(
+    async () => (hasRequest ? listProxyPatients(client) : null),
+    [client, tick],
+  );
+  const scopedState = useAsync(
+    async () => {
+      if (!hasRequest || !selected) return null;
+      const patientRef = selected.patient_ref;
+      if (scopeView === "schedule")
+        return { kind: "schedule" as const, data: await proxyAppointments(client, patientRef) };
+      if (scopeView === "messages")
+        return { kind: "messages" as const, data: await proxyMessages(client, patientRef) };
+      return { kind: "results" as const, data: await proxyResults(client, patientRef) };
+    },
+    [client, selected, scopeView, tick],
+  );
+
+  function toggleScope(code: string, checked: boolean) {
+    setScopes((prev) =>
+      checked ? [...prev, code] : prev.filter((s) => s !== code),
+    );
+  }
+
+  async function createGrant(e: React.FormEvent) {
+    e.preventDefault();
+    if (!proxyUsername.trim() || scopes.length === 0) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const grant = await createProxyGrant(client, {
+        proxy_username: proxyUsername.trim(),
+        scopes,
+      });
+      setNotice(`Proxy access granted to ${grant.proxy_username}.`);
+      setProxyUsername("");
+      setTick((t) => t + 1);
+    } catch (err) {
+      setError(`Grant failed: ${portalErrorText(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revoke(grant: ProxyGrant) {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await revokeProxyGrant(client, grant.grant_id);
+      setNotice(`Proxy access for ${grant.proxy_username} revoked.`);
+      setTick((t) => t + 1);
+    } catch (err) {
+      setError(`Revoke failed: ${portalErrorText(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const myGrants = grantsState.data?.items ?? [];
+  const proxyFor = patientsState.data?.items ?? [];
+  const scoped = scopedState.data;
+
+  return (
+    <>
+      <h3>My proxies</h3>
+      <p className="hint">
+        People you have granted proxy access to your record. Scopes come
+        from the published <code>terminology/proxy-scopes</code> config;
+        a proxy only ever sees the scopes you grant, and every proxy read
+        is audited on your behalf.
+      </p>
+      {notice && <p className="state state-empty" role="status">{notice}</p>}
+      {error && <div className="state state-error" role="alert">{error}</div>}
+      {grantsState.loading && <Loading label="Loading your proxy grants…" />}
+      {grantsState.error != null && <ErrorView error={grantsState.error} />}
+      {grantsState.data && myGrants.length === 0 && (
+        <Empty label="You have not granted proxy access to anyone." />
+      )}
+      {myGrants.length > 0 && (
+        <ul className="result-list">
+          {myGrants.map((g) => (
+            <li key={g.grant_id} className="result-row">
+              <span>{g.proxy_username}</span>
+              <span className="result-meta">
+                scopes: {g.scopes.join(", ")} · {g.effective_status}
+                {g.granted_by ? ` · granted by ${g.granted_by}` : ""}
+              </span>
+              {g.effective_status === "active" && (
+                <button type="button" disabled={busy} onClick={() => void revoke(g)}>
+                  Revoke
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <form className="inline-form" onSubmit={createGrant}>
+        <label className="field">
+          Proxy username
+          <input
+            aria-label="Proxy username"
+            value={proxyUsername}
+            onChange={(e) => setProxyUsername(e.target.value)}
+          />
+        </label>
+        <fieldset>
+          <legend>Scopes</legend>
+          {PROXY_SCOPES.map((code) => (
+            <label key={code}>
+              <input
+                type="checkbox"
+                aria-label={`Proxy scope ${code}`}
+                checked={scopes.includes(code)}
+                onChange={(e) => toggleScope(code, e.target.checked)}
+              />{" "}
+              {PROXY_SCOPE_LABELS[code] ?? code}
+            </label>
+          ))}
+        </fieldset>
+        <button type="submit" disabled={busy || !proxyUsername.trim() || scopes.length === 0}>
+          Grant proxy access
+        </button>
+      </form>
+
+      <h3>I am a proxy for</h3>
+      {patientsState.loading && <Loading label="Loading patients you proxy for…" />}
+      {patientsState.error != null && <ErrorView error={patientsState.error} />}
+      {patientsState.data && proxyFor.length === 0 && (
+        <Empty label="You are not a proxy for any patient." />
+      )}
+      {proxyFor.length > 0 && (
+        <ul className="result-list">
+          {proxyFor.map((g) => (
+            <li key={g.grant_id} className="result-row">
+              <span>{g.patient_ref}</span>
+              <span className="result-meta">scopes: {g.scopes.join(", ")}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelected(g);
+                  setScopeView(
+                    (PROXY_SCOPES.find((s) => g.scopes.includes(s)) ?? "schedule") as ProxyScopeView,
+                  );
+                }}
+              >
+                View as proxy
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {selected && (
+        <div className="card" aria-label="Proxy view">
+          <h4>Proxy view — {selected.patient_ref}</h4>
+          <p className="hint">
+            Acting on behalf of {selected.patient_ref} as{" "}
+            {patientsState.data?.proxy ?? "proxy"}; reads are limited to the
+            granted scopes ({selected.scopes.join(", ")}) and are audited.
+          </p>
+          <div className="toolbar">
+            {PROXY_SCOPES.filter((s) => selected.scopes.includes(s)).map((s) => (
+              <button
+                key={s}
+                type="button"
+                aria-pressed={scopeView === s}
+                onClick={() => setScopeView(s)}
+              >
+                {PROXY_SCOPE_LABELS[s] ?? s}
+              </button>
+            ))}
+          </div>
+          {scopedState.loading && <Loading label="Loading proxy view…" />}
+          {scopedState.error != null && <ErrorView error={scopedState.error} />}
+          {scoped?.kind === "schedule" && (
+            scoped.data.items.length === 0 ? (
+              <Empty label="No appointments for this patient." />
+            ) : (
+              <ul className="result-list">
+                {scoped.data.items.map((a) => (
+                  <li key={a.id} className="result-row">
+                    <span>{(a as { start?: string }).start ?? ""}</span>
+                    <span className="result-meta">{resourceStatus(a)}</span>
+                  </li>
+                ))}
+              </ul>
+            )
+          )}
+          {scoped?.kind === "messages" && (
+            scoped.data.items.length === 0 ? (
+              <Empty label="No message threads for this patient." />
+            ) : (
+              <ul className="result-list">
+                {scoped.data.items.map((t) => (
+                  <li key={t.thread_id} className="result-row">
+                    <span>{t.topic ?? "Message thread"}</span>
+                    <span className="result-meta">{t.last_text ?? ""}</span>
+                  </li>
+                ))}
+              </ul>
+            )
+          )}
+          {scoped?.kind === "results" && (
+            (scoped.data.entry ?? []).length === 0 ? (
+              <Empty label="No released results for this patient." />
+            ) : (
+              <ul className="result-list">
+                {(scoped.data.entry ?? []).map(({ resource: r }) => (
+                  <li key={`${r.resourceType}-${r.id}`} className="result-row">
+                    <span className="result-type">{r.resourceType}</span>
+                    <span>
+                      {codeLabel((r as { code?: never }).code)}
+                      {r.resourceType === "Observation" ? `: ${observationValue(r)}` : ""}
+                    </span>
+                    <span className="result-meta">
+                      {resourceStatus(r)} · {resourceDate(r)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )
+          )}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -203,7 +775,10 @@ function AppointmentsSection({ client }: Props) {
 
   async function request(e: React.FormEvent) {
     e.preventDefault();
-    if (!start) return;
+    if (!start) {
+      setRequestNote("Choose a preferred start time first, then request.");
+      return;
+    }
     const outcome = await client.requestAppointment({
       slot_type: slotType,
       start: new Date(start).toISOString(),

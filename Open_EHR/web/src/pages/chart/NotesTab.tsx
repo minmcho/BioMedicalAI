@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import type { ApiClient } from "../../api/client";
 import type { FormDefinition, QuestionnaireAnswerItem } from "../../api/types";
 import { FormRenderer } from "../../components/FormRenderer";
+import { RichTextEditor } from "../../components/RichTextEditor";
+import { RichTextView } from "../../components/RichTextView";
+import { htmlToText } from "../../components/richtext";
 import { Empty, ErrorView, Loading } from "../../components/StatusViews";
 import { useAsync } from "../../hooks";
 
@@ -79,7 +82,9 @@ export function NotesTab({ client, patientId, canWrite }: Props) {
       patient: patientId,
       noteType,
       ...(answers.length > 0 ? { answers } : {}),
-      ...(text.trim() ? { text: text.trim() } : {}),
+      // Free text is rich HTML now; "present" means it has text, not
+      // just markup (the server sanitizes it again on write).
+      ...(htmlToText(text).trim() ? { text } : {}),
     });
     setText("");
     reload();
@@ -106,10 +111,11 @@ export function NotesTab({ client, patientId, canWrite }: Props) {
           </div>
           <div className="form-field">
             <label htmlFor="note-text">Free text (optional)</label>
-            <textarea
+            <RichTextEditor
               id="note-text"
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              ariaLabel="Free text (optional)"
+              onChange={setText}
             />
           </div>
           {form ? (
@@ -128,7 +134,7 @@ export function NotesTab({ client, patientId, canWrite }: Props) {
                   await client.createNote({
                     patient: patientId,
                     noteType,
-                    ...(text.trim() ? { text: text.trim() } : {}),
+                    ...(htmlToText(text).trim() ? { text } : {}),
                   });
                   setText("");
                 })
@@ -157,8 +163,10 @@ export function NotesTab({ client, patientId, canWrite }: Props) {
                 {(note.type?.text ?? note.noteType ?? "Note")}{" "}
                 <span className="badge">{note.docStatus ?? note.status}</span>
                 {note.date ? ` · ${note.date.slice(0, 10)}` : ""}
-                {note.noteContent?.text ? ` — ${note.noteContent.text}` : ""}
               </span>
+              {note.noteContent?.text ? (
+                <RichTextView html={note.noteContent.text} />
+              ) : null}
               {canWrite && note.id && note.docStatus === "preliminary" && (
                 <button
                   type="button"
@@ -196,18 +204,19 @@ export function NotesTab({ client, patientId, canWrite }: Props) {
           </p>
           <div className="form-field">
             <label htmlFor="amend-text">Amended text</label>
-            <textarea
+            <RichTextEditor
               id="amend-text"
               value={amendText}
-              onChange={(e) => setAmendText(e.target.value)}
+              ariaLabel="Amended text"
+              onChange={setAmendText}
             />
           </div>
           <button
             type="button"
-            disabled={busy || !amendText.trim()}
+            disabled={busy || !htmlToText(amendText).trim()}
             onClick={() =>
               run(async () => {
-                await client.amendNote(amendId, { text: amendText.trim() });
+                await client.amendNote(amendId, { text: amendText });
                 setAmendId(null);
               })
             }

@@ -9,6 +9,7 @@ import type {
   FormDefinition,
   LabConcept,
   LabInstrument,
+  LabTrends,
   LabWorkflowPayload,
   QcRun,
   QuestionnaireAnswerItem,
@@ -18,14 +19,83 @@ import type {
   VerificationItem,
 } from "../api/types";
 import { useRuntimeConfig } from "../auth/runtimeConfig";
+import { ModuleHeader } from "../components/ModuleHeader";
+import { saveDownloadedFile } from "../api/download";
+import {
+  getLabTestDetail,
+  printBloodLabel,
+  type LabTestDetail,
+} from "../api/labDepth";
+import {
+  assignPlateSpecimen,
+  completePlateRun,
+  createPlateRun,
+  getPlateRun,
+  getPlateTemplates,
+  isControlRole,
+  isPatientRole,
+  listPlateRuns,
+  parseBulkPlateResults,
+  plateGridShape,
+  postPlateResults,
+  type PlateRun,
+} from "../api/plates";
 import { FormRenderer } from "../components/FormRenderer";
+import { PanelsTab, SpecimensTab, TestCatalogueTab } from "./LabManagerTabs";
+import { LabCompendium } from "./LabCompendium";
+import { LabPreanalytical } from "./LabPreanalytical";
+import { LabAnalyser } from "./LabAnalyser";
+import { LabReagentsQc } from "./LabReagentsQc";
+import { LabTat } from "./LabTat";
+import { LabMicro } from "./LabMicro";
+import { LabTransfusion } from "./LabTransfusion";
+import { LabMolecular } from "./LabMolecular";
+import { LabQms } from "./LabQms";
+import { Stepper } from "../components/Stepper";
+import { StatusBadge as SharedStatusBadge } from "../components/StatusBadge";
 import { Empty, ErrorView, Loading } from "../components/StatusViews";
+import { Tabs } from "../components/Tabs";
 import { useAsync } from "../hooks";
 
 interface Props {
   client: ApiClient;
   role: Role;
+  /** Depth pass (Workstream 1 contract): the shell's nav sub-menu
+   *  can deep-link a laboratory section; the page reports tab
+   *  changes back so the shell state stays the source of truth. */
+  section?: string;
+  onSectionChange?: (section: string) => void;
 }
+
+/** Laboratory tab-pages (Depth pass): the page's sections as tabs —
+ *  the keys are the nav config's section slugs for the lab module. */
+const LAB_TABS = [
+  { key: "orders", label: "Orders & Results" },
+  { key: "verification", label: "Verification" },
+  { key: "specimens", label: "Specimens" },
+  { key: "plates", label: "Plates" },
+  { key: "microbiology", label: "Microbiology" },
+  { key: "virology", label: "Virology" },
+  { key: "blood-bank", label: "Blood Bank" },
+  { key: "pathology", label: "Pathology" },
+  { key: "qc", label: "QC & EQA" },
+  { key: "test-catalogue", label: "Test Catalogue" },
+  { key: "panels", label: "Panels" },
+  { key: "sendouts", label: "Send-outs" },
+  { key: "poct", label: "POCT" },
+  { key: "governance", label: "Governance" },
+  // Lab Depth pass (LAB-D1…D16) surfaces — one tab per workstream
+  // component, appended so the pre-Depth tab order is untouched.
+  { key: "compendium", label: "Compendium & Benches" },
+  { key: "preanalytical", label: "Pre-analytical" },
+  { key: "analyser", label: "Analysers & Autoverification" },
+  { key: "reagents-qc", label: "Reagents & QC" },
+  { key: "tat", label: "TAT & Reflex" },
+  { key: "micro-depth", label: "Microbiology Depth" },
+  { key: "transfusion", label: "Transfusion Service" },
+  { key: "molecular", label: "Molecular" },
+  { key: "lab-qms", label: "Lab QMS & POCT" },
+];
 
 // The seeded lab workflow (Studio config workflow/lab-order-flow v1). The
 // server is the authority — this map only decides which buttons to offer;
@@ -108,7 +178,7 @@ function StatusBadge({ status }: { status?: string }) {
   return <span className="badge">{status ?? "—"}</span>;
 }
 
-export function LabPage({ client, role }: Props) {
+export function LabPage({ client, role, section, onSectionChange }: Props) {
   // Capability flags come from the published permissions matrix (merged
   // over the defaults by the runtime-config provider); with the
   // defaults they are exactly the role sets this page used before.
@@ -120,6 +190,14 @@ export function LabPage({ client, role }: Props) {
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Tab state: the shell's section prop wins when provided (nav
+  // deep-link); otherwise the page manages its own active tab.
+  const [tabLocal, setTabLocal] = useState("orders");
+  const activeTab = section ?? tabLocal;
+  const setActiveTab = (key: string) => {
+    setTabLocal(key);
+    onSectionChange?.(key);
+  };
 
   const catalogState = useAsync(() => client.labCatalog(), [client]);
   const ordersState = useAsync(() => client.labOrders(), [client, tick]);
@@ -159,6 +237,7 @@ export function LabPage({ client, role }: Props) {
   });
   const microOrders = allOrders.filter((o) => benchOf(o) === "microbiology");
   const pathologyOrders = allOrders.filter((o) => benchOf(o) === "pathology");
+  const virologyOrders = allOrders.filter((o) => benchOf(o) === "virology");
   const rejectionCriteria =
     catalogState.data?.catalog?.rejectionCriteria ?? [];
 
@@ -179,7 +258,7 @@ export function LabPage({ client, role }: Props) {
 
   return (
     <section>
-      <h2>Laboratory</h2>
+      <ModuleHeader icon="flask" group="Diagnostics & Pharmacy" title="Laboratory" purpose="Laboratory orders, results and benches" />
       <p className="hint">
         Order → specimen → result → QC. The catalog, reference ranges and the
         workflow are Studio configuration
@@ -197,103 +276,167 @@ export function LabPage({ client, role }: Props) {
         <div className="state state-error" role="alert">{actionError}</div>
       )}
 
-      <CollectionWorklistSection
-        client={client}
-        canWork={canWork}
-        busy={busy}
-        perform={perform}
-        tick={tick}
-      />
-
-      <OrdersSection
-        client={client}
-        ordersState={{ ...ordersState, data: standardOrders }}
-        orderable={orderable}
-        canWork={canWork}
-        canOrder={canOrder}
-        nextActions={nextActions}
-        orderStates={orderStates}
-        rejectionCriteria={rejectionCriteria}
-        busy={busy}
-        perform={perform}
-      />
-
-      <VerificationSection
-        queueState={queueState}
-        canVerify={canVerify}
-        busy={busy}
-        perform={perform}
-        client={client}
-      />
-
-      <CriticalSection
-        client={client}
-        canVerify={canVerify}
-        busy={busy}
-        perform={perform}
-        tick={tick}
-      />
-
-      <ResultEntrySection
-        client={client}
-        orders={standardOrders}
-        conceptByCode={conceptByCode}
-        canWork={canWork}
-        busy={busy}
-        perform={perform}
-      />
-
-      <IngestSection client={client} canWork={canWork} busy={busy} perform={perform} />
-
-      <SpecimensSection specimensState={specimensState} />
-
-      <QcSection
-        qcState={qcState}
-        analytes={analytes}
-        canWork={canWork}
-        busy={busy}
-        perform={perform}
-        client={client}
-      />
-
-      <MicroSection
-        client={client}
-        orders={microOrders}
-        canWork={canWork}
-        canVerify={canVerify}
-        busy={busy}
-        perform={perform}
-        tick={tick}
-      />
-
-      <BloodBankSection
-        client={client}
-        orders={standardOrders}
-        catalog={catalogState.data?.catalog ?? null}
-        canWork={canWork}
-        canVerify={canVerify}
-        busy={busy}
-        perform={perform}
-        tick={tick}
-      />
-
-      <PathologySection
-        client={client}
-        orders={pathologyOrders}
-        canWork={canWork}
-        canVerify={canVerify}
-        busy={busy}
-        perform={perform}
-        tick={tick}
-      />
-
-      <OperationsSection
-        client={client}
-        analytes={analytes}
-        canWork={canWork}
-        busy={busy}
-        perform={perform}
-        tick={tick}
+      <Tabs
+        ariaLabel="Laboratory sections"
+        tabs={LAB_TABS}
+        activeKey={activeTab}
+        onChange={setActiveTab}
+        panels={{
+          orders: (
+            <>
+              <OrdersSection
+                client={client}
+                ordersState={{ ...ordersState, data: standardOrders }}
+                orderable={orderable}
+                canWork={canWork}
+                canOrder={canOrder}
+                nextActions={nextActions}
+                orderStates={orderStates}
+                rejectionCriteria={rejectionCriteria}
+                busy={busy}
+                perform={perform}
+              />
+              <ResultEntrySection
+                client={client}
+                orders={standardOrders}
+                conceptByCode={conceptByCode}
+                canWork={canWork}
+                busy={busy}
+                perform={perform}
+              />
+              <IngestSection client={client} canWork={canWork} busy={busy} perform={perform} />
+            </>
+          ),
+          verification: (
+            <>
+              <VerificationSection
+                queueState={queueState}
+                canVerify={canVerify}
+                busy={busy}
+                perform={perform}
+                client={client}
+              />
+              <CriticalSection
+                client={client}
+                canVerify={canVerify}
+                busy={busy}
+                perform={perform}
+                tick={tick}
+              />
+            </>
+          ),
+          specimens: (
+            <>
+              <CollectionWorklistSection
+                client={client}
+                canWork={canWork}
+                busy={busy}
+                perform={perform}
+                tick={tick}
+              />
+              <SpecimensSection specimensState={specimensState} />
+              <SpecimensTab client={client} />
+            </>
+          ),
+          plates: (
+            <PlatesSection client={client} canWork={canWork} />
+          ),
+          microbiology: (
+            <MicroSection
+              client={client}
+              orders={microOrders}
+              canWork={canWork}
+              canVerify={canVerify}
+              busy={busy}
+              perform={perform}
+              tick={tick}
+            />
+          ),
+          virology: (
+            <VirologySection
+              client={client}
+              orders={virologyOrders}
+              conceptByCode={conceptByCode}
+              onJump={setActiveTab}
+            />
+          ),
+          "blood-bank": (
+            <BloodBankSection
+              client={client}
+              orders={standardOrders}
+              catalog={catalogState.data?.catalog ?? null}
+              canWork={canWork}
+              canVerify={canVerify}
+              busy={busy}
+              perform={perform}
+              tick={tick}
+            />
+          ),
+          pathology: (
+            <PathologySection
+              client={client}
+              orders={pathologyOrders}
+              conceptByCode={conceptByCode}
+              canWork={canWork}
+              canVerify={canVerify}
+              busy={busy}
+              perform={perform}
+              tick={tick}
+            />
+          ),
+          qc: (
+            <>
+              <QcSection
+                qcState={qcState}
+                analytes={analytes}
+                canWork={canWork}
+                busy={busy}
+                perform={perform}
+                client={client}
+              />
+              <OperationsSection
+                client={client}
+                analytes={analytes}
+                canWork={canWork}
+                busy={busy}
+                perform={perform}
+                tick={tick}
+              />
+            </>
+          ),
+          sendouts: (
+            <SendoutsSection
+              client={client}
+              conceptByCode={conceptByCode}
+              canWork={canWork}
+              busy={busy}
+              perform={perform}
+              tick={tick}
+            />
+          ),
+          poct: (
+            <PoctSection
+              client={client}
+              analytes={analytes}
+              canWork={canWork}
+              busy={busy}
+              perform={perform}
+              tick={tick}
+            />
+          ),
+          "test-catalogue": <TestCatalogueTab client={client} />,
+          panels: <PanelsTab client={client} />,
+          governance: <GovernanceSection client={client} tick={tick} />,
+          compendium: <LabCompendium api={client} />,
+          preanalytical: <LabPreanalytical client={client} />,
+          analyser: <LabAnalyser client={client} />,
+          "reagents-qc": <LabReagentsQc client={client} />,
+          tat: <LabTat client={client} />,
+          "micro-depth": <LabMicro client={client} />,
+          transfusion: <LabTransfusion client={client} />,
+          molecular: <LabMolecular client={client} />,
+          "lab-qms": <LabQms client={client} />,
+        }}
       />
     </section>
   );
@@ -322,6 +465,7 @@ function OrdersSection({
   const [code, setCode] = useState("");
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [reasonCodes, setReasonCodes] = useState<Record<string, string>>({});
+  const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
 
   const orders = (ordersState.data ?? []).filter(
     (o) => !statusFilter || o.status === statusFilter,
@@ -405,6 +549,12 @@ function OrdersSection({
                   )}
                 </td>
                 <td>
+                  <button
+                    type="button"
+                    onClick={() => setDetailOrderId(order.id ?? null)}
+                  >
+                    Test detail
+                  </button>{" "}
                   {canWork ? (
                     <span className="appt-actions">
                       {(nextActions[order.status ?? ""] ?? []).map((action) => (
@@ -483,7 +633,202 @@ function OrdersSection({
           </tbody>
         </table>
       )}
+      {detailOrderId && (
+        <TestDetailPanel
+          client={client}
+          orderId={detailOrderId}
+          onClose={() => setDetailOrderId(null)}
+        />
+      )}
     </>
+  );
+}
+
+// --------------------------------------------------------------------------
+
+/** Test detail drill-down (UX pass WS3b): GET
+ *  /lab/orders/{id}/test-detail (backend/app/lab.py test_detail) —
+ *  steps, specimen + aliquot lineage, results with delta/critical,
+ *  report stamps and the acknowledgement trail. Every state is
+ *  rendered as text, never colour alone. */
+function TestDetailPanel({
+  client, orderId, onClose,
+}: {
+  client: ApiClient;
+  orderId: string;
+  onClose: () => void;
+}) {
+  const state = useAsync(() => getLabTestDetail(client, orderId), [client, orderId]);
+  const detail: LabTestDetail | null = state.data ?? null;
+  return (
+    <div className="detail-panel">
+      <h4>
+        Test detail — order {orderId}{" "}
+        <button type="button" onClick={onClose}>Close test detail</button>
+      </h4>
+      {state.loading ? (
+        <Loading label="Loading test detail…" />
+      ) : state.error ? (
+        <ErrorView error={state.error} />
+      ) : !detail ? (
+        <Empty label="No test detail." />
+      ) : (
+        <>
+          <p className="result-meta">
+            {detail.order.display ?? detail.order.code ?? "—"} · patient{" "}
+            {detail.order.patient_ref ?? "—"} · status {detail.order.status ?? "—"}
+            {detail.order.priority ? ` · priority ${detail.order.priority}` : ""}
+            {detail.order.requester ? ` · requested by ${detail.order.requester}` : ""}
+          </p>
+          <Stepper
+            steps={detail.steps.map((s) => s.label)}
+            current={(() => {
+              const idx = detail.steps.findIndex((s) => s.state === "current");
+              return idx >= 0 ? idx : detail.steps.length;
+            })()}
+          />
+          <ul className="result-list">
+            {detail.steps.map((s) => (
+              <li key={s.key} className="result-row">
+                <span className="result-type">{s.label}</span>
+                <span>
+                  {s.state === "done" ? "Done" : s.state === "current" ? "Current" : "Pending"}
+                  {s.at ? ` at ${new Date(s.at).toLocaleString()}` : ""}
+                  {s.by ? ` by ${s.by}` : ""}
+                  {s.plate_id != null ? ` · plate ${s.plate_id}` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+
+          <h5>Specimen</h5>
+          {detail.specimen ? (
+            <p className="result-meta">
+              Specimen {detail.specimen.id} · accession {detail.specimen.accession ?? "—"} ·{" "}
+              {detail.specimen.type ?? "—"} · status {detail.specimen.status ?? "—"}
+              {detail.specimen.collected_at
+                ? ` · collected ${new Date(detail.specimen.collected_at).toLocaleString()}` : ""}
+              {detail.specimen.received_at
+                ? ` · received ${new Date(detail.specimen.received_at).toLocaleString()}` : ""}
+              {detail.specimen.in_analysis_at
+                ? ` · in analysis ${new Date(detail.specimen.in_analysis_at).toLocaleString()}` : ""}
+            </p>
+          ) : (
+            <p className="hint">No specimen yet.</p>
+          )}
+          <h5>Aliquot lineage</h5>
+          {detail.aliquots.length === 0 ? (
+            <p className="hint">No aliquots.</p>
+          ) : (
+            <ul className="result-list">
+              {detail.aliquots.map((a) => (
+                <li key={a.specimen_key} className="result-row">
+                  <span className="result-type">{a.derivation_type}</span>
+                  <span>
+                    {a.specimen_key} · specimen {a.specimen_id} · sequence {a.sequence} ·{" "}
+                    {a.container} · {a.remaining_volume_ml}/{a.volume_ml} mL remaining ·{" "}
+                    status {a.status}
+                    {a.barcode ? ` · barcode ${a.barcode}` : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <h5>Results</h5>
+          {detail.results.length === 0 ? (
+            <p className="hint">No results yet.</p>
+          ) : (
+            <table className="lab-table">
+              <thead>
+                <tr>
+                  <th>Analyte</th><th>Value</th><th>Reference range</th>
+                  <th>Interpretation</th><th>Delta</th><th>Critical</th><th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {detail.results.map((r) => (
+                  <tr key={r.observation_id}>
+                    <td>{r.display ?? r.analyte ?? "—"} ({r.analyte ?? "—"})</td>
+                    <td>{r.value ?? "—"}{r.unit ? ` ${r.unit}` : ""}</td>
+                    <td>
+                      {r.reference_range
+                        ? `${r.reference_range.low ?? "…"}–${r.reference_range.high ?? "…"}${r.reference_range.unit ? ` ${r.reference_range.unit}` : ""}`
+                        : "—"}
+                    </td>
+                    <td>
+                      <SharedStatusBadge
+                        tone={r.critical ? "bad" : r.interpretation && r.interpretation !== "N" ? "warn" : "ok"}
+                      >
+                        {r.interpretation_text ?? r.interpretation ?? "No interpretation"}
+                      </SharedStatusBadge>
+                    </td>
+                    <td>
+                      {r.delta ? (
+                        <span className="badge badge-warn">
+                          Δ {r.delta.code}: prior {r.delta.previous_value} → {r.delta.current_value}
+                          {r.delta.change_pct != null
+                            ? ` (${r.delta.change_pct > 0 ? "+" : ""}${r.delta.change_pct.toFixed(1)}%)`
+                            : ""}
+                        </span>
+                      ) : (
+                        "No delta flag"
+                      )}
+                    </td>
+                    <td>
+                      {r.critical ? (
+                        <SharedStatusBadge tone="bad">CRITICAL</SharedStatusBadge>
+                      ) : (
+                        "Not critical"
+                      )}
+                    </td>
+                    <td>{r.status ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          <h5>Report</h5>
+          {detail.report ? (
+            <p className="result-meta">
+              Report {detail.report.report_id} · status {detail.report.status ?? "—"}
+              {detail.report.critical ? " · CRITICAL" : ""}
+              {detail.report.verified_by
+                ? ` · verified by ${detail.report.verified_by}${detail.report.verified_at ? ` at ${new Date(detail.report.verified_at).toLocaleString()}` : ""}`
+                : " · not yet verified"}
+              {detail.report.released_by || detail.report.released_at
+                ? ` · released${detail.report.released_by ? ` by ${detail.report.released_by}` : ""}${detail.report.released_at ? ` at ${new Date(detail.report.released_at).toLocaleString()}` : ""}`
+                : " · not yet released"}
+            </p>
+          ) : (
+            <p className="hint">No report yet.</p>
+          )}
+
+          <h5>Acknowledgements</h5>
+          {detail.acknowledgements.length === 0 ? (
+            <p className="hint">No acknowledgements.</p>
+          ) : (
+            <ul className="result-list">
+              {detail.acknowledgements.map((ack) => (
+                <li key={ack.report_id} className="result-row">
+                  <span className="result-type">acknowledgement</span>
+                  <span>
+                    State: {ack.state}
+                    {ack.notified_to
+                      ? ` · notified ${ack.notified_to}${ack.notified_by ? ` by ${ack.notified_by}` : ""}${ack.notified_at ? ` at ${new Date(ack.notified_at).toLocaleString()}` : ""}${ack.read_back ? " (read-back confirmed)" : ""}`
+                      : " · not yet notified"}
+                    {ack.acknowledged_by
+                      ? ` · acknowledged by ${ack.acknowledged_by}${ack.acknowledged_at ? ` at ${new Date(ack.acknowledged_at).toLocaleString()}` : ""}`
+                      : " · not yet acknowledged"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 
@@ -815,6 +1160,25 @@ function ResultEntrySection({
               ))}
             </select>
           </label>
+          {selected && ORDER_STATES.includes(selected.status ?? "") &&
+            !["rejected", "cancelled"].includes(selected.status ?? "") && (
+            <div className="field">
+              <span>
+                Order progress — this order is <strong>{selected.status}</strong>
+              </span>
+              <Stepper
+                steps={["Ordered", "Collected", "Received", "In process",
+                        "Resulted", "Verified", "Released"]}
+                current={Math.max(
+                  0,
+                  ["ordered", "collected", "received", "in-process",
+                   "resulted", "verified", "released"].indexOf(
+                    selected.status ?? "",
+                  ),
+                )}
+              />
+            </div>
+          )}
           {expectedCodes.map((c) => {
             const concept = conceptByCode.get(c);
             const range = concept?.referenceRange;
@@ -939,6 +1303,451 @@ function IngestSection({
 }
 
 // --------------------------------------------------------------------------
+
+/** Virtual plates (UX pass WS3b): plate runs materialised from the
+ *  governed terminology/lab-plate-templates config, specimen
+ *  assignment, per-well results behind the plate QC gate, bulk
+ *  import and completion — backend/app/lab_plates.py. Shapes come
+ *  from that module's serializers (see api/plates.ts). */
+function PlatesSection({ client, canWork }: { client: ApiClient; canWork: boolean }) {
+  const [localTick, setLocalTick] = useState(0);
+  const [busyLocal, setBusyLocal] = useState(false);
+  const [notice, setNoticeLocal] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [assignError, setAssignError] = useState<string | null>(null);
+  const [resultError, setResultError] = useState<string | null>(null);
+
+  const templatesState = useAsync(() => getPlateTemplates(client), [client]);
+  const templates = (templatesState.data ?? []).filter((t) => t.active !== false);
+  const [templateCode, setTemplateCode] = useState("");
+  const selectedTemplate = templates.find((t) => t.code === templateCode) ?? templates[0];
+
+  const runsState = useAsync(() => listPlateRuns(client), [client, localTick]);
+  const runs = runsState.data?.items ?? [];
+  const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
+  const activeRunId = selectedRunId ?? runs[0]?.id ?? null;
+  const detailState = useAsync(
+    () =>
+      activeRunId != null
+        ? getPlateRun(client, activeRunId)
+        : Promise.resolve(null),
+    [client, activeRunId, localTick],
+  );
+  const run: PlateRun | null = detailState.data ?? null;
+
+  const [specimenRef, setSpecimenRef] = useState("");
+  const [assignPosition, setAssignPosition] = useState("");
+  const [wellValues, setWellValues] = useState<Record<string, string>>({});
+  const [bulkText, setBulkText] = useState("");
+  const [lastProcessed, setLastProcessed] = useState<string | null>(null);
+
+  async function runAction(
+    label: string,
+    setError: (v: string | null) => void,
+    fn: () => Promise<unknown>,
+  ) {
+    setBusyLocal(true);
+    setError(null);
+    setNoticeLocal(null);
+    try {
+      await fn();
+      setNoticeLocal(`${label} — done.`);
+      setLocalTick((t) => t + 1);
+    } catch (err) {
+      setError(`${label} failed: ${errorText(err)}`);
+    } finally {
+      setBusyLocal(false);
+    }
+  }
+
+  const wells = run?.wells ?? [];
+  const { rows, columns } = plateGridShape(wells);
+  const wellByPosition = new Map(wells.map((w) => [w.position, w]));
+  const gateOpen = run?.qc.gate_open === true;
+  const blockingWells = wells.filter(
+    (w) => isPatientRole(w.role) && w.specimen_id != null && w.result_status !== "resulted",
+  );
+  const runComplete = run?.status === "complete";
+
+  function submitWellResult(position: string) {
+    if (!run) return;
+    const raw = (wellValues[position] ?? "").trim();
+    if (!raw) {
+      setResultError(`Enter a value for well ${position} first.`);
+      return;
+    }
+    const numeric = Number(raw);
+    const value = Number.isNaN(numeric) ? raw : numeric;
+    void runAction(`Result well ${position}`, setResultError, async () => {
+      const outcome = await postPlateResults(client, run.id, [{ position, value }]);
+      const entry = outcome.processed.find((p) => p.position === position);
+      if (entry) setLastProcessed(`${position}: ${entry.result_status}`);
+      return outcome;
+    });
+  }
+
+  return (
+    <>
+      <h3>Virtual plates</h3>
+      <p className="hint">
+        Plate templates are governed Studio terminology
+        (terminology/lab-plate-templates). Patient wells cannot be
+        resulted until every control, calibrator and blank well has
+        resulted and none has failed — the plate QC gate.
+      </p>
+      {notice && <p className="state state-empty" role="status">{notice}</p>}
+
+      <h4>Create a plate run</h4>
+      {templatesState.loading ? (
+        <Loading label="Loading plate templates…" />
+      ) : templatesState.error ? (
+        <>
+          <label className="field">
+            Plate template
+            <select disabled value="">
+              <option value="">No plate templates available</option>
+            </select>
+          </label>
+          <p className="hint" role="alert">
+            Plate templates unavailable: {errorText(templatesState.error)} — publish
+            terminology/lab-plate-templates in Studio before using virtual plates.
+          </p>
+        </>
+      ) : templates.length === 0 ? (
+        <>
+          <label className="field">
+            Plate template
+            <select disabled value="">
+              <option value="">No plate templates published</option>
+            </select>
+          </label>
+          <p className="hint">
+            No published plate templates — publish terminology/lab-plate-templates
+            in Studio before using virtual plates.
+          </p>
+        </>
+      ) : (
+        <form
+          className="inline-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!selectedTemplate) return;
+            void runAction("Create plate run", setCreateError, async () => {
+              const created = await createPlateRun(client, selectedTemplate.code);
+              setSelectedRunId(created.id);
+              return created;
+            });
+          }}
+        >
+          <label className="field">
+            Plate template
+            <select
+              value={selectedTemplate?.code ?? ""}
+              onChange={(e) => setTemplateCode(e.target.value)}
+            >
+              {templates.map((t) => (
+                <option key={t.code} value={t.code}>
+                  {t.display} ({t.code}){t.format ? ` — ${t.format}` : ""}
+                  {t.assay ? ` — ${t.assay}` : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="submit" disabled={busyLocal || !canWork || !selectedTemplate}>
+            Create plate run
+          </button>
+          {!canWork && <span className="hint">Read-only — plate work requires lab.work</span>}
+        </form>
+      )}
+      {createError && <div className="state state-error" role="alert">{createError}</div>}
+
+      <h4>Plate runs</h4>
+      {runsState.loading ? (
+        <Loading label="Loading plate runs…" />
+      ) : runsState.error ? (
+        <ErrorView error={runsState.error} />
+      ) : runs.length === 0 ? (
+        <Empty label="No plate runs yet." />
+      ) : (
+        <ul className="result-list">
+          {runs.map((r) => (
+            <li key={r.id} className="result-row">
+              <span className="result-type">plate {r.id}</span>
+              <span>
+                {r.template_code} · {r.format} · {r.assay} · status {r.status} · QC{" "}
+                {r.qc.controls_passed}/{r.qc.controls_total} controls passed
+              </span>
+              <button type="button" onClick={() => setSelectedRunId(r.id)}>
+                Open plate {r.id}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {activeRunId != null && (
+        <>
+          <h4>Plate run {activeRunId} detail</h4>
+          {detailState.loading && !run ? (
+            <Loading label="Loading plate run…" />
+          ) : detailState.error && !run ? (
+            <ErrorView error={detailState.error} />
+          ) : !run ? (
+            <Empty label="Plate run not found." />
+          ) : (
+            <>
+              <p className="result-meta">
+                Template {run.template_code} · {run.format} · {run.assay} · status{" "}
+                {run.status} · created by {run.created_by}
+                {run.completed_by
+                  ? ` · completed by ${run.completed_by}${run.completed_at ? ` at ${new Date(run.completed_at).toLocaleString()}` : ""}`
+                  : ""}
+                {rows.length > 0
+                  ? ` · grid ${rows.length} rows × ${columns.length} columns`
+                  : ""}
+              </p>
+
+              <div className="qc-panel">
+                <h5>QC panel</h5>
+                <p>
+                  Controls: {run.qc.controls_total} total · {run.qc.controls_passed}{" "}
+                  passed · {run.qc.controls_failed} failed
+                </p>
+                {gateOpen ? (
+                  <SharedStatusBadge tone="ok">
+                    QC gate open — patient wells can result
+                  </SharedStatusBadge>
+                ) : (
+                  <SharedStatusBadge tone="bad">
+                    QC gate closed — controls outstanding/failed
+                  </SharedStatusBadge>
+                )}
+              </div>
+
+              {canWork && !runComplete && (
+                <form
+                  className="inline-form"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void runAction("Assign specimen", setAssignError, async () => {
+                      const outcome = await assignPlateSpecimen(client, run.id, {
+                        specimen_ref: specimenRef.trim(),
+                        ...(assignPosition.trim()
+                          ? { position: assignPosition.trim() }
+                          : {}),
+                      });
+                      setSpecimenRef("");
+                      setAssignPosition("");
+                      return outcome;
+                    });
+                  }}
+                >
+                  <label className="field">
+                    Specimen barcode or id
+                    <input
+                      aria-label="Specimen barcode or id"
+                      value={specimenRef}
+                      onChange={(e) => setSpecimenRef(e.target.value)}
+                      placeholder="Scan or type barcode / specimen id"
+                    />
+                  </label>
+                  <label className="field">
+                    Well position (optional)
+                    <input
+                      aria-label="Well position (optional)"
+                      value={assignPosition}
+                      onChange={(e) => setAssignPosition(e.target.value)}
+                      placeholder="Empty → first free patient well"
+                    />
+                  </label>
+                  <button type="submit" disabled={busyLocal || !specimenRef.trim()}>
+                    Assign specimen
+                  </button>
+                </form>
+              )}
+              {assignError && (
+                <div className="state state-error" role="alert">{assignError}</div>
+              )}
+
+              <table className="lab-table plate-grid">
+                <thead>
+                  <tr>
+                    <th>Row</th>
+                    {columns.map((c) => <th key={c}>{c}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((rowLabel) => (
+                    <tr key={rowLabel}>
+                      <th>{rowLabel}</th>
+                      {columns.map((col) => {
+                        const well = wellByPosition.get(`${rowLabel}${col}`);
+                        if (!well) return <td key={col}>—</td>;
+                        const isControl = isControlRole(well.role);
+                        const isPatient = isPatientRole(well.role);
+                        const patientBlocked = isPatient && !gateOpen;
+                        const noSpecimen = isPatient && well.specimen_id == null;
+                        const inputDisabled =
+                          !canWork || busyLocal || runComplete || patientBlocked || noSpecimen;
+                        return (
+                          <td key={col} className="plate-well">
+                            <strong>{well.position}</strong>{" "}
+                            <span className="well-role">{well.role}</span>
+                            <br />
+                            <SharedStatusBadge
+                              tone={
+                                well.result_status === "passed" || well.result_status === "resulted"
+                                  ? "ok"
+                                  : well.result_status === "failed"
+                                    ? "bad"
+                                    : "neutral"
+                              }
+                            >
+                              {well.result_status}
+                            </SharedStatusBadge>
+                            {well.specimen_id && (
+                              <>
+                                <br />
+                                <span className="result-meta">
+                                  Specimen: {well.specimen_id}
+                                </span>
+                              </>
+                            )}
+                            {well.result_value != null && (
+                              <>
+                                <br />
+                                <span className="result-meta">
+                                  Value: {String(well.result_value)}
+                                </span>
+                              </>
+                            )}
+                            {well.expected && (
+                              <>
+                                <br />
+                                <span className="result-meta">
+                                  {"result" in well.expected
+                                    ? `Expected: ${well.expected.result}`
+                                    : `Expected: ${well.expected.low}–${well.expected.high}`}
+                                </span>
+                              </>
+                            )}
+                            {canWork && !runComplete && (isControl || isPatient) && (
+                              <>
+                                <br />
+                                <input
+                                  aria-label={`Result value for well ${well.position}`}
+                                  value={wellValues[well.position] ?? ""}
+                                  disabled={inputDisabled}
+                                  onChange={(e) =>
+                                    setWellValues((v) => ({
+                                      ...v, [well.position]: e.target.value,
+                                    }))
+                                  }
+                                />
+                                <button
+                                  type="button"
+                                  disabled={inputDisabled}
+                                  onClick={() => submitWellResult(well.position)}
+                                >
+                                  Result well {well.position}
+                                </button>
+                                {patientBlocked && (
+                                  <span className="hint">
+                                    Blocked: QC gate closed
+                                  </span>
+                                )}
+                                {noSpecimen && !patientBlocked && (
+                                  <span className="hint">No specimen assigned</span>
+                                )}
+                              </>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {lastProcessed && (
+                <p className="hint" role="status">Last well result: {lastProcessed}</p>
+              )}
+              {resultError && (
+                <div className="state state-error" role="alert">{resultError}</div>
+              )}
+
+              {canWork && !runComplete && (
+                <>
+                  <h5>Bulk result import</h5>
+                  <form
+                    className="config-editor"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const { entries, malformed } = parseBulkPlateResults(bulkText);
+                      if (malformed.length > 0) {
+                        setResultError(
+                          `Malformed bulk line(s): ${malformed.join(" | ")} — use position,value per line.`,
+                        );
+                        return;
+                      }
+                      if (entries.length === 0) {
+                        setResultError("Enter at least one position,value line.");
+                        return;
+                      }
+                      void runAction("Import bulk results", setResultError, async () => {
+                        const outcome = await postPlateResults(client, run.id, entries);
+                        setLastProcessed(
+                          outcome.processed
+                            .map((p) => `${p.position}: ${p.result_status}`)
+                            .join(", "),
+                        );
+                        setBulkText("");
+                        return outcome;
+                      });
+                    }}
+                  >
+                    <label className="field">
+                      Bulk results (position,value per line)
+                      <textarea
+                        aria-label="Bulk plate results"
+                        rows={5}
+                        value={bulkText}
+                        onChange={(e) => setBulkText(e.target.value)}
+                        placeholder={"A1,100\nB1,95"}
+                      />
+                    </label>
+                    <button type="submit" disabled={busyLocal || !bulkText.trim()}>
+                      Import bulk results
+                    </button>
+                  </form>
+                </>
+              )}
+
+              <h5>Complete run</h5>
+              <button
+                type="button"
+                disabled={busyLocal || !canWork || runComplete || blockingWells.length > 0}
+                onClick={() =>
+                  void runAction("Complete plate run", setResultError, () =>
+                    completePlateRun(client, run.id),
+                  )
+                }
+              >
+                Complete plate run
+              </button>
+              {blockingWells.length > 0 && !runComplete && (
+                <p className="hint">
+                  Cannot complete: assigned patient well(s){" "}
+                  {blockingWells.map((w) => w.position).join(", ")} have not been resulted.
+                </p>
+              )}
+              {runComplete && <p className="hint">This plate run is complete.</p>}
+            </>
+          )}
+        </>
+      )}
+    </>
+  );
+}
 
 function SpecimensSection({
   specimensState,
@@ -1370,10 +2179,59 @@ function MicroSection({
   );
 }
 
+/** Wave A (LAB-B1 / LAB-M1): the governed blood-bank gate parameters
+ *  carried in the published catalog's `bloodBankGate` section (the
+ *  web type predates the section, so it is read through this shape). */
+interface BloodBankGateConfig {
+  antibodyScreenValidityHours?: number;
+  electronicCrossmatch?: { enabled?: boolean; products?: string[] };
+  emergencyReleaseReasonCodes?: Array<{ code: string; display: string }>;
+}
+
+interface GateCheck {
+  code: string;
+  label: string;
+  status: string;
+  detail: string;
+}
+
+interface GateStatus {
+  checks: GateCheck[];
+  issue_allowed: boolean;
+  patient_group: string | null;
+  patient_ref: string | null;
+}
+
+interface TransfusionFormState {
+  wristband_patient_id: string;
+  date_of_birth: string;
+  second_checker: string;
+  temperature_c: string;
+  pulse_bpm: string;
+  systolic_bp: string;
+  diastolic_bp: string;
+  resp_rate: string;
+  started_at: string;
+  stopped_at: string;
+}
+
+const EMPTY_TRANSFUSION_FORM: TransfusionFormState = {
+  wristband_patient_id: "", date_of_birth: "", second_checker: "",
+  temperature_c: "", pulse_bpm: "", systolic_bp: "", diastolic_bp: "",
+  resp_rate: "", started_at: "", stopped_at: "",
+};
+
 /** Blood bank: unit inventory, issue/return against a type & screen /
  *  crossmatch order, the transfusion record, and reaction holds. An
  *  expired unit can never be issued (server 409); a reaction places a
- *  hold that blocks further issues until a clinician clears it. */
+ *  hold that blocks further issues until a clinician clears it.
+ *  Wave A: issue is gated server-side (LAB-B1 — resulted group +
+ *  ABO/Rh matrix + in-window negative antibody screen + unit
+ *  crossmatch or electronic-crossmatch eligibility; emergency
+ *  release is the only override) and the gate posture + refusal
+ *  reasons are surfaced here verbatim; the transfusion record is
+ *  the LAB-M1 bedside verification (two identifiers + vitals +
+ *  start/stop). */
 function BloodBankSection({
   client, orders, catalog, canWork, canVerify, busy, perform, tick,
 }: {
@@ -1405,6 +2263,19 @@ function BloodBankSection({
   });
   const [issueOrder, setIssueOrder] = useState<Record<string, string>>({});
   const [reactionText, setReactionText] = useState<Record<string, string>>({});
+  // Wave A state: emergency-release inputs per unit, the gate
+  // posture for the selected (unit, order) pair, the verbatim
+  // refusal text, the LAB-M1 transfusion forms, and the
+  // unit-specific crossmatch result form.
+  const [emergency, setEmergency] = useState<Record<string, {
+    enabled: boolean; reason_code: string; note: string;
+  }>>({});
+  const [gateStatus, setGateStatus] = useState<Record<string, GateStatus | null>>({});
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const [transfusionOpen, setTransfusionOpen] = useState<Record<string, boolean>>({});
+  const [transfusionForm, setTransfusionForm] = useState<
+    Record<string, TransfusionFormState>>({});
+  const [xmForm, setXmForm] = useState({ order_id: "", unit_id: "", value: "Compatible" });
 
   const products = catalog?.bloodProducts ?? [];
   const aboConcept = catalog?.concepts?.find((c) => c.code === "883-9");
@@ -1415,12 +2286,125 @@ function BloodBankSection({
     );
     return concept?.bench === "blood-bank";
   });
+  const xmOrders = bbOrders.filter(
+    (o) => o.code?.coding?.[0]?.code === "BB-XM",
+  );
   const units: BloodUnit[] = unitsState.data ?? [];
   const holds: BloodHold[] = (holdsState.data ?? []).filter((h) => h.active);
+  const gateCfg: BloodBankGateConfig =
+    (catalog as unknown as { bloodBankGate?: BloodBankGateConfig } | null)
+      ?.bloodBankGate ?? {};
+  const reasonCodes = gateCfg.emergencyReleaseReasonCodes ?? [];
+  const canRequest = typeof client.request === "function";
+
+  function captureRefusal(err: unknown): string {
+    // Refusal reasons are rendered VERBATIM (the server's detail
+    // string names every failed check — no generic "failed" text).
+    return err instanceof ApiError ? err.detail : errorText(err);
+  }
+
+  async function loadGateStatus(unitId: string, orderId: string) {
+    if (!canRequest || !orderId) {
+      setGateStatus((m) => ({ ...m, [unitId]: null }));
+      return;
+    }
+    try {
+      const status = await client.request<GateStatus>(
+        `/lab/blood-bank/units/${encodeURIComponent(unitId)}/gate-status` +
+          `?order_id=${encodeURIComponent(orderId)}`,
+      );
+      setGateStatus((m) => ({ ...m, [unitId]: status }));
+    } catch {
+      setGateStatus((m) => ({ ...m, [unitId]: null }));
+    }
+  }
+
+  async function issueUnit(unit: BloodUnit) {
+    const orderId = issueOrder[unit.unit_id] ?? "";
+    const em = emergency[unit.unit_id];
+    try {
+      if (canRequest) {
+        const payload: Record<string, unknown> = { order_id: orderId };
+        if (em?.enabled) {
+          payload.emergency_release = {
+            reason_code: em.reason_code || reasonCodes[0]?.code || "",
+            note: em.note,
+          };
+        }
+        await client.request(
+          `/lab/blood-bank/units/${encodeURIComponent(unit.unit_id)}/issue`,
+          { method: "POST", body: JSON.stringify(payload) },
+        );
+      } else {
+        await client.issueBloodUnit(unit.unit_id, orderId);
+      }
+      setRefusal(null);
+    } catch (err) {
+      setRefusal(captureRefusal(err));
+      throw err;
+    }
+  }
+
+  async function recordTransfusionVerified(unit: BloodUnit) {
+    const form = transfusionForm[unit.unit_id] ?? EMPTY_TRANSFUSION_FORM;
+    const payload: Record<string, unknown> = {
+      unit_id: unit.unit_id,
+      wristband_patient_id: form.wristband_patient_id.trim(),
+      date_of_birth: form.date_of_birth,
+      vitals: {
+        temperature_c: Number(form.temperature_c),
+        pulse_bpm: Number(form.pulse_bpm),
+        systolic_bp: Number(form.systolic_bp),
+        diastolic_bp: Number(form.diastolic_bp),
+        resp_rate: Number(form.resp_rate),
+      },
+    };
+    if (form.second_checker.trim()) {
+      payload.second_checker = form.second_checker.trim();
+    }
+    if (form.started_at) payload.started_at = form.started_at;
+    if (form.stopped_at) payload.stopped_at = form.stopped_at;
+    try {
+      if (canRequest) {
+        await client.request("/lab/blood-bank/transfusions", {
+          method: "POST", body: JSON.stringify(payload),
+        });
+      } else {
+        await (client.recordTransfusion as unknown as (
+          input: Record<string, unknown>,
+        ) => Promise<unknown>)(payload);
+      }
+      setRefusal(null);
+    } catch (err) {
+      setRefusal(captureRefusal(err));
+      throw err;
+    }
+  }
 
   return (
     <>
       <h3>Blood bank</h3>
+      {refusal && (
+        <div className="state state-error" role="alert">
+          <strong>Refused:</strong> {refusal}
+        </div>
+      )}
+      <p className="hint">
+        Issue gate (server-enforced): a unit may be issued only when the
+        patient&apos;s resulted blood group is ABO/Rh-compatible with the
+        unit, the latest antibody screen is Negative within the governed
+        validity window
+        {gateCfg.antibodyScreenValidityHours
+          ? ` (${gateCfg.antibodyScreenValidityHours} hours)`
+          : ""}
+        , and a crossmatch resulted for THIS unit is Compatible — or the
+        patient meets electronic-crossmatch eligibility
+        {gateCfg.electronicCrossmatch
+          ? ` (enabled for: ${(gateCfg.electronicCrossmatch.products ?? []).join(", ") || "no products"})`
+          : ""}
+        . Emergency release is the only override and bypasses missing
+        evidence only, never contradictory evidence.
+      </p>
       {holds.length > 0 && (
         <div className="state state-error" role="alert">
           <strong>Transfusion hold:</strong>{" "}
@@ -1520,7 +2504,11 @@ function BloodBankSection({
                           <select
                             aria-label={`Issue order for unit ${unit.unit_id}`}
                             value={issueOrder[unit.unit_id] ?? ""}
-                            onChange={(e) => setIssueOrder((m) => ({ ...m, [unit.unit_id]: e.target.value }))}
+                            onChange={(e) => {
+                              const orderId = e.target.value;
+                              setIssueOrder((m) => ({ ...m, [unit.unit_id]: orderId }));
+                              void loadGateStatus(unit.unit_id, orderId);
+                            }}
                           >
                             <option value="">Order…</option>
                             {bbOrders.map((o) => (
@@ -1534,19 +2522,111 @@ function BloodBankSection({
                             disabled={busy || !issueOrder[unit.unit_id]}
                             onClick={() =>
                               void perform(`Issue unit ${unit.unit_id}`, () =>
-                                client.issueBloodUnit(unit.unit_id, issueOrder[unit.unit_id] ?? ""),
+                                issueUnit(unit),
                               )
                             }
                           >
                             Issue
                           </button>
+                          {gateStatus[unit.unit_id] && (
+                            <span className="result-meta">
+                              <br />
+                              Gate posture for{" "}
+                              {gateStatus[unit.unit_id]?.patient_ref ?? "patient"}
+                              {gateStatus[unit.unit_id]?.patient_group
+                                ? ` (group ${gateStatus[unit.unit_id]?.patient_group})`
+                                : " (no resulted group)"}
+                              {": "}
+                              {(gateStatus[unit.unit_id]?.checks ?? []).map(
+                                (check) => (
+                                  <span key={check.code}>
+                                    {check.status === "pass" ? "✓" : "✗"}{" "}
+                                    {check.label} — {check.detail}{" "}
+                                  </span>
+                                ),
+                              )}
+                            </span>
+                          )}
+                          <label className="field">
+                            <input
+                              type="checkbox"
+                              aria-label={`Emergency release for unit ${unit.unit_id}`}
+                              checked={emergency[unit.unit_id]?.enabled ?? false}
+                              onChange={(e) =>
+                                setEmergency((m) => ({
+                                  ...m,
+                                  [unit.unit_id]: {
+                                    enabled: e.target.checked,
+                                    reason_code:
+                                      m[unit.unit_id]?.reason_code ??
+                                      reasonCodes[0]?.code ?? "",
+                                    note: m[unit.unit_id]?.note ?? "",
+                                  },
+                                }))
+                              }
+                            />
+                            Emergency release
+                          </label>
+                          {emergency[unit.unit_id]?.enabled && (
+                            <span>
+                              <select
+                                aria-label={`Emergency release reason for unit ${unit.unit_id}`}
+                                value={emergency[unit.unit_id]?.reason_code || reasonCodes[0]?.code || ""}
+                                onChange={(e) =>
+                                  setEmergency((m) => ({
+                                    ...m,
+                                    [unit.unit_id]: {
+                                      enabled: true,
+                                      reason_code: e.target.value,
+                                      note: m[unit.unit_id]?.note ?? "",
+                                    },
+                                  }))
+                                }
+                              >
+                                {reasonCodes.map((rc) => (
+                                  <option key={rc.code} value={rc.code}>
+                                    {rc.display}
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                aria-label={`Emergency release note for unit ${unit.unit_id}`}
+                                placeholder="Emergency note"
+                                value={emergency[unit.unit_id]?.note ?? ""}
+                                onChange={(e) =>
+                                  setEmergency((m) => ({
+                                    ...m,
+                                    [unit.unit_id]: {
+                                      enabled: true,
+                                      reason_code:
+                                        m[unit.unit_id]?.reason_code ??
+                                        reasonCodes[0]?.code ?? "",
+                                      note: e.target.value,
+                                    },
+                                  }))
+                                }
+                              />
+                            </span>
+                          )}
                         </span>
                       )}
                       {unit.status === "issued" && (
                         <>
+                          {(unit as unknown as {
+                            emergency_release_reason_code?: string | null;
+                          }).emergency_release_reason_code && (
+                            <span className="result-meta">
+                              Emergency release:{" "}
+                              {(unit as unknown as {
+                                emergency_release_reason_code?: string | null;
+                              }).emergency_release_reason_code}
+                              <br />
+                            </span>
+                          )}
                           <button type="button" disabled={busy} onClick={() =>
-                            void perform(`Record transfusion ${unit.unit_id}`, () =>
-                              client.recordTransfusion({ unit_id: unit.unit_id }))}>
+                            setTransfusionOpen((m) => ({
+                              ...m, [unit.unit_id]: !m[unit.unit_id],
+                            }))}>
                             Record transfusion
                           </button>
                           <button type="button" disabled={busy} onClick={() =>
@@ -1554,6 +2634,65 @@ function BloodBankSection({
                               client.returnBloodUnit(unit.unit_id, false))}>
                             Return unused
                           </button>
+                          {transfusionOpen[unit.unit_id] && (
+                            <span>
+                              <br />
+                              <span className="result-meta">
+                                Bedside verification (LAB-M1): two
+                                identifiers + pre-transfusion vitals are
+                                checked server-side before anything is
+                                recorded.
+                              </span>
+                              {(
+                                [
+                                  ["wristband_patient_id", "Wristband patient id"],
+                                  ["date_of_birth", "Patient date of birth"],
+                                  ["second_checker", "Second checker (optional)"],
+                                  ["temperature_c", "Temperature °C"],
+                                  ["pulse_bpm", "Pulse bpm"],
+                                  ["systolic_bp", "Systolic BP"],
+                                  ["diastolic_bp", "Diastolic BP"],
+                                  ["resp_rate", "Respiratory rate"],
+                                  ["started_at", "Started at (ISO, optional)"],
+                                  ["stopped_at", "Stopped at (ISO, optional)"],
+                                ] as Array<[keyof TransfusionFormState, string]>
+                              ).map(([field, label]) => (
+                                <label key={field} className="field">
+                                  {label}
+                                  <input
+                                    aria-label={`${label} for unit ${unit.unit_id}`}
+                                    type={field === "date_of_birth" ? "date" : "text"}
+                                    value={
+                                      (transfusionForm[unit.unit_id] ??
+                                        EMPTY_TRANSFUSION_FORM)[field]
+                                    }
+                                    onChange={(e) =>
+                                      setTransfusionForm((m) => ({
+                                        ...m,
+                                        [unit.unit_id]: {
+                                          ...(m[unit.unit_id] ??
+                                            EMPTY_TRANSFUSION_FORM),
+                                          [field]: e.target.value,
+                                        },
+                                      }))
+                                    }
+                                  />
+                                </label>
+                              ))}
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() =>
+                                  void perform(
+                                    `Record transfusion ${unit.unit_id}`,
+                                    () => recordTransfusionVerified(unit),
+                                  )
+                                }
+                              >
+                                Verify &amp; record transfusion
+                              </button>
+                            </span>
+                          )}
                         </>
                       )}
                       {(unit.status === "issued" || unit.status === "transfused") && (
@@ -1584,6 +2723,28 @@ function BloodBankSection({
                   ) : (
                     <span className="hint">Read-only</span>
                   )}
+                  {" "}
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      void perform(`Print ISBT label for unit ${unit.unit_id}`, async () => {
+                        const file = await printBloodLabel(
+                          client,
+                          `BloodUnit/${unit.unit_id}`,
+                        );
+                        try {
+                          saveDownloadedFile(file);
+                        } catch {
+                          // No URL.createObjectURL in some environments;
+                          // the label was still generated + audited server-side.
+                        }
+                        return file;
+                      })
+                    }
+                  >
+                    Print ISBT label
+                  </button>
                 </td>
               </tr>
             ))}
@@ -1591,10 +2752,95 @@ function BloodBankSection({
         </table>
       )}
       <p className="hint">
-        Type &amp; screen and crossmatch orders are resulted through the
-        standard Result entry above (qualitative ABO/Rh and antibody
-        screen values from the published catalog).
+        Type &amp; screen (ABO group + antibody screen) is resulted
+        through the standard Result entry above and, once verified and
+        released, is consumed directly by the issue gate — the linkage
+        is the patient&apos;s released 883-9 / 890-4 results. A
+        crossmatch only counts for the gate when it is resulted FOR A
+        SPECIFIC UNIT through the form below, which stamps the unit id
+        onto the crossmatch observation; a patient-level crossmatch
+        resulted elsewhere does not satisfy the gate.
       </p>
+      {canWork && (
+        <form
+          className="inline-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void perform(`Result crossmatch for unit ${xmForm.unit_id}`, async () => {
+              try {
+                await client.request(
+                  `/lab/blood-bank/orders/${encodeURIComponent(xmForm.order_id)}/crossmatch-result`,
+                  {
+                    method: "POST",
+                    body: JSON.stringify({
+                      unit_id: xmForm.unit_id,
+                      value: xmForm.value,
+                    }),
+                  },
+                );
+                setRefusal(null);
+              } catch (err) {
+                setRefusal(captureRefusal(err));
+                throw err;
+              }
+            });
+          }}
+        >
+          <label className="field">
+            Crossmatch order
+            <select
+              aria-label="Crossmatch order"
+              value={xmForm.order_id}
+              onChange={(e) => setXmForm((f) => ({ ...f, order_id: e.target.value }))}
+            >
+              <option value="">Order…</option>
+              {xmOrders.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.id} — {refLabel(o.subject)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            Unit
+            <select
+              aria-label="Crossmatch unit"
+              value={xmForm.unit_id}
+              onChange={(e) => setXmForm((f) => ({ ...f, unit_id: e.target.value }))}
+            >
+              <option value="">Unit…</option>
+              {units.map((u) => (
+                <option key={u.unit_id} value={u.unit_id}>
+                  {u.unit_id} ({u.product_type}, {u.blood_group})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            Result
+            <select
+              aria-label="Crossmatch result"
+              value={xmForm.value}
+              onChange={(e) => setXmForm((f) => ({ ...f, value: e.target.value }))}
+            >
+              <option value="Compatible">Compatible</option>
+              <option value="Incompatible">Incompatible</option>
+            </select>
+          </label>
+          <button
+            type="submit"
+            disabled={busy || !canRequest || !xmForm.order_id || !xmForm.unit_id}
+          >
+            Result crossmatch for unit
+          </button>
+          {!canRequest && (
+            <span className="hint">
+              Unit-specific crossmatch entry needs the live API client —
+              unavailable in this view.
+            </span>
+          )}
+        </form>
+      )}
     </>
   );
 }
@@ -1605,10 +2851,11 @@ function BloodBankSection({
  *  rendered with the shared FormRenderer; sign-out is the release
  *  step — unsigned reports stay invisible outside the lab. */
 function PathologySection({
-  client, orders, canWork, canVerify, busy, perform, tick,
+  client, orders, conceptByCode, canWork, canVerify, busy, perform, tick,
 }: {
   client: ApiClient;
   orders: ServiceRequest[];
+  conceptByCode: Map<string, LabConcept>;
   canWork: boolean;
   canVerify: boolean;
   busy: boolean;
@@ -1616,14 +2863,18 @@ function PathologySection({
   tick: number;
 }) {
   const [reportFor, setReportFor] = useState<string | null>(null);
+  const [formKind, setFormKind] = useState<"synoptic" | "cytology">("synoptic");
   const [form, setForm] = useState<FormDefinition | null>(null);
   const [reports, setReports] = useState<Record<string, string>>({});
 
-  async function openReport(orderId: string) {
+  async function openReport(orderId: string, cytology: boolean) {
     setReportFor(orderId);
+    setFormKind(cytology ? "cytology" : "synoptic");
     setForm(null);
     try {
-      const outcome = await client.pathologySynopticForm();
+      const outcome = cytology
+        ? await client.pathologyCytologyForm()
+        : await client.pathologySynopticForm();
       setForm(outcome.form);
     } catch {
       setForm(null);
@@ -1640,6 +2891,9 @@ function PathologySection({
           {orders.map((order) => {
             const id = order.id ?? "";
             const status = order.status ?? "";
+            const isCyto =
+              conceptByCode.get(order.code?.coding?.[0]?.code ?? "")
+                ?.cytology === true;
             const nextStep: Record<string, { to: string; label: string }> = {
               ordered: { to: "collected", label: "Collect specimen" },
               collected: { to: "accessioned", label: "Accession case" },
@@ -1648,7 +2902,7 @@ function PathologySection({
             };
             return (
               <li key={id} className="result-row">
-                <span className="result-type">pathology case</span>
+                <span className="result-type">{isCyto ? "cytology case" : "pathology case"}</span>
                 <span>
                   {codeLabel(order.code)} — {refLabel(order.subject)} · order {id}
                   <br />
@@ -1663,8 +2917,8 @@ function PathologySection({
                     </button>
                   )}
                   {canWork && status === "histology" && reportFor !== id && (
-                    <button type="button" disabled={busy} onClick={() => void openReport(id)}>
-                      Write synoptic report
+                    <button type="button" disabled={busy} onClick={() => void openReport(id, isCyto)}>
+                      {isCyto ? "Write cytology report" : "Write synoptic report"}
                     </button>
                   )}
                   {canVerify && status === "reported" && reports[id] && (
@@ -1690,18 +2944,28 @@ function PathologySection({
                   form ? (
                     <FormRenderer
                       form={form}
-                      submitLabel="Save draft synoptic report"
+                      submitLabel={
+                        formKind === "cytology"
+                          ? "Save draft cytology report"
+                          : "Save draft synoptic report"
+                      }
                       onSubmit={async (answers) => {
-                        await perform(`Synoptic report ${id}`, async () => {
-                          const outcome = await client.pathologyReport(id, answers);
-                          setReports((m) => ({ ...m, [id]: outcome.report.id ?? "" }));
-                          setReportFor(null);
-                          return outcome;
-                        });
+                        await perform(
+                          `${formKind === "cytology" ? "Cytology" : "Synoptic"} report ${id}`,
+                          async () => {
+                            const outcome =
+                              formKind === "cytology"
+                                ? await client.pathologyCytologyReport(id, answers)
+                                : await client.pathologyReport(id, answers);
+                            setReports((m) => ({ ...m, [id]: outcome.report.id ?? "" }));
+                            setReportFor(null);
+                            return outcome;
+                          },
+                        );
                       }}
                     />
                   ) : (
-                    <Loading label="Loading synoptic form…" />
+                    <Loading label="Loading form…" />
                   )
                 )}
               </li>
@@ -1713,6 +2977,8 @@ function PathologySection({
         The synoptic report is a published Studio form; the draft is
         invisible to the inbox and portal until the pathologist signs
         out (Sign out appears once the draft report id is known).
+        Cytology cases (the catalog's cytology flag) report with the
+        published cytology form instead and share the same sign-out.
       </p>
     </>
   );
@@ -2034,6 +3300,861 @@ function OperationsSection({
           </tbody>
         </table>
       )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Depth pass sections: virology, send-outs, POCT programme, governance
+// ---------------------------------------------------------------------------
+
+/** Virology (Depth pass): the bench's worklist plus the viral-load
+ *  trend view. NAAT / antigen results are entered on the Orders &
+ *  Results tab — virology runs the standard spine — while this tab
+ *  is where the bench watches its orders and follows viral loads.
+ *  Trends show RELEASED results only (the server enforces it). */
+function VirologySection({
+  client, orders, conceptByCode, onJump,
+}: {
+  client: ApiClient;
+  orders: ServiceRequest[];
+  conceptByCode: Map<string, LabConcept>;
+  onJump: (tab: string) => void;
+}) {
+  const viralLoads = [...conceptByCode.values()].filter(
+    (c) => c.bench === "virology" && !c.qualitative && !c.panel,
+  );
+  const [patientId, setPatientId] = useState("pat-1");
+  const [code, setCode] = useState("");
+  const [trends, setTrends] = useState<LabTrends | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const selectedCode = code || viralLoads[0]?.code || "";
+
+  return (
+    <>
+      <h3>Virology</h3>
+      <p className="hint">
+        Viral NAAT and antigen results are entered on the Orders &amp;
+        Results tab (virology runs the standard order → specimen →
+        result spine); a Reactive HIV screen reflexes the
+        differentiation assay automatically, per the published reflex
+        rules (see the Governance tab).
+      </p>
+      {orders.length === 0 ? (
+        <Empty label="No virology orders yet." />
+      ) : (
+        <table className="lab-table">
+          <thead>
+            <tr><th>Order</th><th>Test</th><th>Patient</th><th>Status</th></tr>
+          </thead>
+          <tbody>
+            {orders.map((order) => (
+              <tr key={order.id}>
+                <td>{order.id}</td>
+                <td>{codeLabel(order.code)}</td>
+                <td>{refLabel(order.subject)}</td>
+                <td><StatusBadge status={order.status} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <button type="button" onClick={() => onJump("orders")}>
+        Go to Orders &amp; Results
+      </button>
+
+      <h4>Viral-load trend</h4>
+      <form
+        className="inline-form"
+        noValidate
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!patientId.trim()) {
+            setLocalError("Enter a patient id to load a trend.");
+            return;
+          }
+          if (!selectedCode) {
+            setLocalError("No quantitative virology analyte is published in the catalog.");
+            return;
+          }
+          setLocalError(null);
+          void (async () => {
+            try {
+              setTrends(await client.labTrends(patientId.trim(), selectedCode));
+            } catch (err) {
+              setTrends(null);
+              setLocalError(errorText(err));
+            }
+          })();
+        }}
+      >
+        <label className="field">
+          Patient id
+          <input
+            value={patientId}
+            onChange={(e) => setPatientId(e.target.value)}
+            placeholder="pat-1"
+          />
+        </label>
+        <label className="field">
+          Viral-load analyte
+          <select
+            value={selectedCode}
+            disabled={viralLoads.length === 0}
+            onChange={(e) => setCode(e.target.value)}
+          >
+            {viralLoads.map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.display} ({c.code})
+              </option>
+            ))}
+          </select>
+          {viralLoads.length === 0 && (
+            <span className="hint">
+              Disabled: the published catalog has no quantitative
+              virology analyte to trend.
+            </span>
+          )}
+        </label>
+        <button type="submit" disabled={viralLoads.length === 0}>
+          Load trend
+        </button>
+      </form>
+      {localError && (
+        <div className="state state-error" role="alert">{localError}</div>
+      )}
+      {trends &&
+        (trends.count === 0 ? (
+          <Empty label="No released results for this patient and analyte yet — drafts never appear in a trend." />
+        ) : (
+          <table className="lab-table">
+            <thead>
+              <tr><th>When</th><th>Value</th><th>Unit</th><th>log10</th></tr>
+            </thead>
+            <tbody>
+              {trends.points.map((point) => (
+                <tr key={point.observation_id}>
+                  <td>{point.effective ?? "—"}</td>
+                  <td>{point.value}</td>
+                  <td>{point.unit ?? "—"}</td>
+                  <td>{point.log10 ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ))}
+    </>
+  );
+}
+
+/** Send-outs (Depth pass): the reference-laboratory lifecycle —
+ *  dispatch collected specimens on a per-laboratory manifest, file
+ *  the returned results as drafts for verification, and watch
+ *  turnaround against the contracted hours in the published
+ *  sendout-labs config. */
+function SendoutsSection({
+  client, conceptByCode, canWork, busy, perform, tick,
+}: {
+  client: ApiClient;
+  conceptByCode: Map<string, LabConcept>;
+  canWork: boolean;
+  busy: boolean;
+  perform: (label: string, fn: () => Promise<unknown>) => Promise<void>;
+  tick: number;
+}) {
+  const queueState = useAsync(() => client.labSendouts(), [client, tick]);
+  const tatState = useAsync(() => client.labSendoutTat(), [client, tick]);
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [tracking, setTracking] = useState("");
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  const items = queueState.data?.items ?? [];
+  const awaiting = items.filter((i) => i.sendout.status === "awaiting-dispatch");
+  const dispatched = items.filter((i) => i.sendout.status === "dispatched");
+  const resulted = items.filter((i) => i.sendout.status === "resulted");
+  const awaitingByLab = new Map<string, typeof awaiting>();
+  for (const item of awaiting) {
+    const key = item.reference_lab.code ?? "unknown";
+    awaitingByLab.set(key, [...(awaitingByLab.get(key) ?? []), item]);
+  }
+
+  return (
+    <>
+      <h3>Send-outs / reference laboratory</h3>
+      <p className="hint">
+        Routing is the published sendout-labs configuration: a test
+        ships to the laboratory whose list names it. Returned results
+        file as preliminary drafts — they wait in the Verification
+        queue like every other result, never auto-released.
+      </p>
+      {queueState.loading ? (
+        <Loading label="Loading send-outs…" />
+      ) : queueState.error ? (
+        <ErrorView error={queueState.error} />
+      ) : items.length === 0 ? (
+        <Empty label="No send-out orders yet." />
+      ) : (
+        <>
+          <h4>Awaiting dispatch</h4>
+          {awaiting.length === 0 ? (
+            <Empty label="Nothing is waiting to ship." />
+          ) : (
+            [...awaitingByLab.entries()].map(([labCode, group]) => (
+              <div key={labCode}>
+                <p className="hint">
+                  To {group[0].reference_lab.display ?? labCode} —
+                  contracted TAT {group[0].reference_lab.tat_hours ?? "—"} h.
+                  A manifest ships to ONE laboratory.
+                </p>
+                <ul className="result-list">
+                  {group.map((item) => (
+                    <li key={item.order_id} className="result-row">
+                      {canWork && item.order_status === "collected" ? (
+                        <label>
+                          <input
+                            type="checkbox"
+                            aria-label={`Select order ${item.order_id} for dispatch`}
+                            checked={selected[item.order_id] === true}
+                            onChange={(e) =>
+                              setSelected((s) => ({
+                                ...s,
+                                [item.order_id]: e.target.checked,
+                              }))}
+                          />{" "}
+                          {item.display} — {item.patient} · order {item.order_id}
+                        </label>
+                      ) : (
+                        <span>
+                          {item.display} — {item.patient} · order {item.order_id}
+                          <br />
+                          <span className="result-meta">
+                            Status: {item.order_status}
+                            {item.order_status !== "collected" &&
+                              " — collect the specimen before dispatch"}
+                          </span>
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                {canWork && (
+                  <form
+                    className="inline-form"
+                    noValidate
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const ids = group
+                        .filter(
+                          (i) =>
+                            i.order_status === "collected" &&
+                            selected[i.order_id],
+                        )
+                        .map((i) => i.order_id);
+                      if (ids.length === 0) {
+                        setLocalError(
+                          "Select at least one collected order to dispatch.",
+                        );
+                        return;
+                      }
+                      setLocalError(null);
+                      void perform(
+                        `Dispatch ${ids.length} send-out(s) to ${labCode}`,
+                        () =>
+                          client.labSendoutDispatch(
+                            ids,
+                            tracking.trim() || undefined,
+                          ),
+                      );
+                    }}
+                  >
+                    <label className="field">
+                      Tracking reference (optional)
+                      <input
+                        value={tracking}
+                        onChange={(e) => setTracking(e.target.value)}
+                        placeholder="Carrier tracking no."
+                      />
+                    </label>
+                    <button type="submit" disabled={busy}>
+                      Dispatch selected to {group[0].reference_lab.display ?? labCode}
+                    </button>
+                  </form>
+                )}
+              </div>
+            ))
+          )}
+
+          <h4>In transit / at the reference laboratory</h4>
+          {dispatched.length === 0 ? (
+            <Empty label="No send-outs in transit." />
+          ) : (
+            <ul className="result-list">
+              {dispatched.map((item) => (
+                <li key={item.order_id} className="result-row">
+                  <span>
+                    {item.display} — {item.patient} · order {item.order_id}
+                    <br />
+                    <span className="result-meta">
+                      To {item.reference_lab.display} · dispatched{" "}
+                      {item.sendout.dispatched_at ?? "—"}
+                      {item.sendout.tracking_ref
+                        ? ` · tracking ${item.sendout.tracking_ref}`
+                        : ""}
+                    </span>
+                  </span>
+                  {canWork && (
+                    <span className="appt-actions">
+                      <input
+                        aria-label={`Returned value for order ${item.order_id}`}
+                        inputMode="decimal"
+                        placeholder={
+                          conceptByCode.get(item.code)?.unit ?? "value"
+                        }
+                        value={values[item.order_id] ?? ""}
+                        onChange={(e) =>
+                          setValues((v) => ({
+                            ...v,
+                            [item.order_id]: e.target.value,
+                          }))}
+                      />
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          const raw = (values[item.order_id] ?? "").trim();
+                          const value = Number(raw);
+                          if (raw === "" || Number.isNaN(value)) {
+                            setLocalError(
+                              `Enter the numeric returned value for order ${item.order_id}.`,
+                            );
+                            return;
+                          }
+                          setLocalError(null);
+                          void perform(
+                            `File send-out result (${item.order_id})`,
+                            () =>
+                              client.labSendoutReceiveResult(item.order_id, [
+                                { code: item.code, value },
+                              ]),
+                          );
+                        }}
+                      >
+                        File returned result
+                      </button>
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <h4>Resulted</h4>
+          {resulted.length === 0 ? (
+            <Empty label="No send-out results filed yet." />
+          ) : (
+            <table className="lab-table">
+              <thead>
+                <tr><th>Order</th><th>Test</th><th>Laboratory</th><th>Returned</th></tr>
+              </thead>
+              <tbody>
+                {resulted.map((item) => (
+                  <tr key={item.order_id}>
+                    <td>{item.order_id}</td>
+                    <td>{item.display}</td>
+                    <td>{item.reference_lab.display}</td>
+                    <td>{item.sendout.returned_at ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </>
+      )}
+      {localError && (
+        <div className="state state-error" role="alert">{localError}</div>
+      )}
+
+      <h4>Turnaround by laboratory</h4>
+      {tatState.loading ? (
+        <Loading label="Loading send-out TAT…" />
+      ) : tatState.error ? (
+        <ErrorView error={tatState.error} />
+      ) : (
+        <table className="lab-table">
+          <thead>
+            <tr>
+              <th>Laboratory</th><th>Contracted TAT (h)</th><th>Resulted</th>
+              <th>In flight</th><th>Average (h)</th><th>Within TAT</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(tatState.data?.laboratories ?? []).map((lab) => (
+              <tr key={lab.lab}>
+                <td>{lab.display}</td>
+                <td>{lab.tat_hours ?? "—"}</td>
+                <td>{lab.resulted}</td>
+                <td>{lab.in_flight}</td>
+                <td>{lab.avg_hours ?? "—"}</td>
+                <td>
+                  {lab.within_tat_pct != null ? `${lab.within_tat_pct}%` : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+
+/** POCT programme (Depth pass): device QC + operator competency on
+ *  the Phase 14 device registry. The programme's enforcement state
+ *  is shown as data — seeded OFF (tracking only); a site turns the
+ *  blocks on by republishing the poct-programme config, and entry
+ *  then refuses before any write. */
+function PoctSection({
+  client, analytes, canWork, busy, perform, tick,
+}: {
+  client: ApiClient;
+  analytes: LabConcept[];
+  canWork: boolean;
+  busy: boolean;
+  perform: (label: string, fn: () => Promise<unknown>) => Promise<void>;
+  tick: number;
+}) {
+  const overviewState = useAsync(() => client.labPoctOverview(), [client, tick]);
+  const devicesState = useAsync(() => client.labPoctDevices(), [client, tick]);
+  const competencyState = useAsync(() => client.labPoctCompetency(), [client, tick]);
+  const [qcForm, setQcForm] = useState({ device_key: "", level: "", result: "pass" });
+  const [compForm, setCompForm] = useState({
+    staff_id: "", test_code: "", method: "", assessed_on: "",
+  });
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  const devices = devicesState.data?.items ?? [];
+  const levels = overviewState.data?.qc_levels ?? [];
+  const qcDevice = qcForm.device_key || devices[0]?.device_key || "";
+  const qcLevel = qcForm.level || levels[0] || "";
+  const compTest = compForm.test_code || analytes[0]?.code || "";
+  const enforcement = overviewState.data?.enforcement;
+
+  return (
+    <>
+      <h3>POCT programme</h3>
+      {overviewState.loading ? (
+        <Loading label="Loading POCT programme…" />
+      ) : overviewState.error ? (
+        <ErrorView error={overviewState.error} />
+      ) : (
+        <p role="status">
+          <SharedStatusBadge
+            tone={
+              enforcement?.block_uncompetent_operator ||
+              enforcement?.block_missing_daily_qc
+                ? "warn"
+                : "info"
+            }
+          >
+            {enforcement?.block_uncompetent_operator ||
+            enforcement?.block_missing_daily_qc
+              ? "Enforcement ON"
+              : "Tracking only — enforcement OFF"}
+          </SharedStatusBadge>{" "}
+          {enforcement?.state_label}
+        </p>
+      )}
+
+      <h4>Devices &amp; daily QC</h4>
+      {devicesState.loading ? (
+        <Loading label="Loading POCT devices…" />
+      ) : devicesState.error ? (
+        <ErrorView error={devicesState.error} />
+      ) : devices.length === 0 ? (
+        <Empty label="No POCT devices in the registry yet — register a poct-analyser device on the Devices page; the programme reads that registry, it keeps no second one." />
+      ) : (
+        <table className="lab-table">
+          <thead>
+            <tr>
+              <th>Device</th><th>Location</th><th>Status</th>
+              <th>QC today</th><th>Programme state</th>
+            </tr>
+          </thead>
+          <tbody>
+            {devices.map((device) => (
+              <tr key={device.device_key}>
+                <td>{device.name} ({device.device_key})</td>
+                <td>{device.location || "—"}</td>
+                <td><StatusBadge status={device.status} /></td>
+                <td>
+                  {Object.entries(device.qc_today)
+                    .map(([level, result]) => `${level}: ${result ?? "not run"}`)
+                    .join(" · ")}
+                </td>
+                <td>
+                  <SharedStatusBadge tone={device.qc_current ? "ok" : "bad"}>
+                    {device.qc_current ? "QC current" : "QC due"}
+                  </SharedStatusBadge>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {canWork && (
+        <form
+          className="inline-form"
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!qcDevice) {
+              setLocalError("No POCT device is registered yet — QC cannot be recorded.");
+              return;
+            }
+            if (!qcLevel) {
+              setLocalError("The programme publishes no QC levels — check the poct-programme config in Studio.");
+              return;
+            }
+            setLocalError(null);
+            void perform(`Record QC ${qcDevice} ${qcLevel}`, () =>
+              client.labPoctRecordQc({
+                device_key: qcDevice,
+                level: qcLevel,
+                result: qcForm.result,
+              }),
+            );
+          }}
+        >
+          <label className="field">
+            Device
+            <select
+              value={qcDevice}
+              disabled={devices.length === 0}
+              onChange={(e) => setQcForm((f) => ({ ...f, device_key: e.target.value }))}
+            >
+              {devices.map((d) => (
+                <option key={d.device_key} value={d.device_key}>
+                  {d.name} ({d.device_key})
+                </option>
+              ))}
+            </select>
+            {devices.length === 0 && (
+              <span className="hint">Disabled: no POCT devices are registered.</span>
+            )}
+          </label>
+          <label className="field">
+            Control level
+            <select
+              value={qcLevel}
+              disabled={levels.length === 0}
+              onChange={(e) => setQcForm((f) => ({ ...f, level: e.target.value }))}
+            >
+              {levels.map((level) => (
+                <option key={level} value={level}>{level}</option>
+              ))}
+            </select>
+            {levels.length === 0 && (
+              <span className="hint">Disabled: the programme publishes no QC levels.</span>
+            )}
+          </label>
+          <label className="field">
+            Outcome
+            <select
+              value={qcForm.result}
+              onChange={(e) => setQcForm((f) => ({ ...f, result: e.target.value }))}
+            >
+              <option value="pass">Pass</option>
+              <option value="fail">Fail</option>
+            </select>
+          </label>
+          <button type="submit" disabled={busy || devices.length === 0 || levels.length === 0}>
+            Record QC run
+          </button>
+        </form>
+      )}
+
+      <h4>Operator competency</h4>
+      {canWork && (
+        <form
+          className="inline-form"
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            const missing = [
+              !compForm.staff_id.trim() && "staff id",
+              !compTest && "test",
+              !compForm.method.trim() && "assessment method",
+              !compForm.assessed_on && "assessment date",
+            ].filter(Boolean);
+            if (missing.length > 0) {
+              setLocalError(`Competency record needs: ${missing.join(", ")}.`);
+              return;
+            }
+            setLocalError(null);
+            void perform(`Record competency ${compForm.staff_id.trim()}`, () =>
+              client.labPoctRecordCompetency({
+                staff_id: compForm.staff_id.trim(),
+                test_code: compTest,
+                method: compForm.method.trim(),
+                assessed_on: compForm.assessed_on,
+              }),
+            );
+          }}
+        >
+          <label className="field">
+            Staff id
+            <input
+              value={compForm.staff_id}
+              onChange={(e) => setCompForm((f) => ({ ...f, staff_id: e.target.value }))}
+              placeholder="staff-001"
+            />
+          </label>
+          <label className="field">
+            Test
+            <select
+              value={compTest}
+              onChange={(e) => setCompForm((f) => ({ ...f, test_code: e.target.value }))}
+            >
+              {analytes.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.display} ({c.code})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            Assessment method
+            <input
+              value={compForm.method}
+              onChange={(e) => setCompForm((f) => ({ ...f, method: e.target.value }))}
+              placeholder="Direct observation of testing"
+            />
+          </label>
+          <label className="field">
+            Assessed on
+            <input
+              type="date"
+              value={compForm.assessed_on}
+              onChange={(e) => setCompForm((f) => ({ ...f, assessed_on: e.target.value }))}
+            />
+          </label>
+          <button type="submit" disabled={busy}>
+            Record competency
+          </button>
+        </form>
+      )}
+      {competencyState.loading ? (
+        <Loading label="Loading competency records…" />
+      ) : competencyState.error ? (
+        <ErrorView error={competencyState.error} />
+      ) : !competencyState.data || competencyState.data.length === 0 ? (
+        <Empty label="No competency records yet." />
+      ) : (
+        <table className="lab-table">
+          <thead>
+            <tr>
+              <th>Staff</th><th>Test</th><th>Method</th>
+              <th>Assessed</th><th>Status</th><th>Expires</th>
+            </tr>
+          </thead>
+          <tbody>
+            {competencyState.data.map((record) => (
+              <tr key={record.id}>
+                <td>{record.staff_id}</td>
+                <td>{record.test_code}</td>
+                <td>{record.method}</td>
+                <td>{record.assessed_on}</td>
+                <td>
+                  <SharedStatusBadge
+                    tone={
+                      record.status === "current"
+                        ? "ok"
+                        : record.status === "expired"
+                          ? "bad"
+                          : "warn"
+                    }
+                  >
+                    {record.status}
+                  </SharedStatusBadge>
+                </td>
+                <td>{record.expires_on ?? "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {localError && (
+        <div className="state state-error" role="alert">{localError}</div>
+      )}
+      <p className="hint">
+        Currency is computed from the assessment date and the
+        programme's published validity window — an expired record is
+        never edited back to life; a new assessment is recorded.
+      </p>
+    </>
+  );
+}
+
+/** Post-analytical governance (Depth pass): the rules a laboratorian
+ *  is accountable for, read from the published catalog — auto-verify
+ *  state (seeded OFF, shown as data), reflex rules, delta checks
+ *  with their comparison windows, and the stewardship duplicate
+ *  window with its live worklist. Editing stays in Studio. */
+function GovernanceSection({
+  client, tick,
+}: {
+  client: ApiClient;
+  tick: number;
+}) {
+  const govState = useAsync(() => client.labGovernance(), [client, tick]);
+  const dupState = useAsync(() => client.labStewardshipDuplicates(), [client, tick]);
+  const gov = govState.data;
+
+  return (
+    <>
+      <h3>Post-analytical governance</h3>
+      {govState.loading ? (
+        <Loading label="Loading governance…" />
+      ) : govState.error ? (
+        <ErrorView error={govState.error} />
+      ) : gov ? (
+        <>
+          <p className="hint">
+            Governed configuration — edit in {gov.config.edit_in}{" "}
+            (published v{gov.config.version}). This tab is the
+            operational read of that config and its recent activity.
+          </p>
+
+          <h4>Auto-verification</h4>
+          <p role="status">
+            <SharedStatusBadge tone={gov.auto_verify.enabled ? "warn" : "info"}>
+              {gov.auto_verify.enabled ? "Auto-verify ENABLED" : "Auto-verify DISABLED"}
+            </SharedStatusBadge>{" "}
+            {gov.auto_verify.state_label}
+          </p>
+          {gov.auto_verify.rules.length === 0 ? (
+            <Empty label="No analyte carries an auto-verify range in the published catalog." />
+          ) : (
+            <table className="lab-table">
+              <thead>
+                <tr><th>Analyte</th><th>Auto-verify range</th></tr>
+              </thead>
+              <tbody>
+                {gov.auto_verify.rules.map((rule) => (
+                  <tr key={rule.code}>
+                    <td>{rule.display} ({rule.code})</td>
+                    <td>{rule.low ?? "…"} – {rule.high ?? "…"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {gov.auto_verify.recent_auto_verified.length > 0 && (
+            <>
+              <h5>Recent auto-verifications (from the audit chain)</h5>
+              <ul className="result-list">
+                {gov.auto_verify.recent_auto_verified.map((entry) => (
+                  <li key={entry.report_id} className="result-row">
+                    Report {entry.report_id} · order {entry.order_id ?? "—"} ·
+                    rules {entry.rule_ids.join(", ") || "—"} · {entry.at ?? "—"}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+
+          <h4>Reflex rules</h4>
+          {gov.reflex_rules.length === 0 ? (
+            <Empty label="No reflex rules are published." />
+          ) : (
+            <table className="lab-table">
+              <thead>
+                <tr><th>Rule</th><th>Trigger</th><th>When</th><th>Adds</th><th>Note</th></tr>
+              </thead>
+              <tbody>
+                {gov.reflex_rules.map((rule) => (
+                  <tr key={rule.id}>
+                    <td>{rule.id}</td>
+                    <td>{rule.triggerCode}</td>
+                    <td>
+                      {rule.when}
+                      {rule.matchValue ? ` = ${rule.matchValue}` : ""}
+                    </td>
+                    <td>{rule.addCode}</td>
+                    <td>{rule.note ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          <h4>Delta checks</h4>
+          {gov.delta_checks.length === 0 ? (
+            <Empty label="No analyte configures a delta check." />
+          ) : (
+            <table className="lab-table">
+              <thead>
+                <tr><th>Analyte</th><th>Threshold</th><th>Comparison window</th></tr>
+              </thead>
+              <tbody>
+                {gov.delta_checks.map((check) => (
+                  <tr key={check.code}>
+                    <td>{check.display} ({check.code})</td>
+                    <td>
+                      {check.config.absolute != null
+                        ? `± ${check.config.absolute} absolute`
+                        : check.config.pct != null
+                          ? `${check.config.pct}% change`
+                          : "—"}
+                    </td>
+                    <td>
+                      {check.config.windowHours != null
+                        ? `${check.config.windowHours} h`
+                        : "No window — latest released value"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          <h4>Stewardship — duplicate orders</h4>
+          <p>
+            Duplicate check{" "}
+            <SharedStatusBadge tone={gov.stewardship.duplicateCheckEnabled ? "ok" : "neutral"}>
+              {gov.stewardship.duplicateCheckEnabled ? "On" : "Off"}
+            </SharedStatusBadge>{" "}
+            · window {gov.stewardship.duplicateWindowHours ?? "—"} h. A
+            duplicate warns at order placement; it never blocks.
+          </p>
+          {dupState.loading ? (
+            <Loading label="Loading duplicates…" />
+          ) : dupState.error ? (
+            <ErrorView error={dupState.error} />
+          ) : !dupState.data || dupState.data.total === 0 ? (
+            <Empty label="No duplicate orders inside the window." />
+          ) : (
+            <table className="lab-table">
+              <thead>
+                <tr><th>Patient</th><th>Test</th><th>Open orders</th></tr>
+              </thead>
+              <tbody>
+                {dupState.data.groups.map((group) => (
+                  <tr key={`${group.patient}:${group.code}`}>
+                    <td>{group.patient}</td>
+                    <td>{group.display} ({group.code})</td>
+                    <td>
+                      {group.orders
+                        .map((o) => `${o.order_id} (${o.status ?? "—"})`)
+                        .join(" · ")}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </>
+      ) : null}
     </>
   );
 }

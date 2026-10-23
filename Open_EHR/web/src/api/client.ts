@@ -1,22 +1,44 @@
+import * as realtimeModule from "./realtime";
 import type {
+  AdcRestockItem,
+  AdjustStockResult,
   Appointment,
   AuditEntry,
+  BarcodeParseResult,
+  BcmaOutcome,
   BloodHold,
   BloodUnit,
   Bundle,
   Claim,
   CollectionWorklist,
+  CompoundBatch,
+  CompoundingQueueResponse,
   ConfigConcept,
   ConfigKind,
   CriticalNotification,
+  CsBookResponse,
+  CsCount,
+  CsWasteResult,
   DiagnosticReport,
+  DurQueueResponse,
   EqaRecord,
   FormDefinition,
   InstrumentLogEntry,
+  InteractionCheckResult,
+  InteractionStatus,
+  InventoryWorklist,
   LabInstrument,
   LeveyJennings,
+  MedLabelPayload,
   MicroTerminology,
+  PatientDispenseItem,
+  PharmacyInventoryResponse,
+  PurchaseOrder,
   TatStats,
+  TraceabilityEntry,
+  VerificationOutcome,
+  VerificationQueueItem,
+  WristbandPayload,
   DispenseOutcome,
   DispenseQueueItem,
   EdAdmitOutcome,
@@ -56,6 +78,8 @@ import type {
   NoteTypesResponse,
   OrdersListResponse,
   OrderSetsResponse,
+  AllergyIntolerance,
+  DosageInstruction,
   OrderTypesResponse,
   PackInstallation,
   PlaceOrderOutcome,
@@ -92,6 +116,30 @@ import type {
   VerificationQueue,
   WarehouseStatus,
   CodingQueueItem,
+  Activation,
+  AssignmentBoard,
+  BoardingBoard,
+  CallbackQueue,
+  CallQueueItem,
+  CareGapItem,
+  ClinicDay,
+  ClinicSessionState,
+  ClinicSessionTemplate,
+  CommandOverview,
+  ContinuumInbox,
+  DischargeReadiness,
+  ErOpsBoard,
+  EvsItem,
+  HahBoard,
+  NoShowRiskItem,
+  ReadinessItem,
+  ReadmissionRiskItem,
+  ReferralLoopItem,
+  SafetyEventDetail,
+  SafetyEventItem,
+  SafetySummary,
+  TransferRequestItem,
+  TransportItem,
   CodingRecord,
   DenialItem,
   DenialsResponse,
@@ -113,6 +161,61 @@ import type {
   WaitlistAcceptResult,
   WaitlistEntry,
   WaitlistOfferResult,
+  // Phase 13 (people & data platform)
+  CredentialWorklist,
+  DownloadedFile,
+  ExportDataset,
+  HomeDashboard,
+  ImportProfile,
+  ImportValidation,
+  OnCallNow,
+  ReportDefinition,
+  RosterShift,
+  StaffCredential,
+  StaffMember,
+  StaffUpdate,
+  WorkforceConfig,
+  // Front Door pass (accounts, registration, unit-first home)
+  AccountCreated,
+  AccountInput,
+  AccountUpdate,
+  DuplicateCandidate,
+  FrontdeskToday,
+  HomeCard,
+  HomeCardsResponse,
+  LocationDraftOp,
+  LocationsDraftResult,
+  LocationsDraftStatus,
+  MyPatients,
+  MyUnitPatients,
+  Patient,
+  RegistrationInput,
+  RegistrationResult,
+  UserAccount,
+  // Phase 14 (devices, IoT, lake & pipelines)
+  DedupCandidate,
+  DeviceItem,
+  DeviceReading,
+  DevicesConfigResponse,
+  DevicesResponse,
+  FeedsStatus,
+  LakeEntry,
+  LakeResponse,
+  LineageResponse,
+  PipelineDeadLetter,
+  PipelineDefinition,
+  PipelineRun,
+  QuarantineItem,
+  LabGovernance,
+  LabTrends,
+  PoctCompetency,
+  PoctDevices,
+  PoctOverview,
+  PoctQcRecord,
+  SendoutManifest,
+  SendoutQueue,
+  SendoutTat,
+  StewardshipDuplicates,
 } from "./types";
 
 // API client for the real OpenCare backend. There is deliberately no mock
@@ -121,11 +224,16 @@ import type {
 export class ApiError extends Error {
   status: number;
   detail: string;
-  constructor(status: number, detail: string) {
+  /** The parsed error body, when the server sent structured JSON —
+   *  e.g. the registration 409 carries the duplicate candidates the
+   *  UI must show before the user can confirm. */
+  body?: unknown;
+  constructor(status: number, detail: string, body?: unknown) {
     super(detail);
     this.name = "ApiError";
     this.status = status;
     this.detail = detail;
+    this.body = body;
   }
 
   get isPermissionDenied(): boolean {
@@ -159,6 +267,428 @@ export function unwrapBundle<T extends FhirResource>(bundle: Bundle<T>): T[] {
 
 type FetchFn = typeof fetch;
 
+// ---- Depth pass (Workstream 2) response shapes ----
+// Declared here (not in api/types) because this block is the depth
+// pass's own client surface: the WHO checklist status the surgery
+// board payload carries per case, and the continuum rounds list.
+
+/** Per-section WHO surgical safety checklist completion for one case. */
+export interface SafetyChecklistStatus {
+  "sign-in": boolean;
+  "time-out": boolean;
+  "sign-out": boolean;
+}
+
+/** One patient on the interdisciplinary rounds list. */
+export interface RoundsListItem {
+  encounter_id: string;
+  patient_ref: string | null;
+  bed: string | null;
+  reason?: string | null;
+  nurse: string | null;
+  acuity: number | null;
+  target_date: string | null;
+  disposition: string | null;
+  barriers: string[] | string | null;
+  rounds_checklist_today: boolean;
+}
+
+export interface RoundsList {
+  unit: string;
+  items: RoundsListItem[];
+  total: number;
+}
+
+// ---- Analysis drill-down (Home & Module UX pass, WS4b) ----
+// Shapes copied from the REAL backend payloads in
+// backend/app/indicators.py: the published definition payload
+// ({name, title?, source, thresholds?, target?, direction, unit?}),
+// evaluate_indicator's output, and GET /indicators/{key}/records
+// ({key, definition, value, records, records_supported, reason}).
+
+/** A published indicator's source binding (exactly one key set per type). */
+export interface IndicatorSource {
+  type: "measure" | "cohort" | "named" | string;
+  measure_key?: string;
+  cohort_key?: string;
+  name?: string;
+}
+
+/** The published indicator definition payload. */
+export interface IndicatorDefinition {
+  name: string;
+  title?: string;
+  source: IndicatorSource;
+  thresholds?: { warn?: number; critical?: number };
+  target?: number | null;
+  direction: "higher-better" | "lower-better" | string;
+  unit?: string;
+}
+
+/** One row of GET /indicators/definitions ({items, total}). */
+export interface IndicatorDefinitionEntry {
+  kind: string;
+  key: string;
+  version: number;
+  status: string;
+  payload: IndicatorDefinition;
+  created_by?: string;
+  updated_by?: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+/** evaluate_indicator output — also GET /indicators/{key}/value and
+ *  the `value` field of the records payload. */
+export interface IndicatorValue {
+  key: string;
+  value: number | null;
+  unit: string | null;
+  target: number | null;
+  status: "ok" | "warn" | "critical" | "unknown" | string;
+  evaluated_at: string;
+  source: IndicatorSource;
+  detail: Record<string, unknown>;
+}
+
+/** One underlying record behind an indicator number. `patient_id` is
+ *  the chart patient id when the record is patient-linked, else null. */
+export interface IndicatorRecord {
+  id: string;
+  label: string;
+  detail: string;
+  at: string | null;
+  patient_id: string | null;
+}
+
+/** GET /indicators/{key}/records — definition + value + records.
+ *  `reason` is null for ordinary count sources, an explanatory note
+ *  for numerator-side listings, and the honest explanation when
+ *  records_supported is false (records is then empty — never faked). */
+export interface IndicatorRecordsResponse {
+  key: string;
+  definition: IndicatorDefinition;
+  value: IndicatorValue;
+  records: IndicatorRecord[];
+  records_supported: boolean;
+  reason: string | null;
+}
+
+// ---- Inventory & Materials (/inventory) ----
+// Shapes follow the WS-A backend contract for backend/app/inventory.py
+// exactly: taxonomy / overview aggregates, the item master, lot-level
+// stock rows, the append-only movement ledger, PAR levels,
+// requisitions, cycle counts, case draw, implant trace and the
+// scan / RFID identification surface. Money is integer cents
+// end-to-end; the page converts to dollars only for display/input.
+
+export interface InvTaxonomyOption {
+  code: string;
+  label: string;
+}
+
+export interface InvClassPolicy {
+  containerTracked?: boolean;
+  openStabilityDays?: number | null;
+  initialStage?: string;
+  verificationRequired?: boolean;
+  verificationValidityDays?: number | null;
+}
+
+export interface InvTaxonomySubcategory extends InvTaxonomyOption {
+  classPolicy?: InvClassPolicy | null;
+}
+
+export interface InvTaxonomyCategory {
+  code: string;
+  label: string;
+  subcategories: InvTaxonomySubcategory[];
+  classPolicy?: InvClassPolicy | null;
+}
+
+export interface InvTaxonomy {
+  categories: InvTaxonomyCategory[];
+  reasonCodes: InvTaxonomyOption[];
+  quarantineReasonCodes?: InvTaxonomyOption[];
+  recallReasonCodes?: InvTaxonomyOption[];
+  disposalReasonCodes?: InvTaxonomyOption[];
+  expiryWarningDays: number;
+}
+
+export interface InvUomLevel {
+  code: string;
+  containsNext: number;
+  barcode?: string | null;
+}
+
+export interface InvKitComponent {
+  sku: string;
+  qty: number;
+}
+
+export interface InvKitCompositionEntry {
+  sku: string;
+  lot_number?: string | null;
+  expiry_date?: string | null;
+  qty?: number;
+  qty_per_kit?: number;
+}
+
+export interface InvOverview {
+  active_items: number;
+  stock_locations: number;
+  on_hand_units: number;
+  low_stock_lines: number;
+  expiring_lines: number;
+  expired_lines: number;
+  movements_today: number;
+  stock_value_cents: number;
+  uncosted_lots: number;
+}
+
+export interface InvItem {
+  sku: string;
+  name: string;
+  category: string;
+  subcategory: string;
+  uom: string;
+  structure?: "simple" | "kit" | string;
+  base_uom?: string | null;
+  uom_ladder?: InvUomLevel[];
+  kit_components?: InvKitComponent[];
+  kit_mode?: "track-whole" | "break-on-receipt" | string | null;
+  hazard_class?: string | null;
+  sds_ref?: string | null;
+  lot_tracked: boolean;
+  serial_tracked: boolean;
+  expiry_tracked: boolean;
+  unit_cost_cents: number | null;
+  formulary_code?: string | null;
+  asset_key?: string | null;
+  active: boolean;
+}
+
+export interface InvItemInput {
+  sku: string;
+  name: string;
+  category: string;
+  subcategory: string;
+  uom: string;
+  structure?: "simple" | "kit" | string;
+  base_uom?: string | null;
+  uom_ladder?: InvUomLevel[];
+  kit_components?: InvKitComponent[];
+  kit_mode?: "track-whole" | "break-on-receipt" | string | null;
+  hazard_class?: string | null;
+  sds_ref?: string | null;
+  lot_tracked: boolean;
+  serial_tracked: boolean;
+  expiry_tracked: boolean;
+  unit_cost_cents: number | null;
+  formulary_code?: string | null;
+  asset_key?: string | null;
+  active?: boolean;
+}
+
+export interface InvStockRow {
+  sku: string;
+  name?: string;
+  category?: string;
+  location_code: string;
+  lot_number: string | null;
+  serial: string | null;
+  expiry_date: string | null;
+  quantity: number;
+  unit_cost_cents: number | null;
+  value_cents: number | null;
+  stage?: string;
+  verified_by?: string | null;
+  verification_method?: string | null;
+  verification_result?: string | null;
+  verified_on?: string | null;
+  verification_note?: string | null;
+  composition?: InvKitCompositionEntry[];
+  recall_blocked?: boolean;
+  blocked_by?: Array<{ sku: string; lot_number?: string | null }>;
+}
+
+export interface InvParLevel {
+  sku: string;
+  name?: string;
+  location_code: string;
+  par_level: number;
+  par_unit_level?: string | null;
+  par_qty?: number | null;
+}
+
+export interface InvContainer {
+  container_code: string;
+  sku: string;
+  location_code: string;
+  lot_number: string | null;
+  serial: string | null;
+  quantity: number;
+  stage: string;
+  opened_at?: string | null;
+  opened_by?: string | null;
+  in_use_expiry_date?: string | null;
+  effective_expiry?: string | null;
+  lot_stage?: string | null;
+  disposal_reason_code?: string | null;
+  disposed_by?: string | null;
+  disposed_at?: string | null;
+}
+
+export interface InvKitResult {
+  sku: string;
+  location_code: string;
+  quantity: number;
+  movements?: InvMovement[];
+  lot?: InvStockRow;
+  kit_lot?: InvStockRow;
+  lots?: InvStockRow[];
+  composition?: InvKitCompositionEntry[];
+}
+
+export interface InvMovement {
+  id?: number | string;
+  sku: string;
+  name?: string;
+  event?: string;
+  location_code?: string | null;
+  from_location?: string | null;
+  to_location?: string | null;
+  quantity?: number;
+  quantity_delta?: number;
+  lot_number?: string | null;
+  serial?: string | null;
+  expiry_date?: string | null;
+  unit_cost_cents?: number | null;
+  value_cents?: number | null;
+  reference?: string | null;
+  patient_ref?: string | null;
+  reason_code?: string | null;
+  note?: string | null;
+  actor?: string | null;
+  created_at?: string | null;
+  unit_level?: string | null;
+  container_code?: string | null;
+}
+
+export interface InvRequisitionLine {
+  sku: string;
+  quantity: number;
+  issued?: number;
+}
+
+export interface InvRequisition {
+  id?: string;
+  req_id?: string;
+  from_location_code: string;
+  to_location_code: string;
+  status: string;
+  lines: InvRequisitionLine[];
+  reference?: string | null;
+  created_at?: string | null;
+  created_by?: string | null;
+}
+
+export interface InvCountLine {
+  sku: string;
+  name?: string;
+  lot_number?: string | null;
+  serial?: string | null;
+  expected?: number;
+  counted?: number | null;
+  variance?: number | null;
+}
+
+export interface InvCount {
+  id?: string;
+  count_id?: string;
+  location_code: string;
+  status: string;
+  lines: InvCountLine[];
+  created_at?: string | null;
+  created_by?: string | null;
+  completed_at?: string | null;
+}
+
+export interface InvCaseIssueLine {
+  sku: string;
+  qty: number;
+  allocations: Array<Record<string, unknown>>;
+}
+
+export interface InvCaseIssueResult {
+  case_id: string;
+  card_id: string;
+  lines: InvCaseIssueLine[];
+}
+
+export interface InvScanResult {
+  resolved: boolean;
+  via: string | null;
+  item: InvItem | null;
+  lot?: Record<string, unknown> | null;
+  stock?: InvStockRow[] | Record<string, unknown> | null;
+}
+
+export interface InvLowStockRow {
+  sku: string;
+  name: string;
+  location_code: string;
+  on_hand: number;
+  par_level: number;
+  deficit: number;
+}
+
+export interface InvExpiryRow {
+  sku: string;
+  name: string;
+  location_code: string;
+  lot_number: string | null;
+  expiry_date: string | null;
+  quantity: number;
+  days_to_expiry: number | null;
+  expired: boolean;
+}
+
+export interface InvImplantTraceRow {
+  sku?: string;
+  name?: string;
+  lot_number?: string | null;
+  serial?: string | null;
+  patient_ref?: string | null;
+  case_id?: string | null;
+  location_code?: string | null;
+  event?: string;
+  quantity?: number;
+  actor?: string | null;
+  created_at?: string | null;
+  [key: string]: unknown;
+}
+
+/** List endpoints in the inventory surface return either a bare array
+ *  or an {items} envelope depending on the route; unwrap both. */
+function invList<T>(body: unknown): T[] {
+  if (Array.isArray(body)) return body as T[];
+  if (body && typeof body === "object" && Array.isArray((body as { items?: unknown }).items)) {
+    return (body as { items: T[] }).items;
+  }
+  return [];
+}
+
+function invQuery(params: Record<string, string | number | boolean | undefined | null>): string {
+  const qs = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === "") continue;
+    qs.set(key, String(value));
+  }
+  const s = qs.toString();
+  return s ? `?${s}` : "";
+}
+
 export class ApiClient {
   private baseUrl: string;
   private getToken: () => string | null;
@@ -167,7 +697,13 @@ export class ApiClient {
   constructor(baseUrl: string, getToken: () => string | null, fetchFn: FetchFn = fetch) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
     this.getToken = getToken;
-    this.fetchFn = fetchFn;
+    // Wrap the fetch implementation so it is always invoked as a free
+    // function. The browser's native fetch throws "Illegal invocation"
+    // when called with any receiver other than Window — storing it and
+    // calling it as this.fetchFn(...) breaks every request in a real
+    // browser (test doubles don't enforce the receiver, which is how
+    // this shipped). The wrapper keeps custom implementations intact.
+    this.fetchFn = (url: RequestInfo | URL, init?: RequestInit) => fetchFn(url, init);
   }
 
   async request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -194,7 +730,7 @@ export class ApiClient {
       const detail =
         (data as { detail?: string } | undefined)?.detail ??
         `${response.status} ${response.statusText}`;
-      throw new ApiError(response.status, detail);
+      throw new ApiError(response.status, detail, data);
     }
     return data as T;
   }
@@ -226,6 +762,54 @@ export class ApiClient {
       throw new ApiError(response.status, detail);
     }
     return text;
+  }
+
+  /** Binary GET/POST download (Phase 13: report PDFs/CSVs, printable
+   *  documents, dataset exports). Returns the blob plus the server's
+   *  filename (Content-Disposition) and row count header when sent.
+   *  Errors surface as ApiError with the server's JSON detail. */
+  async requestBlob(
+    path: string,
+    init: RequestInit = {},
+  ): Promise<DownloadedFile> {
+    const headers = new Headers(init.headers);
+    const token = this.getToken();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    if (init.body) headers.set("Content-Type", "application/json");
+    let response: Response;
+    try {
+      response = await this.fetchFn(`${this.baseUrl}${path}`, {
+        ...init,
+        headers,
+      });
+    } catch {
+      throw new ApiError(0, `Cannot reach the OpenCare API at ${this.baseUrl}. Is the backend running?`);
+    }
+    if (!response.ok) {
+      const text = await response.text();
+      let detail = `${response.status} ${response.statusText}`;
+      try {
+        const parsed = JSON.parse(text) as {
+          detail?: string | { message?: string };
+        };
+        if (typeof parsed.detail === "string") detail = parsed.detail;
+        else if (parsed.detail?.message) detail = parsed.detail.message;
+      } catch {
+        // non-JSON error body — keep the status line
+      }
+      throw new ApiError(response.status, detail);
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get("Content-Disposition") ?? "";
+    const match = /filename="?([^";]+)"?/.exec(disposition);
+    const rowsHeader =
+      response.headers.get("X-Export-Rows") ??
+      response.headers.get("X-Report-Rows");
+    return {
+      blob,
+      filename: match ? match[1] : "download",
+      rows: rowsHeader ? Number(rowsHeader) : null,
+    };
   }
 
   /** GET /fhir/{Type} search — returns the resources inside the Bundle. */
@@ -279,9 +863,15 @@ export class ApiClient {
     return this.request("/lab/catalog");
   }
 
-  /** GET /lab/orders[?status=] — the order queue (staff roles). */
-  async labOrders(status?: string): Promise<ServiceRequest[]> {
-    const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+  /** GET /lab/orders[?status=][&bench=] — the order queue (staff
+   *  roles). `bench` filters to one bench's worklist (Depth pass:
+   *  the core benches share the spine, so their worklist is this
+   *  queue filtered by the catalog bench of each order's code). */
+  async labOrders(status?: string, bench?: string): Promise<ServiceRequest[]> {
+    const params = new URLSearchParams();
+    if (status) params.set("status", status);
+    if (bench) params.set("bench", bench);
+    const qs = params.toString() ? `?${params.toString()}` : "";
     const bundle = await this.request<Bundle<ServiceRequest>>(`/lab/orders${qs}`);
     return unwrapBundle(bundle);
   }
@@ -637,6 +1227,140 @@ export class ApiClient {
   /** GET /lab/qc/status?analyte_code= — is this analyte QC-blocked? */
   qcStatus(analyteCode: string): Promise<QcStatus> {
     return this.request(`/lab/qc/status?analyte_code=${encodeURIComponent(analyteCode)}`);
+  }
+
+  // ---- Depth pass: virology trends, send-outs, POCT programme,
+  // post-analytical governance ----
+
+  /** GET /lab/trends — a patient's RELEASED result series for one
+   *  analyte (viral-load trends; drafts never appear). */
+  labTrends(patientId: string, code: string): Promise<LabTrends> {
+    return this.request(
+      `/lab/trends?patient_id=${encodeURIComponent(patientId)}&code=${encodeURIComponent(code)}`,
+    );
+  }
+
+  /** GET /lab/governance — auto-verify state + rules, reflex rules,
+   *  delta checks and the stewardship window, read from the
+   *  published catalog (editing stays in Studio). */
+  labGovernance(): Promise<LabGovernance> {
+    return this.request("/lab/governance");
+  }
+
+  /** GET /lab/stewardship/duplicates — patient + analyte pairs with
+   *  more than one unfinished order inside the duplicate window. */
+  labStewardshipDuplicates(): Promise<StewardshipDuplicates> {
+    return this.request("/lab/stewardship/duplicates");
+  }
+
+  /** GET /lab/sendouts — orders routed to a reference laboratory,
+   *  with their send-out state. */
+  labSendouts(): Promise<SendoutQueue> {
+    return this.request("/lab/sendouts");
+  }
+
+  /** POST /lab/sendouts/dispatch — ship collected send-out orders
+   *  on one manifest to one reference laboratory. */
+  labSendoutDispatch(orderIds: string[], trackingRef?: string): Promise<SendoutManifest> {
+    return this.request("/lab/sendouts/dispatch", {
+      method: "POST",
+      body: JSON.stringify({
+        order_ids: orderIds,
+        ...(trackingRef ? { tracking_ref: trackingRef } : {}),
+      }),
+    });
+  }
+
+  /** POST /lab/sendouts/{id}/receive-result — file the reference
+   *  laboratory's returned result as a draft for verification. */
+  labSendoutReceiveResult(
+    orderId: string,
+    results: LabResultInput[],
+  ): Promise<LabResultsOutcome> {
+    return this.request(`/lab/sendouts/${encodeURIComponent(orderId)}/receive-result`, {
+      method: "POST",
+      body: JSON.stringify({ results }),
+    });
+  }
+
+  /** GET /lab/sendouts/tat — turnaround by reference laboratory. */
+  labSendoutTat(): Promise<SendoutTat> {
+    return this.request("/lab/sendouts/tat");
+  }
+
+  /** GET /lab/pathology/cytology-form — the published cytology form. */
+  pathologyCytologyForm(): Promise<{ form: FormDefinition; version: number }> {
+    return this.request("/lab/pathology/cytology-form");
+  }
+
+  /** POST /lab/pathology/orders/{id}/cytology-report — store the
+   *  cytology draft report (answers validated by the form machinery). */
+  pathologyCytologyReport(
+    orderId: string,
+    answers: QuestionnaireAnswerItem[],
+  ): Promise<{
+    report: DiagnosticReport;
+    order: ServiceRequest;
+    questionnaire_response: FhirResource;
+  }> {
+    return this.request(`/lab/pathology/orders/${encodeURIComponent(orderId)}/cytology-report`, {
+      method: "POST",
+      body: JSON.stringify({ answers }),
+    });
+  }
+
+  /** GET /lab/poct/devices — programme devices from the Phase 14
+   *  registry with today's QC state. */
+  labPoctDevices(): Promise<PoctDevices> {
+    return this.request("/lab/poct/devices");
+  }
+
+  /** GET /lab/poct/qc — recent POCT QC records. */
+  async labPoctQc(deviceKey?: string): Promise<PoctQcRecord[]> {
+    const qs = deviceKey ? `?device_key=${encodeURIComponent(deviceKey)}` : "";
+    const body = await this.request<{ items: PoctQcRecord[] }>(`/lab/poct/qc${qs}`);
+    return body.items;
+  }
+
+  /** POST /lab/poct/qc — record one QC run on a POCT device. */
+  labPoctRecordQc(input: {
+    device_key: string;
+    level: string;
+    result: string;
+  }): Promise<{ qc: PoctQcRecord; qc_current: boolean }> {
+    return this.request("/lab/poct/qc", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** GET /lab/poct/competency — competency records with computed
+   *  currency (status + expiry from the published validity window). */
+  async labPoctCompetency(staffId?: string): Promise<PoctCompetency[]> {
+    const qs = staffId ? `?staff_id=${encodeURIComponent(staffId)}` : "";
+    const body = await this.request<{ items: PoctCompetency[] }>(
+      `/lab/poct/competency${qs}`,
+    );
+    return body.items;
+  }
+
+  /** POST /lab/poct/competency — record an operator assessment. */
+  labPoctRecordCompetency(input: {
+    staff_id: string;
+    test_code: string;
+    method: string;
+    assessed_on: string;
+  }): Promise<{ competency: PoctCompetency }> {
+    return this.request("/lab/poct/competency", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** GET /lab/poct/overview — programme state: enforcement label,
+   *  devices due QC, expiring/expired competencies. */
+  labPoctOverview(): Promise<PoctOverview> {
+    return this.request("/lab/poct/overview");
   }
 
   // ---- Studio packs ----
@@ -1221,6 +1945,331 @@ export class ApiClient {
     });
   }
 
+  // ---- Phase 11: pharmacy department depth (/pharmacy, app/pharmacy_ops) ----
+  // Lot-level inventory + PAR worklists, DSCSA procurement, ADC restock,
+  // controlled substances, compounding, the verification + DUR queues,
+  // barcode payloads and the full five-rights BCMA scan. All thresholds
+  // (PAR, SLA, BUD, prefixes) are server-side Studio config.
+
+  /** GET /pharmacy/verification-queue — signed/active orders awaiting
+   *  pharmacist verification, priority-ordered with SLA posture. */
+  async pharmacyVerificationQueue(): Promise<VerificationQueueItem[]> {
+    const out = await this.request<{ items: VerificationQueueItem[] }>(
+      "/pharmacy/verification-queue",
+    );
+    return out.items;
+  }
+
+  /** POST /pharmacy/verification/{orderId}/verify — restricted items
+   *  need restrictionAcknowledged; non-formulary items are refused. */
+  verifyOrder(
+    orderId: string,
+    input: { restrictionAcknowledged?: boolean; note?: string } = {},
+  ): Promise<VerificationOutcome> {
+    return this.request(
+      `/pharmacy/verification/${encodeURIComponent(orderId)}/verify`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...(input.restrictionAcknowledged
+            ? { restriction_acknowledged: true }
+            : {}),
+          ...(input.note ? { note: input.note } : {}),
+        }),
+      },
+    );
+  }
+
+  /** GET /pharmacy/dur-queue — orders carrying DUR signals, plus the
+   *  interaction-checking status (inert without a knowledge source). */
+  durQueue(): Promise<DurQueueResponse> {
+    return this.request("/pharmacy/dur-queue");
+  }
+
+  /** GET /pharmacy/interactions/status — the integration point's state. */
+  interactionStatus(): Promise<InteractionStatus> {
+    return this.request("/pharmacy/interactions/status");
+  }
+
+  /** POST /pharmacy/interactions/check — pair-check medication codes;
+   *  with no knowledge source configured this reports no-source and
+   *  checks zero pairs (never a fabricated "no interactions"). */
+  interactionCheck(medicationCodes: string[]): Promise<InteractionCheckResult> {
+    return this.request("/pharmacy/interactions/check", {
+      method: "POST",
+      body: JSON.stringify({ medication_codes: medicationCodes }),
+    });
+  }
+
+  /** GET /pharmacy/inventory — lots by medication + location. */
+  inventory(): Promise<PharmacyInventoryResponse> {
+    return this.request("/pharmacy/inventory");
+  }
+
+  /** GET /pharmacy/inventory/worklist — low-stock (vs PAR/reorder) and
+   *  expiring/expired lot worklists. */
+  inventoryWorklist(): Promise<InventoryWorklist> {
+    return this.request("/pharmacy/inventory/worklist");
+  }
+
+  /** POST /pharmacy/inventory/adjust — audited lot adjustment; the
+   *  reason is required and the lot can never go negative. */
+  adjustStock(input: {
+    medicationCode: string;
+    location: string;
+    lotNumber: string;
+    delta: number;
+    reason: string;
+  }): Promise<AdjustStockResult> {
+    return this.request("/pharmacy/inventory/adjust", {
+      method: "POST",
+      body: JSON.stringify({
+        medication_code: input.medicationCode,
+        location: input.location,
+        lot_number: input.lotNumber,
+        delta: input.delta,
+        reason: input.reason,
+      }),
+    });
+  }
+
+  /** GET /pharmacy/procurement/orders — purchase orders, newest first. */
+  async purchaseOrders(): Promise<PurchaseOrder[]> {
+    const out = await this.request<{ items: PurchaseOrder[] }>(
+      "/pharmacy/procurement/orders",
+    );
+    return out.items;
+  }
+
+  /** POST /pharmacy/procurement/orders — create a PO (status ordered). */
+  createPurchaseOrder(input: {
+    supplier: string;
+    lines: Array<{ medicationCode: string; quantity: number }>;
+    note?: string;
+  }): Promise<PurchaseOrder> {
+    return this.request("/pharmacy/procurement/orders", {
+      method: "POST",
+      body: JSON.stringify({
+        supplier: input.supplier,
+        lines: input.lines.map((l) => ({
+          medication_code: l.medicationCode,
+          quantity: l.quantity,
+        })),
+        ...(input.note ? { note: input.note } : {}),
+      }),
+    });
+  }
+
+  /** POST /pharmacy/procurement/orders/{poId}/receive — receiving
+   *  captures DSCSA lot/expiry/serials per line into the ledger;
+   *  validated in full before anything is written. */
+  receivePurchaseOrder(
+    poId: string,
+    input: {
+      location?: string;
+      lines: Array<{
+        medicationCode: string;
+        quantity: number;
+        lotNumber: string;
+        expiryDate: string;
+        serials?: string[];
+      }>;
+    },
+  ): Promise<PurchaseOrder> {
+    return this.request(
+      `/pharmacy/procurement/orders/${encodeURIComponent(poId)}/receive`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...(input.location ? { location: input.location } : {}),
+          lines: input.lines.map((l) => ({
+            medication_code: l.medicationCode,
+            quantity: l.quantity,
+            lot_number: l.lotNumber,
+            expiry_date: l.expiryDate,
+            ...(l.serials ? { serials: l.serials } : {}),
+          })),
+        }),
+      },
+    );
+  }
+
+  /** GET /pharmacy/procurement/traceability — the DSCSA ledger. */
+  async traceability(): Promise<TraceabilityEntry[]> {
+    const out = await this.request<{ items: TraceabilityEntry[] }>(
+      "/pharmacy/procurement/traceability",
+    );
+    return out.items;
+  }
+
+  /** GET /pharmacy/adc/restock-list?location= — PAR top-up list for one
+   *  dispensing-cabinet location, with recent dispense demand. */
+  async adcRestockList(location: string): Promise<AdcRestockItem[]> {
+    const out = await this.request<{ items: AdcRestockItem[] }>(
+      `/pharmacy/adc/restock-list?location=${encodeURIComponent(location)}`,
+    );
+    return out.items;
+  }
+
+  /** GET /pharmacy/cs/book — the controlled-substance count book:
+   *  expected balances, unresolved discrepancies, recent waste. */
+  csBook(): Promise<CsBookResponse> {
+    return this.request("/pharmacy/cs/book");
+  }
+
+  /** POST /pharmacy/cs/counts — two-person shift count (expected vs
+   *  counted); a variance opens a discrepancy on the book. */
+  csCount(input: {
+    medicationCode: string;
+    location: string;
+    countedQuantity: number;
+    witness: string;
+  }): Promise<CsCount> {
+    return this.request("/pharmacy/cs/counts", {
+      method: "POST",
+      body: JSON.stringify({
+        medication_code: input.medicationCode,
+        location: input.location,
+        counted_quantity: input.countedQuantity,
+        witness: input.witness,
+      }),
+    });
+  }
+
+  /** POST /pharmacy/cs/counts/{countId}/resolve — a discrepancy must be
+   *  resolved with a reason before the book balances again. */
+  csResolve(countId: string, reason: string): Promise<CsCount> {
+    return this.request(
+      `/pharmacy/cs/counts/${encodeURIComponent(countId)}/resolve`,
+      { method: "POST", body: JSON.stringify({ reason }) },
+    );
+  }
+
+  /** POST /pharmacy/cs/waste — witnessed waste; the witness cannot be
+   *  the person recording it. */
+  csWaste(input: {
+    medicationCode: string;
+    location: string;
+    lotNumber: string;
+    quantity: number;
+    reason: string;
+    witness: string;
+  }): Promise<CsWasteResult> {
+    return this.request("/pharmacy/cs/waste", {
+      method: "POST",
+      body: JSON.stringify({
+        medication_code: input.medicationCode,
+        location: input.location,
+        lot_number: input.lotNumber,
+        quantity: input.quantity,
+        reason: input.reason,
+        witness: input.witness,
+      }),
+    });
+  }
+
+  /** GET /pharmacy/compounding/queue — batches awaiting verification,
+   *  plus the published compounding categories (BUD config). */
+  compoundingQueue(): Promise<CompoundingQueueResponse> {
+    return this.request("/pharmacy/compounding/queue");
+  }
+
+  /** POST /pharmacy/compounding/batches — create a batch record; the
+   *  beyond-use datetime is computed server-side from category config. */
+  createCompoundBatch(input: {
+    preparationName: string;
+    category: string;
+    storage: string;
+    patientRef?: string;
+    ingredients: Array<{
+      medicationCode?: string;
+      name?: string;
+      quantity?: string;
+      lotNumber: string;
+    }>;
+  }): Promise<CompoundBatch> {
+    return this.request("/pharmacy/compounding/batches", {
+      method: "POST",
+      body: JSON.stringify({
+        preparation_name: input.preparationName,
+        category: input.category,
+        storage: input.storage,
+        ...(input.patientRef ? { patient_ref: input.patientRef } : {}),
+        ingredients: input.ingredients.map((i) => ({
+          ...(i.medicationCode ? { medication_code: i.medicationCode } : {}),
+          ...(i.name ? { name: i.name } : {}),
+          ...(i.quantity ? { quantity: i.quantity } : {}),
+          lot_number: i.lotNumber,
+        })),
+      }),
+    });
+  }
+
+  /** POST /pharmacy/compounding/batches/{batchId}/verify — the verifier
+   *  cannot be the preparer. */
+  verifyCompoundBatch(batchId: string): Promise<CompoundBatch> {
+    return this.request(
+      `/pharmacy/compounding/batches/${encodeURIComponent(batchId)}/verify`,
+      { method: "POST", body: JSON.stringify({}) },
+    );
+  }
+
+  /** POST /pharmacy/barcodes/wristband — wristband payload for a patient
+   *  (patient id + DOB check digits, from the governed standard). */
+  barcodeWristband(patientId: string): Promise<WristbandPayload> {
+    return this.request("/pharmacy/barcodes/wristband", {
+      method: "POST",
+      body: JSON.stringify({ patient_id: patientId }),
+    });
+  }
+
+  /** POST /pharmacy/barcodes/med-label — unit-dose label payload for a
+   *  dispense (dispense id + allocated lot). */
+  barcodeMedLabel(dispenseId: string): Promise<MedLabelPayload> {
+    return this.request("/pharmacy/barcodes/med-label", {
+      method: "POST",
+      body: JSON.stringify({ dispense_id: dispenseId }),
+    });
+  }
+
+  /** POST /pharmacy/barcodes/parse — parse + validate any payload. */
+  barcodeParse(payload: string): Promise<BarcodeParseResult> {
+    return this.request("/pharmacy/barcodes/parse", {
+      method: "POST",
+      body: JSON.stringify({ payload }),
+    });
+  }
+
+  /** POST /pharmacy/bcma/administer — the full five-rights scan.
+   *  Patient/medication/dispense mismatches are absolute hard stops;
+   *  dose/route/time failures need an override reason, which is
+   *  audited and stamped on the administration. */
+  bcmaAdminister(input: {
+    wristbandPayload: string;
+    medLabelPayload: string;
+    overrideReason?: string;
+  }): Promise<BcmaOutcome> {
+    return this.request("/pharmacy/bcma/administer", {
+      method: "POST",
+      body: JSON.stringify({
+        wristband_payload: input.wristbandPayload,
+        med_label_payload: input.medLabelPayload,
+        ...(input.overrideReason
+          ? { override_reason: input.overrideReason }
+          : {}),
+      }),
+    });
+  }
+
+  /** GET /pharmacy/patients/{patientId}/dispenses — a patient's
+   *  dispense history with allocated lots (MAR simulator feed). */
+  async patientDispenses(patientId: string): Promise<PatientDispenseItem[]> {
+    const out = await this.request<{ items: PatientDispenseItem[] }>(
+      `/pharmacy/patients/${encodeURIComponent(patientId)}/dispenses`,
+    );
+    return out.items;
+  }
+
   // ---- Phase 4B: ED board (/ed) ----
   // Tracking states + transitions come from the published Studio
   // workflow config (ed-flow) on the server; wait times are computed
@@ -1417,7 +2466,8 @@ export class ApiClient {
     encounter?: string;
     instructions?: string;
     allergyOverrideReason?: string;
-    dosageInstruction?: Record<string, unknown>[];
+    dosageInstruction?: DosageInstruction[];
+    dosage_text?: string;
   }): Promise<PlaceOrderOutcome> {
     return this.request("/orders", {
       method: "POST",
@@ -1461,6 +2511,32 @@ export class ApiClient {
   marDue(patient: string, from: string, to: string): Promise<MarDueResponse> {
     const qs = new URLSearchParams({ patient, from, to });
     return this.request(`/orders/mar/due?${qs.toString()}`);
+  }
+
+  // ---- Wave A (CHART-B2): chart allergies ----
+  // AllergyIntolerance is a first-class resource on the generic FHIR
+  // surface: list/create ride search()/create(); the server validates
+  // code + patient.reference. There is no generic PUT for this type —
+  // an edit re-POSTs the full resource under its existing id, which
+  // the FHIR create path upserts (version increments, body replaces;
+  // pinned by backend/tests/test_wave_a_chart.py).
+
+  /** GET /fhir/AllergyIntolerance?patient= — the patient's allergy
+   *  list (the single source the chart banner, the allergies tab,
+   *  the diet tray-check and DUR all read). */
+  allergies(patient: string): Promise<AllergyIntolerance[]> {
+    return this.search<AllergyIntolerance>("AllergyIntolerance", { patient });
+  }
+
+  /** POST /fhir/AllergyIntolerance — record a new allergy (or NKDA). */
+  createAllergy(body: Record<string, unknown>): Promise<AllergyIntolerance> {
+    return this.create<AllergyIntolerance>("AllergyIntolerance", body);
+  }
+
+  /** Edit an existing allergy (status transitions, verification):
+   *  re-POST under the same id — see the upsert note above. */
+  updateAllergy(body: Record<string, unknown>): Promise<AllergyIntolerance> {
+    return this.create<AllergyIntolerance>("AllergyIntolerance", body);
   }
 
   // ---- Phase 5: clinical documentation (/notes, /flowsheets) ----
@@ -1913,6 +2989,1506 @@ export class ApiClient {
     return this.request(
       `/engagement/telehealth/appointments/${encodeURIComponent(appointmentId)}/workspace`,
     );
+  }
+
+  // ---- Phase 12: care-continuum operations (/continuum, app/continuum) ----
+  // ER operations, inpatient operations, outpatient operations,
+  // aftercare, the Capacity Command Center and safety operations. All
+  // thresholds/timers/templates come from the published
+  // terminology/continuum-ops config on the server.
+
+  /** GET /continuum/er/board — the Phase 4B ED board enriched with
+   *  per-ESI target timers (config), split-flow queues and the
+   *  diversion/surge banner. */
+  continuumErBoard(): Promise<ErOpsBoard> {
+    return this.request("/continuum/er/board");
+  }
+
+  /** GET /continuum/er/boarding — admitted patients waiting for beds. */
+  continuumBoarding(): Promise<BoardingBoard> {
+    return this.request("/continuum/er/boarding");
+  }
+
+  /** POST /continuum/er/diversion — set the facility diversion state
+   *  and surge level (config-driven states; audited server-side). */
+  setDiversion(input: { status: string; surgeLevel?: string; reason?: string }): Promise<{
+    diversion: string; surge_level: string; updated_by: string;
+  }> {
+    return this.request("/continuum/er/diversion", {
+      method: "POST",
+      body: JSON.stringify({
+        status: input.status,
+        ...(input.surgeLevel ? { surge_level: input.surgeLevel } : {}),
+        ...(input.reason ? { reason: input.reason } : {}),
+      }),
+    });
+  }
+
+  /** POST /continuum/er/activations — start a STEMI/stroke/trauma
+   *  activation timer (pathway targets copied from config). */
+  startActivation(encounterId: string, pathway: string): Promise<Activation> {
+    return this.request("/continuum/er/activations", {
+      method: "POST",
+      body: JSON.stringify({ encounter_id: encounterId, pathway }),
+    });
+  }
+
+  /** GET /continuum/er/activations?status=open */
+  async listActivations(status = "open"): Promise<Activation[]> {
+    const out = await this.request<{ items: Activation[] }>(
+      `/continuum/er/activations?status=${encodeURIComponent(status)}`,
+    );
+    return out.items;
+  }
+
+  /** POST /continuum/er/activations/{id}/milestone */
+  recordActivationMilestone(id: string, code: string): Promise<Activation> {
+    return this.request(
+      `/continuum/er/activations/${encodeURIComponent(id)}/milestone`,
+      { method: "POST", body: JSON.stringify({ code }) },
+    );
+  }
+
+  /** POST /continuum/er/activations/{id}/close */
+  closeActivation(id: string, outcome?: string): Promise<Activation> {
+    return this.request(
+      `/continuum/er/activations/${encodeURIComponent(id)}/close`,
+      { method: "POST", body: JSON.stringify({ outcome }) },
+    );
+  }
+
+  /** POST /continuum/er/encounters/{id}/lwbs — capture a
+   *  left-without-being-seen departure from waiting/triage. */
+  markLwbs(encounterId: string, note?: string): Promise<unknown> {
+    return this.request(
+      `/continuum/er/encounters/${encodeURIComponent(encounterId)}/lwbs`,
+      { method: "POST", body: JSON.stringify({ note }) },
+    );
+  }
+
+  /** POST /continuum/er/encounters/{id}/mse — record the EMTALA
+   *  medical screening exam (governed form answers). */
+  recordMse(encounterId: string, answers: QuestionnaireAnswerItem[]): Promise<unknown> {
+    return this.request(
+      `/continuum/er/encounters/${encodeURIComponent(encounterId)}/mse`,
+      { method: "POST", body: JSON.stringify({ answers }) },
+    );
+  }
+
+  /** POST /continuum/er/encounters/{id}/transfer-out — EMTALA transfer;
+   *  the server refuses (422) without an MSE on file and a complete
+   *  transfer certification. */
+  recordTransferOut(encounterId: string, answers: QuestionnaireAnswerItem[]): Promise<unknown> {
+    return this.request(
+      `/continuum/er/encounters/${encodeURIComponent(encounterId)}/transfer-out`,
+      { method: "POST", body: JSON.stringify({ answers }) },
+    );
+  }
+
+  /** GET /continuum/er/callbacks — results-callback queue for departed
+   *  ED patients whose results are still pending. */
+  callbackQueue(): Promise<CallbackQueue> {
+    return this.request("/continuum/er/callbacks");
+  }
+
+  /** POST /continuum/er/callbacks/{reportId}/complete */
+  completeCallback(reportId: string, outcome: string, note?: string): Promise<unknown> {
+    return this.request(
+      `/continuum/er/callbacks/${encodeURIComponent(reportId)}/complete`,
+      { method: "POST", body: JSON.stringify({ outcome, note }) },
+    );
+  }
+
+  /** GET /continuum/inpatient/assignments — acuity-based nurse
+   *  assignments with per-nurse loads and overload flags. */
+  nurseAssignments(unit?: string): Promise<AssignmentBoard> {
+    const qs = unit ? `?unit=${encodeURIComponent(unit)}` : "";
+    return this.request(`/continuum/inpatient/assignments${qs}`);
+  }
+
+  /** POST /continuum/inpatient/assignments */
+  assignNurse(input: { encounterId: string; nurse: string; acuity: number }): Promise<unknown> {
+    return this.request("/continuum/inpatient/assignments", {
+      method: "POST",
+      body: JSON.stringify({
+        encounter_id: input.encounterId, nurse: input.nurse, acuity: input.acuity,
+      }),
+    });
+  }
+
+  /** GET /continuum/inpatient/discharge-readiness — the readiness
+   *  board behind the published discharge-readiness dashboard. */
+  dischargeReadiness(): Promise<DischargeReadiness> {
+    return this.request("/continuum/inpatient/discharge-readiness");
+  }
+
+  /** POST /continuum/inpatient/handoffs — an I-PASS handoff record
+   *  (governed form; all five sections required). */
+  recordHandoff(encounterId: string, answers: QuestionnaireAnswerItem[]): Promise<unknown> {
+    return this.request("/continuum/inpatient/handoffs", {
+      method: "POST",
+      body: JSON.stringify({ encounter_id: encounterId, answers }),
+    });
+  }
+
+  /** GET /continuum/inpatient/evs — EVS bed-turnaround tasks. */
+  async evsTasks(): Promise<EvsItem[]> {
+    const out = await this.request<{ items: EvsItem[] }>("/continuum/inpatient/evs");
+    return out.items;
+  }
+
+  /** POST /continuum/inpatient/evs/{taskId}/complete */
+  completeEvsTask(taskId: string): Promise<unknown> {
+    return this.request(
+      `/continuum/inpatient/evs/${encodeURIComponent(taskId)}/complete`,
+      { method: "POST", body: JSON.stringify({}) },
+    );
+  }
+
+  /** GET /continuum/clinic/templates — session templates from config. */
+  async clinicTemplates(): Promise<ClinicSessionTemplate[]> {
+    const out = await this.request<{ items: ClinicSessionTemplate[] }>(
+      "/continuum/clinic/templates",
+    );
+    return out.items;
+  }
+
+  /** GET /continuum/clinic/day?date= — one clinic day: sessions with
+   *  booked/overbooked counts plus the rooming queue. */
+  clinicDay(date: string): Promise<ClinicDay> {
+    return this.request(`/continuum/clinic/day?date=${encodeURIComponent(date)}`);
+  }
+
+  /** POST /continuum/clinic/book — book into a session template;
+   *  overbooking beyond the configured limit is refused (409). */
+  clinicBook(input: { patient: string; session: string; date: string }): Promise<{
+    appointment: Appointment; start: string; overbooked: boolean;
+  }> {
+    return this.request("/continuum/clinic/book", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** POST /continuum/clinic/appointments/{id}/check-in — mark a
+   *  booked patient arrived (UX audit F-1). Accepts the front
+   *  desk's registration.work or continuum.work server-side. */
+  clinicCheckIn(appointmentId: string): Promise<{
+    appointment_id: string; status: string; patient: string | null;
+  }> {
+    return this.request(
+      `/continuum/clinic/appointments/${encodeURIComponent(appointmentId)}/check-in`,
+      { method: "POST", body: JSON.stringify({}) },
+    );
+  }
+
+  /** POST /continuum/clinic/appointments/{id}/room */
+  roomAppointment(appointmentId: string, room: string): Promise<unknown> {
+    return this.request(
+      `/continuum/clinic/appointments/${encodeURIComponent(appointmentId)}/room`,
+      { method: "POST", body: JSON.stringify({ room }) },
+    );
+  }
+
+  /** GET /continuum/clinic/no-show-risks?date= — deterministic
+   *  no-show flags from each patient's own visit history. */
+  async noShowRisks(date: string): Promise<NoShowRiskItem[]> {
+    const out = await this.request<{ items: NoShowRiskItem[] }>(
+      `/continuum/clinic/no-show-risks?date=${encodeURIComponent(date)}`,
+    );
+    return out.items;
+  }
+
+  /** GET /continuum/referrals/loop — referral loop-closure stages
+   *  with ageing/stale flags. */
+  async referralLoop(): Promise<ReferralLoopItem[]> {
+    const out = await this.request<{ items: ReferralLoopItem[] }>(
+      "/continuum/referrals/loop",
+    );
+    return out.items;
+  }
+
+  /** POST /continuum/referrals/{id}/report-back — close the loop once
+   *  the consultation report is back. */
+  referralReportBack(referralId: string, note?: string): Promise<unknown> {
+    return this.request(
+      `/continuum/referrals/${encodeURIComponent(referralId)}/report-back`,
+      { method: "POST", body: JSON.stringify({ note }) },
+    );
+  }
+
+  /** GET /continuum/inbox — the asynchronous inbox across tasks,
+   *  messages, results and callbacks with per-type SLA breach flags. */
+  continuumInbox(type?: string): Promise<ContinuumInbox> {
+    const qs = type ? `?type=${encodeURIComponent(type)}` : "";
+    return this.request(`/continuum/inbox${qs}`);
+  }
+
+  /** POST /continuum/tasks/{taskId}/transition — work an inbox task. */
+  transitionContinuumTask(taskId: string, toStatus: string): Promise<unknown> {
+    return this.request(
+      `/continuum/tasks/${encodeURIComponent(taskId)}/transition`,
+      { method: "POST", body: JSON.stringify({ to_status: toStatus }) },
+    );
+  }
+
+  /** GET /continuum/panels/gaps — panel care-gap worklist computed
+   *  from registry/quality data. */
+  async careGaps(): Promise<CareGapItem[]> {
+    const out = await this.request<{ items: CareGapItem[] }>("/continuum/panels/gaps");
+    return out.items;
+  }
+
+  /** POST /continuum/panels/gaps/outreach — generate (idempotently)
+   *  the outreach task for one patient's care gap. */
+  careGapOutreach(gapCode: string, patient: string): Promise<unknown> {
+    return this.request("/continuum/panels/gaps/outreach", {
+      method: "POST",
+      body: JSON.stringify({ gap_code: gapCode, patient }),
+    });
+  }
+
+  /** POST /continuum/aftercare/teach-back — discharge teach-back
+   *  sign-off (governed form). */
+  recordTeachBack(encounterId: string, answers: QuestionnaireAnswerItem[]): Promise<unknown> {
+    return this.request("/continuum/aftercare/teach-back", {
+      method: "POST",
+      body: JSON.stringify({ encounter_id: encounterId, answers }),
+    });
+  }
+
+  /** GET /continuum/aftercare/readiness/{encounterId} */
+  aftercareReadiness(encounterId: string): Promise<ReadinessItem> {
+    return this.request(
+      `/continuum/aftercare/readiness/${encodeURIComponent(encounterId)}`,
+    );
+  }
+
+  /** GET /continuum/aftercare/calls — the 48–72h post-discharge call
+   *  queue (window from config). */
+  async aftercareCalls(): Promise<CallQueueItem[]> {
+    const out = await this.request<{ items: CallQueueItem[] }>(
+      "/continuum/aftercare/calls",
+    );
+    return out.items;
+  }
+
+  /** POST /continuum/aftercare/calls — record one call's scripted
+   *  outcome (outcomes list from config). */
+  recordAftercareCall(input: {
+    encounterId: string; outcome: string; reached?: boolean; note?: string;
+  }): Promise<unknown> {
+    return this.request("/continuum/aftercare/calls", {
+      method: "POST",
+      body: JSON.stringify({
+        encounter_id: input.encounterId, outcome: input.outcome,
+        reached: input.reached, note: input.note,
+      }),
+    });
+  }
+
+  /** GET /continuum/aftercare/readmission-risks — deterministic,
+   *  config-weighted scoring; labelled a triage aid server-side. */
+  async readmissionRisks(): Promise<{ items: ReadmissionRiskItem[]; basis: string }> {
+    return this.request("/continuum/aftercare/readmission-risks");
+  }
+
+  /** GET /continuum/aftercare/hah — hospital-at-home census board
+   *  (workflow only; no device feeds — those are Phase 14). */
+  hospitalAtHome(): Promise<HahBoard> {
+    return this.request("/continuum/aftercare/hah");
+  }
+
+  /** GET /continuum/command/overview — the Capacity Command Center
+   *  roll-up, all from live module data. */
+  commandOverview(): Promise<CommandOverview> {
+    return this.request("/continuum/command/overview");
+  }
+
+  /** Phase 17 (BD-69): subscribe to command-centre realtime fan-out
+   *  (SSE stream with automatic polling fallback — see
+   *  ./realtime.ts). Returns the connection; call close() on unmount. */
+  connectCommandRealtime(callbacks: {
+    onEvent: (event: import("./realtime").RealtimeEvent) => void;
+    onMode?: (mode: import("./realtime").RealtimeMode) => void;
+    pollIntervalMs?: number;
+  }): import("./realtime").RealtimeConnection {
+    const { connectRealtime } = realtimeModule;
+    return connectRealtime({
+      baseUrl: this.baseUrl,
+      getToken: this.getToken,
+      fetchFn: this.fetchFn,
+      channel: "command",
+      pollIntervalMs: callbacks.pollIntervalMs,
+      onEvent: callbacks.onEvent,
+      onMode: callbacks.onMode,
+    });
+  }
+
+  /** POST /continuum/command/bed-requests/{encounterId}/assign */
+  commandAssignBed(encounterId: string, bed: string): Promise<unknown> {
+    return this.request(
+      `/continuum/command/bed-requests/${encodeURIComponent(encounterId)}/assign`,
+      { method: "POST", body: JSON.stringify({ bed }) },
+    );
+  }
+
+  /** GET /continuum/command/transfers — transfer-centre requests. */
+  async transferRequests(status?: string): Promise<TransferRequestItem[]> {
+    const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+    const out = await this.request<{ items: TransferRequestItem[] }>(
+      `/continuum/command/transfers${qs}`,
+    );
+    return out.items;
+  }
+
+  /** POST /continuum/command/transfers — intake a new external
+   *  transfer request. */
+  createTransferRequest(input: {
+    patientName: string; referringFacility: string; reason: string;
+    patientAge?: number; patientSex?: string; serviceLine?: string;
+    urgency?: string; contact?: string;
+  }): Promise<TransferRequestItem> {
+    return this.request("/continuum/command/transfers", {
+      method: "POST",
+      body: JSON.stringify({
+        patient_name: input.patientName,
+        referring_facility: input.referringFacility,
+        reason: input.reason,
+        patient_age: input.patientAge,
+        patient_sex: input.patientSex,
+        service_line: input.serviceLine,
+        urgency: input.urgency,
+        contact: input.contact,
+      }),
+    });
+  }
+
+  /** POST /continuum/command/transfers/{id}/decide — accept creates
+   *  an admission task; decline requires a reason (server-enforced). */
+  decideTransfer(id: string, decision: "accept" | "decline", reason?: string): Promise<TransferRequestItem> {
+    return this.request(
+      `/continuum/command/transfers/${encodeURIComponent(id)}/decide`,
+      { method: "POST", body: JSON.stringify({ decision, reason }) },
+    );
+  }
+
+  /** GET /continuum/command/transport — transport dispatch list. */
+  async transportRequests(): Promise<TransportItem[]> {
+    const out = await this.request<{ items: TransportItem[] }>(
+      "/continuum/command/transport",
+    );
+    return out.items;
+  }
+
+  /** POST /continuum/command/transport/{id}/transition */
+  transitionTransport(id: string, toStatus: string, transporter?: string): Promise<TransportItem> {
+    return this.request(
+      `/continuum/command/transport/${encodeURIComponent(id)}/transition`,
+      { method: "POST", body: JSON.stringify({ to_status: toStatus, transporter }) },
+    );
+  }
+
+  /** POST /continuum/safety/events — file a safety event (any staff
+   *  role; the confidential flag shields the reporter in listings). */
+  fileSafetyEvent(input: {
+    description: string; category?: string; harmLevel?: string;
+    unit?: string; patient?: string; confidential?: boolean;
+  }): Promise<SafetyEventItem> {
+    return this.request("/continuum/safety/events", {
+      method: "POST",
+      body: JSON.stringify({
+        description: input.description,
+        category: input.category,
+        harm_level: input.harmLevel,
+        unit: input.unit,
+        patient: input.patient,
+        confidential: input.confidential,
+      }),
+    });
+  }
+
+  /** GET /continuum/safety/events — the triage queue (safety.review). */
+  async safetyEvents(status?: string): Promise<SafetyEventItem[]> {
+    const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+    const out = await this.request<{ items: SafetyEventItem[] }>(
+      `/continuum/safety/events${qs}`,
+    );
+    return out.items;
+  }
+
+  /** GET /continuum/safety/events/{id} — detail with the two-way
+   *  reviewer↔reporter follow-up thread. */
+  safetyEvent(id: string): Promise<SafetyEventDetail> {
+    return this.request(`/continuum/safety/events/${encodeURIComponent(id)}`);
+  }
+
+  /** POST /continuum/safety/events/{id}/messages */
+  safetyEventMessage(id: string, body: string): Promise<unknown> {
+    return this.request(
+      `/continuum/safety/events/${encodeURIComponent(id)}/messages`,
+      { method: "POST", body: JSON.stringify({ body }) },
+    );
+  }
+
+  /** POST /continuum/safety/events/{id}/triage */
+  triageSafetyEvent(id: string, input: {
+    status?: string; harmLevel?: string; rcaRequired?: boolean; note?: string;
+  }): Promise<SafetyEventItem> {
+    return this.request(
+      `/continuum/safety/events/${encodeURIComponent(id)}/triage`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          status: input.status, harm_level: input.harmLevel,
+          rca_required: input.rcaRequired, note: input.note,
+        }),
+      },
+    );
+  }
+
+  /** GET /continuum/safety/rca — the RCA workqueue. */
+  async safetyRcaQueue(): Promise<SafetyEventItem[]> {
+    const out = await this.request<{ items: SafetyEventItem[] }>(
+      "/continuum/safety/rca",
+    );
+    return out.items;
+  }
+
+  /** GET /continuum/safety/summary — unit safety summary (the data
+   *  behind the published unit-safety dashboard). */
+  safetySummary(unit?: string): Promise<SafetySummary> {
+    const qs = unit ? `?unit=${encodeURIComponent(unit)}` : "";
+    return this.request(`/continuum/safety/summary${qs}`);
+  }
+
+  // ---- Depth pass (Workstream 2): clinical journeys deepened ----
+  // The three governed additions of the depth pass: the WHO surgical
+  // safety checklist on the surgery board, the interdisciplinary
+  // rounds checklist on the unit board, and discharge medication
+  // reconciliation feeding the readiness board. All three are
+  // published Studio forms on the server; required items are enforced
+  // server-side and refusals surface as ApiError details in the pages.
+
+  /** POST /surgery/cases/{id}/safety-checklist — record ONE section
+   *  (sign-in | time-out | sign-out) of the WHO checklist for a case.
+   *  A 409 from a later transition names the missing section. */
+  submitSafetyChecklist(
+    caseId: string,
+    section: "sign-in" | "time-out" | "sign-out",
+    answers: QuestionnaireAnswerItem[],
+  ): Promise<{
+    case: SurgeryCaseEntry | null;
+    section: string;
+    safety_checklist: SafetyChecklistStatus;
+  }> {
+    return this.request(
+      `/surgery/cases/${encodeURIComponent(caseId)}/safety-checklist`,
+      { method: "POST", body: JSON.stringify({ section, answers }) },
+    );
+  }
+
+  /** GET /continuum/inpatient/rounds?unit= — the structured rounds
+   *  list for one unit, each item carrying rounds_checklist_today. */
+  inpatientRounds(unit: string): Promise<RoundsList> {
+    return this.request(
+      `/continuum/inpatient/rounds?unit=${encodeURIComponent(unit)}`,
+    );
+  }
+
+  /** POST /continuum/inpatient/rounds-checklist — record the
+   *  interdisciplinary rounds checklist for an active admission. */
+  submitRoundsChecklist(
+    encounterId: string,
+    answers: QuestionnaireAnswerItem[],
+  ): Promise<unknown> {
+    return this.request("/continuum/inpatient/rounds-checklist", {
+      method: "POST",
+      body: JSON.stringify({ encounter_id: encounterId, answers }),
+    });
+  }
+
+  /** POST /continuum/inpatient/discharge-med-rec — record the
+   *  discharge medication reconciliation for an admission (the
+   *  readiness board's fourth element). */
+  submitDischargeMedRec(
+    encounterId: string,
+    answers: QuestionnaireAnswerItem[],
+  ): Promise<unknown> {
+    return this.request("/continuum/inpatient/discharge-med-rec", {
+      method: "POST",
+      body: JSON.stringify({ encounter_id: encounterId, answers }),
+    });
+  }
+
+  // ---- Phase 13: people & data platform (/people, /reports) ----
+
+  /** GET /people/config — the published workforce config (roles,
+   *  units, shift templates, credential types, expiry windows). */
+  workforceConfig(): Promise<WorkforceConfig> {
+    return this.request("/people/config");
+  }
+
+  /** GET /people/staff — the staff directory. Placement filters
+   *  (Organisation pass) are server-side query params; only the
+   *  filters actually set are sent. */
+  async listStaff(
+    params: {
+      unit?: string;
+      region?: string;
+      location?: string;
+      department?: string;
+    } = {},
+  ): Promise<StaffMember[]> {
+    const qs = new URLSearchParams();
+    if (params.unit) qs.set("unit", params.unit);
+    if (params.region) qs.set("region", params.region);
+    if (params.location) qs.set("location", params.location);
+    if (params.department) qs.set("department", params.department);
+    const query = qs.toString();
+    const out = await this.request<{ items: StaffMember[] }>(
+      `/people/staff${query ? `?${query}` : ""}`,
+    );
+    return out.items;
+  }
+
+  /** GET /people/credentials/worklist — expired + expiring credentials
+   *  inside the config worklist window, soonest first. */
+  credentialWorklist(): Promise<CredentialWorklist> {
+    return this.request("/people/credentials/worklist");
+  }
+
+  /** GET /people/credentials — every credential with computed status. */
+  async listCredentials(): Promise<StaffCredential[]> {
+    const out = await this.request<{ items: StaffCredential[] }>(
+      "/people/credentials",
+    );
+    return out.items;
+  }
+
+  /** POST /people/credentials/scan — evaluate the expiry rules over
+   *  the alert window (idempotent; raises renewal Tasks). */
+  scanCredentials(): Promise<{ scanned: number; alerted: number; alert_window_days: number }> {
+    return this.request("/people/credentials/scan", { method: "POST" });
+  }
+
+  /** GET /people/roster — shift instances (one day when `date` set). */
+  async listRoster(date?: string): Promise<RosterShift[]> {
+    const qs = date
+      ? `?date_from=${encodeURIComponent(date)}&date_to=${encodeURIComponent(date)}`
+      : "";
+    const out = await this.request<{ items: RosterShift[] }>(
+      `/people/roster${qs}`,
+    );
+    return out.items;
+  }
+
+  /** GET /people/on-call/now — who is on call per service line. */
+  onCallNow(): Promise<OnCallNow> {
+    return this.request("/people/on-call/now");
+  }
+
+  /** GET /people/home-dashboard — the signed-in user's audience
+   *  dashboard (published config), or dashboard: null to fall back. */
+  homeDashboard(): Promise<HomeDashboard> {
+    return this.request("/people/home-dashboard");
+  }
+
+  /** GET /home/cards — live Home card indicators (Home & Module UX
+   *  pass). One entry per staff module with a real provider; modules
+   *  without a provider are absent. Accepts either the wrapped
+   *  { cards: [...] } shape or a bare array, defensively. */
+  async homeCards(): Promise<HomeCard[]> {
+    const res = await this.request<HomeCardsResponse | HomeCard[]>("/home/cards");
+    if (Array.isArray(res)) return res;
+    return Array.isArray(res?.cards) ? res.cards : [];
+  }
+
+  /** GET /indicators/{key}/records — the analysis drill-down: the
+   *  published definition, the evaluated value, and the underlying
+   *  records behind the number (or records_supported=false + an
+   *  honest reason for aggregate warehouse sources). */
+  indicatorRecords(key: string): Promise<IndicatorRecordsResponse> {
+    return this.request(`/indicators/${encodeURIComponent(key)}/records`);
+  }
+
+  // ---- Front Door pass: accounts, registration, unit-first home ----
+
+  /** PUT /people/staff/{id} — edit a directory entry; the server
+   *  validates against the published workforce config like create. */
+  updateStaff(staffId: string, patch: StaffUpdate): Promise<StaffMember> {
+    return this.request(`/people/staff/${encodeURIComponent(staffId)}`, {
+      method: "PUT",
+      body: JSON.stringify(patch),
+    });
+  }
+
+  /** GET /accounts — user accounts (admin: accounts.manage). */
+  async listAccounts(): Promise<UserAccount[]> {
+    const out = await this.request<{ items: UserAccount[] }>("/accounts");
+    return out.items;
+  }
+
+  /** POST /accounts — create an account. In dev mode the response
+   *  carries the one-time dev token; it is never readable again. */
+  createAccount(input: AccountInput): Promise<AccountCreated> {
+    return this.request("/accounts", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** PUT /accounts/{id} — update an account (username immutable). */
+  updateAccount(accountId: number, patch: AccountUpdate): Promise<UserAccount> {
+    return this.request(`/accounts/${accountId}`, {
+      method: "PUT",
+      body: JSON.stringify(patch),
+    });
+  }
+
+  /** POST /accounts/{id}/disable — a disabled account's sign-in
+   *  stops authenticating immediately. */
+  disableAccount(accountId: number): Promise<UserAccount> {
+    return this.request(`/accounts/${accountId}/disable`, { method: "POST" });
+  }
+
+  /** POST /accounts/{id}/enable — reverse a disable. */
+  enableAccount(accountId: number): Promise<UserAccount> {
+    return this.request(`/accounts/${accountId}/enable`, { method: "POST" });
+  }
+
+  /** PUT /fhir/Patient/{id} — full-resource replace (the one FHIR
+   *  update route; last-write-wins, audited with changed-field
+   *  names). Entered-in-error is an update with active: false. */
+  updatePatient(id: string, body: Record<string, unknown>): Promise<Patient> {
+    return this.request(`/fhir/Patient/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** POST /registration/patients/check-duplicates — candidate
+   *  records matching name + date of birth. */
+  async patientDuplicateCheck(input: {
+    family: string;
+    given: string;
+    birthDate: string;
+  }): Promise<DuplicateCandidate[]> {
+    const out = await this.request<{ candidates: DuplicateCandidate[] }>(
+      "/registration/patients/check-duplicates",
+      { method: "POST", body: JSON.stringify(input) },
+    );
+    return out.candidates;
+  }
+
+  /** POST /registration/patients — register a patient (MRN assigned
+   *  from the published format). A name+DOB match without
+   *  confirm_duplicate is a 409 whose ApiError.body carries the
+   *  candidates. */
+  registerPatient(input: RegistrationInput): Promise<RegistrationResult> {
+    return this.request("/registration/patients", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** GET /people/my-unit-patients — active admissions in the
+   *  caller's own unit (unit: null when the caller has none). */
+  myUnitPatients(): Promise<MyUnitPatients> {
+    return this.request("/people/my-unit-patients");
+  }
+
+  /** GET /people/my-patients — active admissions where the caller
+   *  is the attending of record. */
+  myPatients(): Promise<MyPatients> {
+    return this.request("/people/my-patients");
+  }
+
+  /** GET /registration/frontdesk/today — the front-desk day: today's
+   *  appointments, arrivals awaiting check-in/rooming, the open
+   *  waitlist and today's registrations. */
+  frontdeskToday(): Promise<FrontdeskToday> {
+    return this.request("/registration/frontdesk/today");
+  }
+
+  /** GET /inpatient/locations/draft-status — which locations
+   *  version is live and whether a draft is pending publish. */
+  locationsDraftStatus(): Promise<LocationsDraftStatus> {
+    return this.request("/inpatient/locations/draft-status");
+  }
+
+  /** POST /inpatient/locations/draft — compose unit/bed edits into
+   *  the governed locations DRAFT. Nothing goes live until a human
+   *  publishes the draft in System Studio. */
+  composeLocationsDraft(operations: LocationDraftOp[]): Promise<LocationsDraftResult> {
+    return this.request("/inpatient/locations/draft", {
+      method: "POST",
+      body: JSON.stringify({ operations }),
+    });
+  }
+
+  /** GET /reports/catalogue — published report definitions. */
+  async reportsCatalogue(): Promise<ReportDefinition[]> {
+    const out = await this.request<{ items: ReportDefinition[] }>(
+      "/reports/catalogue",
+    );
+    return out.items;
+  }
+
+  /** POST /reports/{key}/run — run a catalogue report and download
+   *  the rendered file (PDF or CSV). Generation is audited server-side. */
+  runReport(
+    key: string,
+    format: string,
+    params: Record<string, string | number> = {},
+  ): Promise<DownloadedFile> {
+    return this.requestBlob(`/reports/${encodeURIComponent(key)}/run`, {
+      method: "POST",
+      body: JSON.stringify({ format, params }),
+    });
+  }
+
+  /** GET /reports/documents/invoice/{claimId} — printable invoice PDF. */
+  printInvoice(claimId: string): Promise<DownloadedFile> {
+    return this.requestBlob(
+      `/reports/documents/invoice/${encodeURIComponent(claimId)}`,
+    );
+  }
+
+  /** GET /reports/documents/receipt/{paymentId} — payment receipt PDF. */
+  printReceipt(paymentId: string): Promise<DownloadedFile> {
+    return this.requestBlob(
+      `/reports/documents/receipt/${encodeURIComponent(paymentId)}`,
+    );
+  }
+
+  /** GET /reports/documents/statement/{patient} — patient statement PDF. */
+  printStatement(patient: string): Promise<DownloadedFile> {
+    return this.requestBlob(
+      `/reports/documents/statement/${encodeURIComponent(patient)}`,
+    );
+  }
+
+  /** GET /reports/documents/superbill/{encounterId} — superbill PDF
+   *  (422 when the encounter has no HIM coding record). */
+  printSuperbill(encounterId: string): Promise<DownloadedFile> {
+    return this.requestBlob(
+      `/reports/documents/superbill/${encodeURIComponent(encounterId)}`,
+    );
+  }
+
+  /** GET /reports/exports/datasets — the named exportable datasets. */
+  async exportDatasets(): Promise<ExportDataset[]> {
+    const out = await this.request<{ items: ExportDataset[] }>(
+      "/reports/exports/datasets",
+    );
+    return out.items;
+  }
+
+  /** POST /reports/exports — run a named dataset export (audited;
+   *  above the config row threshold a reason is required). */
+  runExport(input: {
+    dataset: string;
+    format?: string;
+    reason?: string;
+  }): Promise<DownloadedFile> {
+    return this.requestBlob("/reports/exports", {
+      method: "POST",
+      body: JSON.stringify({
+        dataset: input.dataset,
+        format: input.format ?? "csv",
+        reason: input.reason,
+      }),
+    });
+  }
+
+  /** GET /reports/imports/profiles — published mapping profiles. */
+  async importProfiles(): Promise<ImportProfile[]> {
+    const out = await this.request<{ items: ImportProfile[] }>(
+      "/reports/imports/profiles",
+    );
+    return out.items;
+  }
+
+  /** POST /reports/imports/validate — full error report; writes nothing. */
+  validateImport(profile: string, csv: string): Promise<ImportValidation> {
+    return this.request("/reports/imports/validate", {
+      method: "POST",
+      body: JSON.stringify({ profile, csv }),
+    });
+  }
+
+  /** POST /reports/imports/commit — all-or-nothing import. */
+  commitImport(
+    profile: string,
+    csv: string,
+  ): Promise<{ imported: number; entity_type: string; profile: string }> {
+    return this.request("/reports/imports/commit", {
+      method: "POST",
+      body: JSON.stringify({ profile, csv }),
+    });
+  }
+
+  // ---- Phase 14: devices, IoT, data lake & pipelines ----
+
+  /** GET /devices — the device registry with computed calibration
+   *  state and gate block reasons. Feeds are labelled simulated. */
+  devices(): Promise<DevicesResponse> {
+    return this.request("/devices");
+  }
+
+  /** GET /devices/config — published device config + MQTT configured. */
+  devicesConfig(): Promise<DevicesConfigResponse> {
+    return this.request("/devices/config");
+  }
+
+  /** GET /devices/calibration-worklist — overdue + due-soon devices. */
+  calibrationWorklist(): Promise<{ items: DeviceItem[]; total: number }> {
+    return this.request("/devices/calibration-worklist");
+  }
+
+  /** POST /devices/{key}/calibration — record a calibration; the due
+   *  date is computed server-side from the published interval. */
+  recordCalibration(
+    deviceKey: string,
+    performedAt: string,
+  ): Promise<DeviceItem> {
+    return this.request(`/devices/${encodeURIComponent(deviceKey)}/calibration`, {
+      method: "POST",
+      body: JSON.stringify({ performed_at: performedAt }),
+    });
+  }
+
+  /** GET /devices/feeds/status — honest feed state (MQTT off when no
+   *  broker is configured; the MLLP gate policy as published). */
+  feedsStatus(): Promise<FeedsStatus> {
+    return this.request("/devices/feeds/status");
+  }
+
+  /** GET /devices/readings — curated device readings. */
+  async deviceReadings(params: {
+    device_key?: string;
+    excursion?: boolean;
+  } = {}): Promise<DeviceReading[]> {
+    const qs = new URLSearchParams();
+    if (params.device_key) qs.set("device_key", params.device_key);
+    if (params.excursion) qs.set("excursion", "true");
+    const query = qs.toString();
+    const out = await this.request<{ items: DeviceReading[] }>(
+      `/devices/readings${query ? `?${query}` : ""}`,
+    );
+    return out.items;
+  }
+
+  /** GET /devices/lake — the append-only raw zone (summaries). */
+  lakeEntries(params: {
+    payload_type?: string;
+    disposition?: string;
+    device_key?: string;
+  } = {}): Promise<LakeResponse> {
+    const qs = new URLSearchParams();
+    if (params.payload_type) qs.set("payload_type", params.payload_type);
+    if (params.disposition) qs.set("disposition", params.disposition);
+    if (params.device_key) qs.set("device_key", params.device_key);
+    const query = qs.toString();
+    return this.request(`/devices/lake${query ? `?${query}` : ""}`);
+  }
+
+  /** GET /devices/lake/{id} — one raw entry with its full payload. */
+  lakeEntry(id: number): Promise<LakeEntry> {
+    return this.request(`/devices/lake/${id}`);
+  }
+
+  /** GET /devices/lineage/{type}/{id} — where a curated value came from. */
+  lineage(resourceType: string, resourceId: string): Promise<LineageResponse> {
+    return this.request(
+      `/devices/lineage/${encodeURIComponent(resourceType)}/${encodeURIComponent(resourceId)}`,
+    );
+  }
+
+  /** GET /devices/quarantine — held items (device ingest + pipelines). */
+  async quarantine(status = "held"): Promise<QuarantineItem[]> {
+    const out = await this.request<{ items: QuarantineItem[] }>(
+      `/devices/quarantine?status=${encodeURIComponent(status)}`,
+    );
+    return out.items;
+  }
+
+  /** POST /devices/quarantine/{id}/release — release a hold (audited). */
+  releaseQuarantine(
+    id: number,
+    note?: string,
+  ): Promise<{ quarantine: QuarantineItem; outcome: Record<string, unknown> }> {
+    return this.request(`/devices/quarantine/${id}/release`, {
+      method: "POST",
+      body: JSON.stringify({ note }),
+    });
+  }
+
+  /** POST /devices/quarantine/{id}/reject — reject a hold; the note is
+   *  required server-side (422 without it). */
+  rejectQuarantine(
+    id: number,
+    note: string,
+  ): Promise<{ quarantine: QuarantineItem }> {
+    return this.request(`/devices/quarantine/${id}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ note }),
+    });
+  }
+
+  /** GET /pipelines/definitions — governed pipeline definitions. */
+  async pipelineDefinitions(): Promise<PipelineDefinition[]> {
+    const out = await this.request<{ items: PipelineDefinition[] }>(
+      "/pipelines/definitions",
+    );
+    return out.items;
+  }
+
+  /** POST /pipelines/{key}/run — start a run (pipelines.run). */
+  runPipeline(
+    key: string,
+    window: { window_start?: string; window_end?: string } = {},
+  ): Promise<PipelineRun> {
+    return this.request(`/pipelines/${encodeURIComponent(key)}/run`, {
+      method: "POST",
+      body: JSON.stringify(window),
+    });
+  }
+
+  /** GET /pipelines/runs — run history with per-step status. */
+  async pipelineRuns(pipelineKey?: string): Promise<PipelineRun[]> {
+    const query = pipelineKey
+      ? `?pipeline_key=${encodeURIComponent(pipelineKey)}`
+      : "";
+    const out = await this.request<{ items: PipelineRun[] }>(
+      `/pipelines/runs${query}`,
+    );
+    return out.items;
+  }
+
+  /** GET /pipelines/dead-letters — failed steps awaiting replay. */
+  async pipelineDeadLetters(): Promise<PipelineDeadLetter[]> {
+    const out = await this.request<{ items: PipelineDeadLetter[] }>(
+      "/pipelines/dead-letters",
+    );
+    return out.items;
+  }
+
+  /** POST /pipelines/dead-letters/{id}/replay — fresh run of the
+   *  letter's pipeline over the same scope. (Named apart from the
+   *  Phase 8 interop replayDeadLetter.) */
+  replayPipelineDeadLetter(id: number): Promise<PipelineRun> {
+    return this.request(`/pipelines/dead-letters/${id}/replay`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }
+
+  /** GET /pipelines/dedup/candidates — MPI duplicate candidates for
+   *  human review (the scan never merges). */
+  async dedupCandidates(status?: string): Promise<DedupCandidate[]> {
+    const query = status ? `?status=${encodeURIComponent(status)}` : "";
+    const out = await this.request<{ items: DedupCandidate[] }>(
+      `/pipelines/dedup/candidates${query}`,
+    );
+    return out.items;
+  }
+
+  /** POST /pipelines/dedup/candidates/{id}/review — record the human
+   *  decision; the response states merge_performed: false. */
+  reviewDedupCandidate(
+    id: number,
+    decision: "not-duplicates" | "confirmed-duplicate",
+    note?: string,
+  ): Promise<{ candidate: DedupCandidate; merge_performed: boolean }> {
+    return this.request(`/pipelines/dedup/candidates/${id}/review`, {
+      method: "POST",
+      body: JSON.stringify({ decision, note }),
+    });
+  }
+
+  // ---- Inventory & Materials (/inventory, WS-A backend) ----
+  // Reads ride inventory.read (staff incl. viewer); item-master / PAR
+  // / count writes ride inventory.manage and every stock movement
+  // rides inventory.move (admin / configurator / clinician) — the
+  // server enforces both; errors surface as ApiError {detail}.
+
+  /** GET /inventory/taxonomy — governed categories/subcategories,
+   *  adjustment reason codes and the expiry warning window. */
+  inventoryTaxonomy(): Promise<InvTaxonomy> {
+    return this.request("/inventory/taxonomy");
+  }
+
+  /** GET /inventory/overview — headline aggregates for the strip. */
+  inventoryOverview(): Promise<InvOverview> {
+    return this.request("/inventory/overview");
+  }
+
+  /** GET /inventory/items[?category&subcategory&active&q] */
+  async inventoryItems(params: {
+    category?: string;
+    subcategory?: string;
+    active?: boolean;
+    q?: string;
+  } = {}): Promise<InvItem[]> {
+    const body = await this.request<unknown>(
+      `/inventory/items${invQuery({
+        category: params.category,
+        subcategory: params.subcategory,
+        active: params.active === undefined ? undefined : String(params.active),
+        q: params.q,
+      })}`,
+    );
+    return invList<InvItem>(body);
+  }
+
+  /** GET /inventory/items/{sku} */
+  inventoryItem(sku: string): Promise<InvItem> {
+    return this.request(`/inventory/items/${encodeURIComponent(sku)}`);
+  }
+
+  /** POST /inventory/items — create an item-master record. */
+  createInventoryItem(input: InvItemInput): Promise<InvItem> {
+    return this.request("/inventory/items", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** PUT /inventory/items/{sku} — replace an item-master record. */
+  updateInventoryItem(sku: string, input: InvItemInput): Promise<InvItem> {
+    return this.request(`/inventory/items/${encodeURIComponent(sku)}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** GET /inventory/stock[?sku&location_code&category] — lot rows
+   *  with the effective unit cost and line value from the server. */
+  async inventoryStock(params: {
+    sku?: string;
+    location_code?: string;
+    category?: string;
+  } = {}): Promise<InvStockRow[]> {
+    const body = await this.request<unknown>(
+      `/inventory/stock${invQuery(params)}`,
+    );
+    return invList<InvStockRow>(body);
+  }
+
+  /** GET /inventory/par-levels */
+  async inventoryParLevels(): Promise<InvParLevel[]> {
+    const body = await this.request<unknown>("/inventory/par-levels");
+    return invList<InvParLevel>(body);
+  }
+
+  /** PUT /inventory/par-levels {sku, location_code, par_level, unit_level?} */
+  setInventoryParLevel(input: {
+    sku: string;
+    location_code: string;
+    par_level: number;
+    unit_level?: string;
+  }): Promise<InvParLevel> {
+    return this.request("/inventory/par-levels", {
+      method: "PUT",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** GET /inventory/movements[?sku&location_code&event&reference&patient_ref]
+   *  — the append-only ledger, newest first (server order). */
+  async inventoryMovements(params: {
+    sku?: string;
+    location_code?: string;
+    event?: string;
+    reference?: string;
+    patient_ref?: string;
+  } = {}): Promise<InvMovement[]> {
+    const body = await this.request<unknown>(
+      `/inventory/movements${invQuery(params)}`,
+    );
+    return invList<InvMovement>(body);
+  }
+
+  /** POST /inventory/movements/receive */
+  inventoryReceive(input: {
+    sku: string;
+    location_code: string;
+    quantity: number;
+    lot_number?: string;
+    serial?: string;
+    expiry_date?: string;
+    unit_cost_cents?: number;
+    reference?: string;
+    unit_level?: string;
+    containers?: Array<{ container_code?: string; quantity: number }>;
+    container_count?: number;
+    component_lots?: Array<{
+      sku: string;
+      lot_number?: string;
+      expiry_date?: string;
+    }>;
+  }): Promise<InvMovement> {
+    return this.request("/inventory/movements/receive", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** POST /inventory/movements/issue — FEFO allocation server-side. */
+  inventoryIssue(input: {
+    sku: string;
+    location_code: string;
+    quantity: number;
+    lot_number?: string;
+    reference?: string;
+    unit_level?: string;
+  }): Promise<InvMovement> {
+    return this.request("/inventory/movements/issue", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** POST /inventory/movements/transfer */
+  inventoryTransfer(input: {
+    sku: string;
+    from_location: string;
+    to_location: string;
+    quantity: number;
+    lot_number?: string;
+    unit_level?: string;
+  }): Promise<InvMovement> {
+    return this.request("/inventory/movements/transfer", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** POST /inventory/movements/adjust — reason_code from the taxonomy;
+   *  a note is required server-side when the reason is "other". */
+  inventoryAdjust(input: {
+    sku: string;
+    location_code: string;
+    lot_number?: string;
+    serial?: string;
+    quantity_delta: number;
+    reason_code: string;
+    note?: string;
+    unit_level?: string;
+  }): Promise<InvMovement> {
+    return this.request("/inventory/movements/adjust", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** POST /inventory/requisitions */
+  createInventoryRequisition(input: {
+    from_location_code: string;
+    to_location_code: string;
+    lines: Array<{ sku: string; quantity: number }>;
+    reference?: string;
+  }): Promise<InvRequisition> {
+    return this.request("/inventory/requisitions", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** GET /inventory/requisitions */
+  async inventoryRequisitions(): Promise<InvRequisition[]> {
+    const body = await this.request<unknown>("/inventory/requisitions");
+    return invList<InvRequisition>(body);
+  }
+
+  /** GET /inventory/requisitions/{req_id} */
+  inventoryRequisition(reqId: string): Promise<InvRequisition> {
+    return this.request(`/inventory/requisitions/${encodeURIComponent(reqId)}`);
+  }
+
+  /** POST /inventory/requisitions/{req_id}/issue {lines?} — issues
+   *  the remaining quantities when no lines are given. */
+  issueInventoryRequisition(
+    reqId: string,
+    lines?: Array<{ sku: string; quantity: number }>,
+  ): Promise<InvRequisition> {
+    return this.request(
+      `/inventory/requisitions/${encodeURIComponent(reqId)}/issue`,
+      {
+        method: "POST",
+        body: JSON.stringify(lines ? { lines } : {}),
+      },
+    );
+  }
+
+  /** POST /inventory/requisitions/{req_id}/cancel */
+  cancelInventoryRequisition(reqId: string): Promise<InvRequisition> {
+    return this.request(
+      `/inventory/requisitions/${encodeURIComponent(reqId)}/cancel`,
+      { method: "POST", body: JSON.stringify({}) },
+    );
+  }
+
+  /** POST /inventory/counts {location_code} — start a cycle count. */
+  startInventoryCount(locationCode: string): Promise<InvCount> {
+    return this.request("/inventory/counts", {
+      method: "POST",
+      body: JSON.stringify({ location_code: locationCode }),
+    });
+  }
+
+  /** GET /inventory/counts */
+  async inventoryCounts(): Promise<InvCount[]> {
+    const body = await this.request<unknown>("/inventory/counts");
+    return invList<InvCount>(body);
+  }
+
+  /** GET /inventory/counts/{count_id} */
+  inventoryCount(countId: string): Promise<InvCount> {
+    return this.request(`/inventory/counts/${encodeURIComponent(countId)}`);
+  }
+
+  /** POST /inventory/counts/{count_id}/complete {lines, reason_code?}
+   *  — a reason is required server-side when any variance is non-zero. */
+  completeInventoryCount(
+    countId: string,
+    input: {
+      lines: Array<{
+        sku: string;
+        lot_number?: string | null;
+        serial?: string | null;
+        counted: number;
+      }>;
+      reason_code?: string;
+    },
+  ): Promise<InvCount> {
+    return this.request(
+      `/inventory/counts/${encodeURIComponent(countId)}/complete`,
+      { method: "POST", body: JSON.stringify(input) },
+    );
+  }
+
+  /** POST /inventory/counts/{count_id}/cancel */
+  cancelInventoryCount(countId: string): Promise<InvCount> {
+    return this.request(
+      `/inventory/counts/${encodeURIComponent(countId)}/cancel`,
+      { method: "POST", body: JSON.stringify({}) },
+    );
+  }
+
+  /** POST /inventory/case-issues — draw a case card's bill of
+   *  materials from a location (FEFO, server-side). */
+  inventoryCaseIssue(input: {
+    card_id: string;
+    case_id: string;
+    location_code: string;
+    patient_ref?: string;
+  }): Promise<InvCaseIssueResult> {
+    return this.request("/inventory/case-issues", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** GET /inventory/case-issues[?case_id=] */
+  async inventoryCaseIssues(caseId?: string): Promise<InvCaseIssueResult[]> {
+    const body = await this.request<unknown>(
+      `/inventory/case-issues${invQuery({ case_id: caseId })}`,
+    );
+    return invList<InvCaseIssueResult>(body);
+  }
+
+  /** GET /inventory/implant-trace[?lot_number&patient_ref&sku] —
+   *  lot -> patient/case and patient -> lots in one row shape. */
+  async inventoryImplantTrace(params: {
+    lot_number?: string;
+    patient_ref?: string;
+    sku?: string;
+  } = {}): Promise<InvImplantTraceRow[]> {
+    const body = await this.request<unknown>(
+      `/inventory/implant-trace${invQuery(params)}`,
+    );
+    return invList<InvImplantTraceRow>(body);
+  }
+
+  /** POST /inventory/scan {value, context?, location_code?} —
+   *  resolve a scanned/typed identifier to item + lot + stock. */
+  inventoryScan(input: {
+    value: string;
+    context?: string;
+    location_code?: string;
+  }): Promise<InvScanResult> {
+    return this.request("/inventory/scan", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** POST /inventory/rfid-events {epc, reader_id?, zone?, context,
+   *  location_code?} — record one (simulated) reader event. */
+  inventoryRfidEvent(input: {
+    epc: string;
+    reader_id?: string;
+    zone?: string;
+    context: string;
+    location_code?: string;
+  }): Promise<Record<string, unknown>> {
+    return this.request("/inventory/rfid-events", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** GET /inventory/worklists/low-stock[?location_code&category] */
+  async inventoryLowStock(params: {
+    location_code?: string;
+    category?: string;
+  } = {}): Promise<InvLowStockRow[]> {
+    const body = await this.request<unknown>(
+      `/inventory/worklists/low-stock${invQuery(params)}`,
+    );
+    return invList<InvLowStockRow>(body);
+  }
+
+  /** GET /inventory/worklists/expiry[?location_code&category] */
+  async inventoryExpiry(params: {
+    location_code?: string;
+    category?: string;
+  } = {}): Promise<InvExpiryRow[]> {
+    const body = await this.request<unknown>(
+      `/inventory/worklists/expiry${invQuery(params)}`,
+    );
+    return invList<InvExpiryRow>(body);
+  }
+
+  /** POST /inventory/lots/verify — stamp a lot verification record. */
+  inventoryLotVerify(input: {
+    sku: string;
+    location_code: string;
+    lot_number: string;
+    serial?: string;
+    method: string;
+    result: string;
+    note?: string;
+  }): Promise<InvStockRow> {
+    return this.request("/inventory/lots/verify", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** POST /inventory/lots/stage — transition a lot through the stage machine. */
+  inventoryLotStage(input: {
+    sku: string;
+    location_code: string;
+    lot_number: string;
+    serial?: string;
+    to_stage: string;
+    reason_code?: string;
+    note?: string;
+  }): Promise<InvStockRow> {
+    return this.request("/inventory/lots/stage", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** GET /inventory/containers[?sku&location_code&lot_number&stage] */
+  async inventoryContainers(params: {
+    sku?: string;
+    location_code?: string;
+    lot_number?: string;
+    stage?: string;
+  } = {}): Promise<InvContainer[]> {
+    const body = await this.request<unknown>(
+      `/inventory/containers${invQuery(params)}`,
+    );
+    return invList<InvContainer>(body);
+  }
+
+  /** POST /inventory/containers/open */
+  inventoryContainerOpen(input: {
+    container_code: string;
+  }): Promise<InvContainer> {
+    return this.request("/inventory/containers/open", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** POST /inventory/containers/consume */
+  inventoryContainerConsume(input: {
+    container_code: string;
+    quantity: number;
+  }): Promise<InvContainer> {
+    return this.request("/inventory/containers/consume", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** POST /inventory/containers/dispose */
+  inventoryContainerDispose(input: {
+    container_code: string;
+    reason_code: string;
+    note?: string;
+  }): Promise<InvContainer> {
+    return this.request("/inventory/containers/dispose", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** POST /inventory/containers/transfer — move a whole container. */
+  inventoryContainerTransfer(input: {
+    container_code: string;
+    to_location_code: string;
+  }): Promise<{ container: InvContainer; movements: InvMovement[] }> {
+    return this.request("/inventory/containers/transfer", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** POST /inventory/kits/open */
+  inventoryKitOpen(input: {
+    sku: string;
+    location_code: string;
+    lot_number?: string;
+    quantity: number;
+  }): Promise<InvKitResult> {
+    return this.request("/inventory/kits/open", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** POST /inventory/kits/assemble */
+  inventoryKitAssemble(input: {
+    sku: string;
+    location_code: string;
+    quantity: number;
+    lot_number?: string;
+  }): Promise<InvKitResult> {
+    return this.request("/inventory/kits/assemble", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** POST /inventory/kits/disassemble */
+  inventoryKitDisassemble(input: {
+    sku: string;
+    location_code: string;
+    lot_number?: string;
+    quantity: number;
+  }): Promise<InvKitResult> {
+    return this.request("/inventory/kits/disassemble", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
   }
 }
 

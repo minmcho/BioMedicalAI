@@ -259,29 +259,40 @@ function stubClient(overrides: Record<string, unknown> = {}): ApiClient {
   } as unknown as ApiClient;
 }
 
+// Depth pass: the lab page renders one tab panel at a time (the
+// shared Tabs component), so bench assertions open their tab first.
+function clickTab(name: string) {
+  fireEvent.click(screen.getByRole("tab", { name }));
+}
+
 describe("LabPage Phase 6B", () => {
   it("renders the collection worklist, benches and operations sections", async () => {
     render(<LabPage client={stubClient()} role="clinician" />);
 
+    // collection worklist (Specimens tab)
+    clickTab("Specimens");
     expect(await screen.findByText("Collection worklist")).toBeTruthy();
     // worklist row: stat priority from the grouped payload
     expect(screen.getByText("stat")).toBeTruthy();
     // microbiology bench: the plated culture offers preliminary reporting
-    expect(await screen.findByText("Microbiology")).toBeTruthy();
-    expect(screen.getByText("ord-micro-1", { exact: false })).toBeTruthy();
+    clickTab("Microbiology");
     expect(
-      screen.getByRole("button", { name: "Preliminary report" }),
+      await screen.findByRole("button", { name: "Preliminary report" }),
     ).toBeTruthy();
+    expect(screen.getByText("ord-micro-1", { exact: false })).toBeTruthy();
     // blood bank: unit inventory + the active-hold banner
+    clickTab("Blood Bank");
     expect(await screen.findByText("Blood bank")).toBeTruthy();
     expect(screen.getByText("SYN-U1")).toBeTruthy();
     expect(screen.getByText(/Transfusion hold/)).toBeTruthy();
     // pathology bench: the histology case offers the synoptic report
+    clickTab("Pathology");
     expect(await screen.findByText("Anatomic pathology")).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Write synoptic report" }),
     ).toBeTruthy();
-    // operations: TAT bench row, EQA record, instrument registry
+    // operations (QC & EQA tab): TAT bench row, EQA record, instrument registry
+    clickTab("QC & EQA");
     expect(await screen.findByText("Laboratory operations")).toBeTruthy();
     expect(screen.getByText("SYN-EQA-2026-Q3")).toBeTruthy();
     expect(screen.getByText("SYN-AN-01")).toBeTruthy();
@@ -291,6 +302,7 @@ describe("LabPage Phase 6B", () => {
 
   it("shows delta flags and the amended state in the verification queue", async () => {
     render(<LabPage client={stubClient()} role="clinician" />);
+    clickTab("Verification");
     expect(await screen.findByText(/Δ 2823-3: 4 → 5 \(\+25\.0%\)/)).toBeTruthy();
     expect(screen.getByText(/AMENDED — Transcription error corrected/)).toBeTruthy();
   });
@@ -327,6 +339,7 @@ describe("LabPage Phase 6B", () => {
   it("records a preliminary culture result through the client", async () => {
     const client = stubClient();
     render(<LabPage client={client} role="clinician" />);
+    clickTab("Microbiology");
     const input = await screen.findByLabelText(
       "Preliminary finding for order ord-micro-1",
     );
@@ -343,6 +356,7 @@ describe("LabPage Phase 6B", () => {
   it("amends a released report only with a reason", async () => {
     const client = stubClient();
     render(<LabPage client={client} role="clinician" />);
+    clickTab("Verification");
     const input = await screen.findByLabelText(
       "Amendment reason for report rep-amended-1",
     );

@@ -28,6 +28,57 @@ function stubClient(overrides: Record<string, unknown> = {}): ApiClient {
     dischargePatient: vi.fn(async () => ({})),
     setDischargePlan: vi.fn(async () => ({})),
     create: vi.fn(async () => ({ resourceType: "QuestionnaireResponse", id: "qr-1" })),
+    // Front Door pass: the Units & Beds manager reads the published
+    // locations config and the locations draft status on mount.
+    inpatientLocations: vi.fn(async () => ({
+      locations: [
+        { code: "facility-main", display: "OpenCare Hospital", type: "facility", active: true },
+        { code: "dept-medicine", display: "Medicine", type: "department", parent: "facility-main", active: true },
+        { code: "unit-medsurg", display: "Medical-Surgical Unit", type: "unit", parent: "dept-medicine", active: true },
+        { code: "MS-101A", display: "MS 101 A", type: "bed", parent: "unit-medsurg", active: true },
+      ],
+      version: 3,
+      bed_statuses: ["available", "occupied", "cleaning"],
+    })),
+    // Organisation hierarchy (Placement pass): GET /org-hierarchy,
+    // fetched through client.request by api/org.
+    request: vi.fn(async (path: string) => {
+      if (path === "/org-hierarchy") {
+        return {
+          version: 5,
+          regions: [
+            {
+              code: "region-main", display: "OpenCare Region",
+              locations: [
+                {
+                  code: "facility-main", display: "OpenCare Hospital",
+                  departments: [
+                    {
+                      code: "dept-medicine", display: "Medicine",
+                      units: [
+                        { code: "unit-medsurg", display: "Medical-Surgical Unit", bed_count: 12 },
+                      ],
+                    },
+                    {
+                      code: "dept-critical-care", display: "Critical Care",
+                      units: [
+                        { code: "unit-icu", display: "Intensive Care Unit", bed_count: 6 },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        };
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    }),
+    locationsDraftStatus: vi.fn(async () => ({ published_version: 3, draft: null })),
+    composeLocationsDraft: vi.fn(async () => ({
+      version: 4, draft: true, operations: 1,
+      note: "Draft only — nothing is live until published in System Studio.",
+    })),
     ...overrides,
   } as unknown as ApiClient;
 }
@@ -147,6 +198,69 @@ describe("BedBoardPage", () => {
         }),
       );
       expect(client.dischargePatient).toHaveBeenCalledWith("enc-1", "home");
+    });
+  });
+
+  // UX pass (spec P-7): the Units & beds manager is its own tab now;
+  // the manager tests open it first (assertions unchanged).
+  async function openManagerTab() {
+    fireEvent.click(await screen.findByRole("tab", { name: "Units & beds manager" }));
+  }
+
+  it("renders the four-level org hierarchy tree with bed counts", async () => {
+    render(<BedBoardPage client={stubClient()} role="clinician" />);
+    await openManagerTab();
+    const tree = await screen.findByLabelText("Organisation hierarchy tree");
+    expect(tree.textContent).toContain("OpenCare Region");
+    expect(tree.textContent).toContain("(region)");
+    expect(tree.textContent).toContain("OpenCare Hospital");
+    expect(tree.textContent).toContain("(location)");
+    expect(tree.textContent).toContain("Medicine");
+    expect(tree.textContent).toContain("Critical Care");
+    expect(tree.textContent).toContain("(department)");
+    expect(tree.textContent).toContain("Medical-Surgical Unit — 12 beds");
+    expect(tree.textContent).toContain("Intensive Care Unit — 6 beds");
+  });
+
+  it("add-department composes the right locations draft operation", async () => {
+    const client = stubClient();
+    render(<BedBoardPage client={client} role="clinician" />);
+    await openManagerTab();
+    await screen.findByLabelText("New department code");
+    fireEvent.change(screen.getByLabelText("New department code"), {
+      target: { value: "dept-surgery" },
+    });
+    fireEvent.change(screen.getByLabelText("New department name"), {
+      target: { value: "Surgery" },
+    });
+    fireEvent.change(screen.getByLabelText("New department location"), {
+      target: { value: "facility-main" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add department to draft" }));
+    await waitFor(() => {
+      expect(client.composeLocationsDraft).toHaveBeenCalledWith([
+        { op: "add-department", code: "dept-surgery", display: "Surgery", location: "facility-main" },
+      ]);
+    });
+    expect(await screen.findByText(/Nothing is live yet/)).toBeTruthy();
+  });
+
+  it("add-region composes an add-region draft operation", async () => {
+    const client = stubClient();
+    render(<BedBoardPage client={client} role="clinician" />);
+    await openManagerTab();
+    await screen.findByLabelText("New region code");
+    fireEvent.change(screen.getByLabelText("New region code"), {
+      target: { value: "region-north" },
+    });
+    fireEvent.change(screen.getByLabelText("New region name"), {
+      target: { value: "North Region" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add region to draft" }));
+    await waitFor(() => {
+      expect(client.composeLocationsDraft).toHaveBeenCalledWith([
+        { op: "add-region", code: "region-north", display: "North Region" },
+      ]);
     });
   });
 

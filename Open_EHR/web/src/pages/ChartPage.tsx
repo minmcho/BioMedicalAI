@@ -1,7 +1,10 @@
-import { useState } from "react";
-import type { ApiClient } from "../api/client";
+import { useEffect, useState } from "react";
+import { fetchWristbandLabel } from "../api/barcodes";
+import { ApiError, type ApiClient } from "../api/client";
+import { saveDownloadedFile } from "../api/download";
 import { codeLabel, observationValue, patientName, refLabel, resourceDate, resourceStatus } from "../api/display";
 import type {
+  AllergyIntolerance,
   Condition,
   DiagnosticReport,
   Encounter,
@@ -12,9 +15,13 @@ import type {
   Role,
 } from "../api/types";
 import { useRuntimeConfig } from "../auth/runtimeConfig";
+import { ModuleHeader } from "../components/ModuleHeader";
+import { PatientEditForm } from "../components/PatientForms";
 import { Empty, ErrorView, Loading } from "../components/StatusViews";
+import { Tabs } from "../components/Tabs";
 import { useAsync } from "../hooks";
 import { AdmissionTab } from "./chart/AdmissionTab";
+import { AllergiesTab, allergyPosture } from "./chart/AllergiesTab";
 import { FlowsheetTab } from "./chart/FlowsheetTab";
 import { MarTab } from "./chart/MarTab";
 import { NotesTab } from "./chart/NotesTab";
@@ -28,6 +35,7 @@ interface ChartData {
   reports: DiagnosticReport[];
   procedures: Procedure[];
   encounters: Encounter[];
+  allergies: AllergyIntolerance[];
 }
 
 interface Props {
@@ -36,10 +44,11 @@ interface Props {
   role?: Role;
 }
 
-type ChartTab = "overview" | "orders" | "notes" | "flowsheet" | "mar" | "admission";
+type ChartTab = "overview" | "allergies" | "orders" | "notes" | "flowsheet" | "mar" | "admission";
 
 const TABS: { key: ChartTab; label: string }[] = [
   { key: "overview", label: "Overview" },
+  { key: "allergies", label: "Allergies" },
   { key: "orders", label: "Orders" },
   { key: "notes", label: "Notes" },
   { key: "flowsheet", label: "Flowsheet" },
@@ -52,17 +61,38 @@ const TABS: { key: ChartTab; label: string }[] = [
  *  tabs for orders, notes, flowsheets and the MAR; each tab loads its
  *  own data only when opened, and write actions follow the runtime
  *  permissions matrix for the signed-in role. */
+function errorText(err: unknown): string {
+  if (err instanceof ApiError) return err.detail;
+  return err instanceof Error ? err.message : String(err);
+}
+
 export function ChartPage({ client, patientId, role }: Props) {
   const [tab, setTab] = useState<ChartTab>("overview");
+  const [wristbandBusy, setWristbandBusy] = useState(false);
+  const [wristbandError, setWristbandError] = useState<string | null>(null);
+  const [wristbandNotice, setWristbandNotice] = useState<string | null>(null);
+  const [editingPatient, setEditingPatient] = useState(false);
+  const [chartTick, setChartTick] = useState(0);
   const { permissions } = useRuntimeConfig();
   const canPlaceOrders = role ? permissions["orders.place"]?.[role] === true : false;
   const canWriteNotes = role ? permissions["notes.write"]?.[role] === true : false;
   const canWorkInpatient = role ? permissions["inpatient.work"]?.[role] === true : false;
+  // Front Door pass: demographics edit rides the FHIR write gate.
+  const canEditPatient = role ? permissions["fhir.write"]?.[role] === true : false;
+
+  // Wave A (CHART-B2): allergy edits in the tab update this local
+  // copy so the banner below reflects them without a full chart
+  // reload; it resets whenever the chart itself (re)loads.
+  const [allergyOverride, setAllergyOverride] =
+    useState<AllergyIntolerance[] | null>(null);
+  useEffect(() => {
+    setAllergyOverride(null);
+  }, [patientId, chartTick]);
 
   const { data, loading, error } = useAsync<ChartData>(async () => {
     const patient = await client.get<Patient>("Patient", patientId);
     const params = { patient: patientId };
-    const [conditions, medications, observations, reports, procedures, encounters] =
+    const [conditions, medications, observations, reports, procedures, encounters, allergies] =
       await Promise.all([
         client.search<Condition>("Condition", params),
         client.search<MedicationRequest>("MedicationRequest", params),
@@ -70,9 +100,10 @@ export function ChartPage({ client, patientId, role }: Props) {
         client.search<DiagnosticReport>("DiagnosticReport", params),
         client.search<Procedure>("Procedure", params),
         client.search<Encounter>("Encounter", params),
+        client.search<AllergyIntolerance>("AllergyIntolerance", params),
       ]);
-    return { patient, conditions, medications, observations, reports, procedures, encounters };
-  }, [client, patientId]);
+    return { patient, conditions, medications, observations, reports, procedures, encounters, allergies };
+  }, [client, patientId, chartTick]);
 
   if (loading) return <Loading label="Loading chart…" />;
   if (error) return <ErrorView error={error} />;
@@ -80,45 +111,128 @@ export function ChartPage({ client, patientId, role }: Props) {
 
   const { patient } = data;
 
+  const printWristband = () => {
+    setWristbandBusy(true);
+    setWristbandError(null);
+    setWristbandNotice(null);
+    void (async () => {
+      try {
+        const file = await fetchWristbandLabel(client, patientId);
+        saveDownloadedFile(file);
+        setWristbandNotice(
+          `Wristband label downloaded (${file.filename}). Print was audited.`,
+        );
+      } catch (err) {
+        setWristbandError(`Print wristband failed: ${errorText(err)}`);
+      } finally {
+        setWristbandBusy(false);
+      }
+    })();
+  };
+
   return (
     <section aria-label="Patient chart">
-      <h2>{patientName(patient)}</h2>
-      <p className="patient-meta">
-        {patient.id}
-        {patient.gender ? ` · ${patient.gender}` : ""}
-        {patient.birthDate ? ` · born ${patient.birthDate}` : ""}
-      </p>
-
-      <div className="studio-tabs" role="tablist" aria-label="Chart sections">
-        {TABS.map((t) => (
+      <ModuleHeader
+        title={patientName(patient)}
+        purpose={
+          `${patient.id}` +
+          `${patient.gender ? ` · ${patient.gender}` : ""}` +
+          `${patient.birthDate ? ` · born ${patient.birthDate}` : ""}` +
+          `${patient.active === false ? " · entered in error" : ""}`
+        }
+        primaryAction={{
+          label: "Print wristband",
+          onClick: printWristband,
+          disabled: wristbandBusy,
+        }}
+      />
+      {wristbandNotice && (
+        <p className="hint" role="status">{wristbandNotice}</p>
+      )}
+      {wristbandError && (
+        <div className="state state-error" role="alert">{wristbandError}</div>
+      )}
+      {(() => {
+        // Wave A (CHART-B2): the allergy banner — visible across the
+        // whole chart, sourced from the same AllergyIntolerance list
+        // the Allergies tab edits (single visual source).
+        const allergies = allergyOverride ?? data.allergies;
+        const posture = allergyPosture(allergies);
+        if (posture.kind === "active") {
+          return (
+            <div className="allergy-banner allergy-banner-active" role="alert">
+              Allergies: {posture.names.join(", ")}
+            </div>
+          );
+        }
+        if (posture.kind === "nkda") {
+          return (
+            <p className="allergy-banner allergy-banner-nkda" role="status">
+              Allergies: No known allergies (NKDA)
+            </p>
+          );
+        }
+        return (
+          <p className="allergy-banner allergy-banner-unknown" role="status">
+            Allergies: not recorded
+          </p>
+        );
+      })()}
+      {canEditPatient && !editingPatient && (
+        <p>
           <button
-            key={t.key}
             type="button"
-            role="tab"
-            aria-selected={tab === t.key}
-            className={tab === t.key ? "studio-tab active" : "studio-tab"}
-            onClick={() => setTab(t.key)}
+            className="linklike"
+            onClick={() => setEditingPatient(true)}
           >
-            {t.label}
+            Edit patient details
           </button>
-        ))}
-      </div>
+        </p>
+      )}
+      {canEditPatient && editingPatient && (
+        <section aria-label="Edit patient details">
+          <h3>Edit patient details</h3>
+          <PatientEditForm
+            client={client}
+            patient={patient}
+            onSaved={() => {
+              setEditingPatient(false);
+              setChartTick((t) => t + 1);
+            }}
+            onCancel={() => setEditingPatient(false)}
+          />
+        </section>
+      )}
 
-      {tab === "orders" && (
-        <OrdersTab client={client} patientId={patientId} canPlace={canPlaceOrders} />
-      )}
-      {tab === "notes" && (
-        <NotesTab client={client} patientId={patientId} canWrite={canWriteNotes} />
-      )}
-      {tab === "flowsheet" && (
-        <FlowsheetTab client={client} patientId={patientId} canWrite={canWriteNotes} />
-      )}
-      {tab === "mar" && <MarTab client={client} patientId={patientId} />}
-      {tab === "admission" && (
-        <AdmissionTab client={client} patientId={patientId} canWork={canWorkInpatient} />
-      )}
-
-      {tab === "overview" && (
+      <Tabs
+        ariaLabel="Chart sections"
+        tabs={TABS}
+        activeKey={tab}
+        onChange={(k) => setTab(k as ChartTab)}
+        panels={{
+          allergies: (
+            <AllergiesTab
+              client={client}
+              patientId={patientId}
+              canWrite={canEditPatient}
+              allergies={allergyOverride ?? data.allergies}
+              onChanged={setAllergyOverride}
+            />
+          ),
+          orders: (
+            <OrdersTab client={client} patientId={patientId} canPlace={canPlaceOrders} />
+          ),
+          notes: (
+            <NotesTab client={client} patientId={patientId} canWrite={canWriteNotes} />
+          ),
+          flowsheet: (
+            <FlowsheetTab client={client} patientId={patientId} canWrite={canWriteNotes} />
+          ),
+          mar: <MarTab client={client} patientId={patientId} />,
+          admission: (
+            <AdmissionTab client={client} patientId={patientId} canWork={canWorkInpatient} />
+          ),
+          overview: (
         <>
       <h3>Conditions</h3>
       {data.conditions.length === 0 ? (
@@ -205,7 +319,9 @@ export function ChartPage({ client, patientId, role }: Props) {
         </ul>
       )}
         </>
-      )}
+          ),
+        }}
+      />
     </section>
   );
 }

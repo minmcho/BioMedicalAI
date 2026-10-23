@@ -111,10 +111,11 @@ async function openTab(name: string) {
 }
 
 describe("System Studio module", () => {
-  it("renders all eleven tabs and the overview content", async () => {
+  it("renders all fourteen tabs and the overview content", async () => {
     render(<StudioPage client={stubClient()} />);
     for (const name of ["Overview", "Module packs", "Forms designer", "Workflows",
       "Terminology", "Navigation", "Branding", "Permissions", "Integration",
+      "Agents (ADK)", "Compliance", "Dashboards",
       "Advanced (JSON)", "Audit"]) {
       expect(screen.getByRole("tab", { name })).toBeTruthy();
     }

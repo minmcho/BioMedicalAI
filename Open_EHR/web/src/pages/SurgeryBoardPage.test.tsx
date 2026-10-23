@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, type ApiClient } from "../api/client";
+import type { FormDefinition } from "../api/types";
 import {
   fixtureAnaesthesiaForm,
   fixtureRooms,
@@ -45,8 +46,60 @@ function stubClient(overrides: Record<string, unknown> = {}): ApiClient {
     submitPreopChecklist: vi.fn(async () => ({})),
     submitAnaesthesia: vi.fn(async () => ({})),
     submitAnaesthesiaVitals: vi.fn(async () => ({})),
+    // Depth pass (Workstream 2): WHO safety checklist surface.
+    submitSafetyChecklist: vi.fn(async () => ({
+      case: null,
+      section: "sign-in",
+      safety_checklist: { "sign-in": true, "time-out": false, "sign-out": false },
+    })),
     ...overrides,
   } as unknown as ApiClient;
+}
+
+// Depth pass (Workstream 2): the governed WHO checklist form as the
+// server seeds it — three section groups of required booleans.
+const fixtureSafetyForm: FormDefinition = {
+  resourceType: "Questionnaire",
+  title: "WHO surgical safety checklist",
+  item: [
+    {
+      linkId: "sign-in", text: "Sign In", type: "group",
+      item: [
+        { linkId: "signin-identity-site-procedure", text: "Patient identity, site and procedure confirmed", type: "boolean", required: true },
+        { linkId: "signin-consent", text: "Consent confirmed", type: "boolean", required: true },
+        { linkId: "signin-anaesthesia-check", text: "Anaesthesia safety check complete", type: "boolean", required: true },
+        { linkId: "signin-allergies", text: "Allergies reviewed", type: "boolean", required: true },
+        { linkId: "signin-airway-risk", text: "Airway / aspiration risk assessed", type: "boolean", required: true },
+      ],
+    },
+    {
+      linkId: "time-out", text: "Time Out", type: "group",
+      item: [
+        { linkId: "timeout-introductions", text: "Team members introduced by name and role", type: "boolean", required: true },
+      ],
+    },
+    {
+      linkId: "sign-out", text: "Sign Out", type: "group",
+      item: [
+        { linkId: "signout-procedure-recorded", text: "Name of the procedure recorded", type: "boolean", required: true },
+      ],
+    },
+  ],
+};
+
+function safetyClient(overrides: Record<string, unknown> = {}): ApiClient {
+  return stubClient({
+    effectiveConfig: vi.fn(async (_kind: string, key: string) => ({
+      kind: "form",
+      key,
+      version: 1,
+      status: "published",
+      payload: key === "surgical-safety-checklist"
+        ? fixtureSafetyForm
+        : fixtureAnaesthesiaForm,
+    })),
+    ...overrides,
+  });
 }
 
 describe("SurgeryBoardPage", () => {
@@ -141,5 +194,63 @@ describe("SurgeryBoardPage", () => {
         expect.any(Array),
       );
     });
+  });
+
+  // Depth pass (Workstream 2): WHO safety checklist panel — labelled
+  // Done/Pending per section, the next section's governed form, and
+  // the gate's 409 surfacing inline on transition.
+  it("safety panel shows pending sections and records Sign In via the form", async () => {
+    const client = safetyClient();
+    render(<SurgeryBoardPage client={client} role="clinician" />);
+    await screen.findByText("Total knee arthroplasty");
+    fireEvent.click(screen.getByRole("button", { name: "Safety checklist" }));
+    expect(await screen.findByText(/WHO surgical safety checklist/)).toBeTruthy();
+    expect(screen.getByText("Sign In:")).toBeTruthy();
+    expect(screen.getAllByText("Pending").length).toBe(3);
+    fireEvent.click(screen.getByRole("button", { name: "Record Sign In" }));
+    expect(await screen.findByLabelText(/Patient identity/)).toBeTruthy();
+    fireEvent.click(screen.getByLabelText(/Patient identity/));
+    fireEvent.click(screen.getByLabelText(/Consent confirmed/));
+    fireEvent.click(screen.getByRole("button", { name: "Submit Sign In" }));
+    await waitFor(() => {
+      expect(client.submitSafetyChecklist).toHaveBeenCalledWith(
+        "case-1",
+        "sign-in",
+        expect.arrayContaining([
+          expect.objectContaining({ linkId: "signin-consent" }),
+        ]),
+      );
+    });
+    expect(await screen.findByText("Done")).toBeTruthy();
+  });
+
+  it("surfaces the safety gate 409 inline when a transition is refused", async () => {
+    const preopBoard = {
+      ...fixtureSurgeryBoard,
+      rooms: fixtureSurgeryBoard.rooms.map((room) => ({
+        ...room,
+        cases: room.cases.map((entry) => ({
+          ...entry,
+          case: { ...entry.case, status: "pre-op" },
+          state: "pre-op",
+          safety_checklist: { "sign-in": true, "time-out": false, "sign-out": false },
+        })),
+      })),
+    };
+    const client = safetyClient({
+      surgeryBoard: vi.fn(async () => preopBoard),
+      transitionCase: vi.fn(async () => {
+        throw new ApiError(
+          409,
+          "Surgical safety checklist gate: case case-1 cannot move to "
+          + "'in-op' until the 'time-out' section of the WHO surgical "
+          + "safety checklist is recorded (missing section: time-out)",
+        );
+      }),
+    });
+    render(<SurgeryBoardPage client={client} role="clinician" />);
+    await screen.findByText("Total knee arthroplasty");
+    fireEvent.click(screen.getByRole("button", { name: "in-op" }));
+    expect(await screen.findByText(/missing section: time-out/)).toBeTruthy();
   });
 });

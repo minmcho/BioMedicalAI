@@ -45,10 +45,18 @@ function stubClient(overrides: Record<string, unknown> = {}): ApiClient {
   } as unknown as ApiClient;
 }
 
+
+// UX pass: the portal sections are tabs now — open the tab under
+// test first; every assertion below is unchanged.
+async function openTab(name: string) {
+  fireEvent.click(await screen.findByRole("tab", { name }));
+}
+
 describe("PortalPage (Phase 9 sections)", () => {
   it("renders message threads with unread badges and opens a thread", async () => {
     const client = stubClient();
     render(<PortalPage client={client} />);
+    await openTab("Messages");
     expect(await screen.findByText("Message thread")).toBeTruthy();
     expect(screen.getByText(/1 unread/)).toBeTruthy();
     expect(screen.getByText("Your result is ready")).toBeTruthy();
@@ -61,6 +69,7 @@ describe("PortalPage (Phase 9 sections)", () => {
   it("sends a new message to the care team", async () => {
     const client = stubClient();
     render(<PortalPage client={client} />);
+    await openTab("Messages");
     await screen.findByText("Message thread");
     fireEvent.change(screen.getByLabelText(/New message to your care team/), {
       target: { value: "When will my result post?" },
@@ -76,6 +85,7 @@ describe("PortalPage (Phase 9 sections)", () => {
   it("telehealth workspace shows the configured join link and the honest disclaimer", async () => {
     const client = stubClient();
     render(<PortalPage client={client} />);
+    await openTab("Appointments & visits");
     fireEvent.click(await screen.findByRole("button", { name: "Visit workspace" }));
     // The disclaimer renders VERBATIM: OpenCare does not provide video.
     expect(
@@ -95,6 +105,7 @@ describe("PortalPage (Phase 9 sections)", () => {
   it("self-scheduling request reports the staff-confirm default honestly", async () => {
     const client = stubClient();
     render(<PortalPage client={client} />);
+    await openTab("Appointments & visits");
     await screen.findByText(/Requests are confirmed by the care team/);
     fireEvent.change(screen.getByLabelText(/Preferred start/), {
       target: { value: "2026-11-05T09:00" },

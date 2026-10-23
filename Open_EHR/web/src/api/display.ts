@@ -24,6 +24,13 @@ export function refLabel(ref: Reference | undefined): string {
   return ref.display ?? ref.reference ?? "—";
 }
 
+/** Label for a plain reference string ("Patient/pat-1") — the
+ *  operations APIs flatten references server-side, so pages render
+ *  the string itself. */
+export function refText(ref: string | null | undefined): string {
+  return ref ?? "—";
+}
+
 export function observationValue(resource: FhirResource): string {
   const q = resource.valueQuantity as { value?: number; unit?: string } | undefined;
   if (q && typeof q.value === "number") return `${q.value}${q.unit ? ` ${q.unit}` : ""}`;

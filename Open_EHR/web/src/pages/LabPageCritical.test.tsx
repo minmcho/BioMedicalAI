@@ -61,9 +61,16 @@ function stubClient(overrides: Record<string, unknown> = {}): ApiClient {
   } as unknown as ApiClient;
 }
 
+// Depth pass: the lab page renders one tab panel at a time; the
+// critical-results section lives on the Verification tab.
+function clickTab(name: string) {
+  fireEvent.click(screen.getByRole("tab", { name }));
+}
+
 describe("LabPage critical results", () => {
   it("shows the pending notification state in the queue and the critical list", async () => {
     render(<LabPage client={stubClient()} role="clinician" />);
+    clickTab("Verification");
     expect(await screen.findByText("Critical results")).toBeTruthy();
     expect(screen.getAllByText(/Notification: pending/).length).toBeGreaterThanOrEqual(1);
     expect(
@@ -74,6 +81,7 @@ describe("LabPage critical results", () => {
   it("records a notification only with a named recipient and read-back", async () => {
     const client = stubClient();
     render(<LabPage client={client} role="clinician" />);
+    clickTab("Verification");
     const button = await screen.findByRole("button", { name: "Record notification" });
     expect((button as HTMLButtonElement).disabled).toBe(true);
 
@@ -111,6 +119,7 @@ describe("LabPage critical results", () => {
       criticalReports: vi.fn(async () => ({ items: [notified], total: 1 })),
     });
     render(<LabPage client={client} role="clinician" />);
+    clickTab("Verification");
     expect(await screen.findByText(/notified Dr A \(attending\) by dev-clinician/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Acknowledge" }));
     await waitFor(() =>
@@ -120,6 +129,7 @@ describe("LabPage critical results", () => {
 
   it("viewers see the state but no notification actions", async () => {
     render(<LabPage client={stubClient()} role="viewer" />);
+    clickTab("Verification");
     expect(await screen.findByText("Critical results")).toBeTruthy();
     expect(screen.getByText(/Notification is clinician\/admin only/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Record notification" })).toBeNull();

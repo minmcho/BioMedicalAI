@@ -221,3 +221,64 @@ describe("ApiClient Phase 5 (orders, notes, flowsheets, MAR)", () => {
     expect(url).toBe("http://localhost:8000/flowsheets/flowsheet-vitals?patient=pat-1");
   });
 });
+
+describe("ApiClient default fetch invocation", () => {
+  it("invokes the default fetch as a free function, not as a method", async () => {
+    // Regression: the browser's native fetch throws "Illegal
+    // invocation" when its receiver is not the Window. ApiClient used
+    // to store the global fetch and call it as this.fetchFn(...),
+    // which made EVERY request fail in a real browser with
+    // ApiError(0) — while unit tests stayed green because test
+    // doubles don't enforce the receiver contract.
+    const nativeLikeFetch = function (this: unknown) {
+      if (this !== undefined && this !== globalThis) {
+        throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
+      }
+      return Promise.resolve(
+        jsonResponse({ resourceType: "Bundle", entry: [{ resource: fixturePatient }] }),
+      );
+    };
+    vi.stubGlobal("fetch", nativeLikeFetch);
+    try {
+      const client = new ApiClient("http://api.test", () => "token-1");
+      const patients = await client.search<Patient>("Patient");
+      expect(patients).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("ApiClient homeCards (Home & Module UX pass)", () => {
+  const CARD = {
+    module: "lab",
+    value: 3,
+    label: "critical results open",
+    status_text: "Needs attention",
+    tone: "bad",
+    timer_text: "Oldest 42m",
+  };
+
+  it("GETs /home/cards and unwraps the { cards } envelope", async () => {
+    const fetchFn = vi.fn(async () => jsonResponse({ cards: [CARD] }));
+    const client = new ApiClient("http://api.test", () => "clinician-token", fetchFn as never);
+    await expect(client.homeCards()).resolves.toEqual([CARD]);
+    const [url] = fetchFn.mock.calls[0] as unknown as [string];
+    expect(url).toBe("http://api.test/home/cards");
+  });
+
+  it("accepts a bare array and degrades malformed payloads to []", async () => {
+    const bare = new ApiClient(
+      "http://api.test",
+      () => "t",
+      vi.fn(async () => jsonResponse([CARD])) as never,
+    );
+    await expect(bare.homeCards()).resolves.toEqual([CARD]);
+    const junk = new ApiClient(
+      "http://api.test",
+      () => "t",
+      vi.fn(async () => jsonResponse({ cards: "nope" })) as never,
+    );
+    await expect(junk.homeCards()).resolves.toEqual([]);
+  });
+});

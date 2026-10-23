@@ -8,9 +8,25 @@ import type {
   StudioConfigObject,
 } from "../api/types";
 import { Empty, ErrorView, Loading } from "../components/StatusViews";
+import { ModuleHeader } from "../components/ModuleHeader";
 import { useAsync } from "../hooks";
 import { AuditTab } from "./studio/AuditTab";
+import { AdkTab } from "./studio/AdkTab";
+import { AgentWorkflowsTab } from "./studio/AgentWorkflowsTab";
+import { AiProvidersTab } from "./studio/AiProvidersTab";
+import { InnovationTab } from "./studio/InnovationTab";
+import { KnowledgeTab } from "./studio/KnowledgeTab";
+import { McpA2aTab } from "./studio/McpA2aTab";
+import { ValidationTab } from "./studio/ValidationTab";
+import { ApprovalsTab } from "./studio/ApprovalsTab";
+import { DatabaseTab } from "./studio/DatabaseTab";
+import { DataViewsTab } from "./studio/DataViewsTab";
+import { OrganisationTab } from "./studio/OrganisationTab";
+import { PackBuilder } from "./studio/PackBuilder";
+import { RegistryTab } from "./studio/RegistryTab";
 import { BrandingTab } from "./studio/BrandingTab";
+import { ComplianceTab } from "./studio/ComplianceTab";
+import { DashboardsTab } from "./studio/DashboardsTab";
 import { FormsTab } from "./studio/FormsTab";
 import { CONFIG_KINDS, configActions, groupConfigs, nextAction } from "./studio/helpers";
 import { IntegrationTab } from "./studio/IntegrationTab";
@@ -19,6 +35,7 @@ import { OverviewTab } from "./studio/OverviewTab";
 import { PermissionsTab } from "./studio/PermissionsTab";
 import { TerminologyTab } from "./studio/TerminologyTab";
 import { WorkflowsTab } from "./studio/WorkflowsTab";
+import { ReportDesignerPanel } from "./ReportDesigner";
 
 // Re-exported for existing imports (api/studioConfig.test.ts and the
 // Studio editor shell); the implementations live in ./studio/helpers.
@@ -82,6 +99,11 @@ function StudioPacksSection({ client }: Props) {
           <strong>Action failed.</strong> {actionError}
         </div>
       ) : null}
+
+      {/* Platform pass WS10: the Pack Builder (compose a pack in the
+          UI — manifest, endpoint declarations born disabled, artefact
+          picker — created as a draft via POST /studio/packs). */}
+      <PackBuilder client={client} />
 
       {data.packs.length === 0 ? (
         <Empty label="No packs available on the server." />
@@ -421,17 +443,48 @@ const TABS = [
   { key: "branding", label: "Branding" },
   { key: "permissions", label: "Permissions" },
   { key: "integration", label: "Integration" },
+  { key: "adk", label: "Agents (ADK)" },
+  { key: "compliance", label: "Compliance" },
+  { key: "dashboards", label: "Dashboards" },
+  { key: "report-designer", label: "Report designer" },
   { key: "advanced", label: "Advanced (JSON)" },
   { key: "audit", label: "Audit" },
+  // Platform pass WS10 (Studio full parity): AI providers, approvals
+  // inbox, organisation, data views, database, registries.
+  { key: "ai-providers", label: "AI providers" },
+  // Phase 16 (Intelligence & Research): supervised agent workflows,
+  // the BD-41 validation harness, MCP & A2A governance, knowledge/RAG
+  // and the innovation pipeline — all in the Intelligence group.
+  { key: "agent-workflows", label: "Agent workflows" },
+  { key: "validation", label: "Agent validation" },
+  { key: "mcp-a2a", label: "MCP & A2A" },
+  { key: "knowledge", label: "Knowledge & RAG" },
+  { key: "innovation", label: "Innovation pipeline" },
+  { key: "approvals", label: "Approvals" },
+  { key: "organisation", label: "Organisation" },
+  { key: "data-views", label: "Data views" },
+  { key: "database", label: "Database" },
+  { key: "registry", label: "Registry" },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
+
+// Depth pass (Workstream 1): the flat tab bar is grouped under
+// labelled headings. Grouping is presentation only — the tab
+// machinery, keys and panels below are unchanged.
+const TAB_GROUPS: Array<{ label: string; keys: TabKey[] }> = [
+  { label: "Configure", keys: ["overview", "packs", "forms", "workflows", "terminology", "navigation", "branding", "permissions", "organisation", "report-designer", "advanced"] },
+  { label: "Intelligence", keys: ["adk", "dashboards", "ai-providers", "agent-workflows", "validation", "mcp-a2a", "knowledge", "innovation"] },
+  { label: "Trust", keys: ["integration", "compliance", "audit", "approvals"] },
+  // Platform pass WS10: the data/platform surfaces of the Studio.
+  { label: "Platform", keys: ["data-views", "database", "registry"] },
+];
 
 export function StudioPage({ client }: Props) {
   const [tab, setTab] = useState<TabKey>("overview");
   return (
     <>
-      <h2>System Studio</h2>
+      <ModuleHeader icon="sliders" group="System" title="System Studio" purpose="Configure modules, navigation and branding" />
       <p className="hint">
         The customization and future-configuration layer: everything a deploying
         organisation changes — module packs, forms, workflows, terminology, navigation,
@@ -443,17 +496,22 @@ export function StudioPage({ client }: Props) {
         navigation, branding and permissions at sign-in.
       </p>
       <div className="studio-tabs" role="tablist" aria-label="System Studio sections">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.key}
-            className={tab === t.key ? "studio-tab active" : "studio-tab"}
-            onClick={() => setTab(t.key)}
-          >
-            {t.label}
-          </button>
+        {TAB_GROUPS.map((group) => (
+          <span key={group.label} style={{ display: "contents" }}>
+            <span className="tab-group-label" aria-hidden="true">{group.label}</span>
+            {TABS.filter((t) => (group.keys as string[]).includes(t.key)).map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                role="tab"
+                aria-selected={tab === t.key}
+                className={tab === t.key ? "studio-tab active" : "studio-tab"}
+                onClick={() => setTab(t.key)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </span>
         ))}
       </div>
 
@@ -466,8 +524,23 @@ export function StudioPage({ client }: Props) {
       {tab === "branding" && <BrandingTab client={client} />}
       {tab === "permissions" && <PermissionsTab client={client} />}
       {tab === "integration" && <IntegrationTab client={client} />}
+      {tab === "adk" && <AdkTab client={client} />}
+      {tab === "compliance" && <ComplianceTab client={client} />}
+      {tab === "dashboards" && <DashboardsTab client={client} />}
+      {tab === "report-designer" && <ReportDesignerPanel client={client} />}
       {tab === "advanced" && <StudioConfigSection client={client} />}
       {tab === "audit" && <AuditTab client={client} />}
+      {tab === "ai-providers" && <AiProvidersTab client={client} />}
+      {tab === "agent-workflows" && <AgentWorkflowsTab client={client} />}
+      {tab === "validation" && <ValidationTab client={client} />}
+      {tab === "mcp-a2a" && <McpA2aTab client={client} />}
+      {tab === "knowledge" && <KnowledgeTab client={client} />}
+      {tab === "innovation" && <InnovationTab client={client} />}
+      {tab === "approvals" && <ApprovalsTab client={client} />}
+      {tab === "organisation" && <OrganisationTab client={client} />}
+      {tab === "data-views" && <DataViewsTab client={client} />}
+      {tab === "database" && <DatabaseTab client={client} />}
+      {tab === "registry" && <RegistryTab client={client} />}
     </>
   );
 }

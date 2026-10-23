@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ApiError, type ApiClient } from "../api/client";
 import { codeLabel, refLabel } from "../api/display";
+import { saveDownloadedFile } from "../api/download";
 import type {
   Claim,
   CodingQueueItem,
@@ -10,7 +11,11 @@ import type {
   Role,
 } from "../api/types";
 import { useRuntimeConfig } from "../auth/runtimeConfig";
+import { ModuleHeader, scrollToSection } from "../components/ModuleHeader";
+import { StatusBadge, type StatusTone } from "../components/StatusBadge";
 import { Empty, ErrorView, Loading } from "../components/StatusViews";
+import { Tabs } from "../components/Tabs";
+import { URPanel } from "./UrPanel";
 import { useAsync } from "../hooks";
 
 interface Props {
@@ -104,6 +109,24 @@ function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/** Claim lifecycle tone map (UX spec P-3): one mapping for every
+ *  surface that shows a claim status — list, detail, statement. */
+export function claimTone(status?: string | null): StatusTone {
+  switch (status) {
+    case "paid":
+      return "ok";
+    case "denied":
+      return "bad";
+    case "appealed":
+      return "warn";
+    case "ready":
+    case "submitted":
+      return "info";
+    default:
+      return "neutral";
+  }
+}
+
 function money(value?: number, currency?: string): string {
   return typeof value === "number" ? `${currency ?? "USD"} ${value.toFixed(2)}` : "—";
 }
@@ -117,6 +140,10 @@ export function BillingPage({ client, role }: Props) {
   const canManage = permissions["billing.manage"]?.[role] === true;
   const canReadCoding = permissions["coding.read"]?.[role] === true;
   const canCode = permissions["coding.work"]?.[role] === true;
+  // Phase 13: printable documents (invoice / statement / receipt PDFs)
+  // follow reports.run — staff roles only; patients keep the on-screen
+  // statement (the server 403s document prints for them).
+  const canPrint = permissions["reports.run"]?.[role] === true;
   const isPatient = role === "patient";
   const [machine, setMachine] = useState<ClaimMachine>(DEFAULT_CLAIM_MACHINE);
   useEffect(() => {
@@ -192,30 +219,16 @@ export function BillingPage({ client, role }: Props) {
     }
   }
 
-  return (
-    <section>
-      <h2>Billing</h2>
-      <p className="hint">
-        Claims are captured from an encounter: the problem list becomes the
-        diagnoses (and priced problem-evaluation lines), and the encounter's
-        procedures and observations are priced from the published Studio fee
-        schedule (<code>terminology/fee-schedule</code>). A code missing from
-        the schedule is charged at 0.00 and flagged <strong>unpriced</strong> —
-        never dropped. The lifecycle runs from Studio workflow config; a
-        denied claim may be appealed with a note, as many times as the
-        workflow config's maxAppeals allows (once by default). The 837 export is a
-        format-correct X12 837P-style file for review — nothing is
-        transmitted to a clearinghouse.
-      </p>
-      {notice && (
-        <p className="state state-empty" role="status">{notice}</p>
-      )}
-      {actionError && (
-        <div className="state state-error" role="alert">{actionError}</div>
-      )}
-
+  // UX pass (spec S-5 / P-7): the six formerly stacked sections are
+  // tabs — Claims / HIM coding / Remittance / Denials / Statements —
+  // beside the pre-existing Utilisation review tab. Conditional tabs
+  // follow the same permission gates that used to gate the sections.
+  const [tab, setTab] = useState("claims");
+  const claimsPanel = (
+    <>
       {canManage && (
         <form
+          id="billing-generate-claim"
           className="toolbar"
           onSubmit={(e) => {
             e.preventDefault();
@@ -282,7 +295,7 @@ export function BillingPage({ client, role }: Props) {
               <tr key={claim.id}>
                 <td>{claim.id}</td>
                 <td>{refLabel(claim.patient)}</td>
-                <td><span className="badge">{claim.status ?? "—"}</span></td>
+                <td><StatusBadge tone={claimTone(claim.status)}>{claim.status ?? "—"}</StatusBadge></td>
                 <td>{claim.item?.length ?? 0}</td>
                 <td>{money(claim.total?.value, claim.total?.currency)}</td>
                 <td>{claim.appealCount ?? 0}</td>
@@ -290,6 +303,21 @@ export function BillingPage({ client, role }: Props) {
                   <button type="button" onClick={() => setSelectedId(claim.id as string)}>
                     View
                   </button>
+                  {canPrint && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() =>
+                        void perform("Invoice PDF", async () => {
+                          saveDownloadedFile(
+                            await client.printInvoice(claim.id as string),
+                          );
+                        })
+                      }
+                    >
+                      Print invoice
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -306,7 +334,7 @@ export function BillingPage({ client, role }: Props) {
             <div>
               <p>
                 <strong>{detail.id}</strong> · patient {refLabel(detail.patient)} ·{" "}
-                status <span className="badge">{detail.status}</span> · total{" "}
+                status <StatusBadge tone={claimTone(detail.status)}>{detail.status}</StatusBadge> · total{" "}
                 <strong>{money(detail.total?.value, detail.total?.currency)}</strong>
               </p>
               {detail.diagnosis && detail.diagnosis.length > 0 && (
@@ -408,21 +436,92 @@ export function BillingPage({ client, role }: Props) {
         </>
       )}
 
-      {!isPatient && canReadCoding && (
-        <CodingSection client={client} canCode={canCode} tick={tick} bump={() => setTick((t) => t + 1)} />
+    </>
+  );
+  const statementPanel = (
+    <StatementSection
+      client={client}
+      role={role}
+      ownPatientRef={claims[0]?.patient?.reference ?? null}
+      tick={tick}
+      bump={() => setTick((t) => t + 1)}
+    />
+  );
+  return (
+    <section>
+      <ModuleHeader
+        icon="receipt"
+        group="Access & Revenue"
+        title="Billing"
+        purpose="Claims, coding, remittance, denials and patient statements — the revenue cycle in one module."
+        primaryAction={canManage
+          ? {
+              label: "New claim from encounter",
+              onClick: () => {
+                setTab("claims");
+                setTimeout(() => scrollToSection("billing-generate-claim"), 0);
+              },
+            }
+          : undefined}
+      />
+      <p className="hint">
+        Claims are captured from an encounter: the problem list becomes the
+        diagnoses (and priced problem-evaluation lines), and the encounter's
+        procedures and observations are priced from the published Studio fee
+        schedule (<code>terminology/fee-schedule</code>). A code missing from
+        the schedule is charged at 0.00 and flagged <strong>unpriced</strong> —
+        never dropped. The lifecycle runs from Studio workflow config; a
+        denied claim may be appealed with a note, as many times as the
+        workflow config's maxAppeals allows (once by default). The 837 export is a
+        format-correct X12 837P-style file for review — nothing is
+        transmitted to a clearinghouse.
+      </p>
+      {notice && (
+        <p className="state state-empty" role="status">{notice}</p>
       )}
-      {!isPatient && (
-        <RemittanceSection client={client} canManage={canManage} tick={tick} bump={() => setTick((t) => t + 1)} />
+      {actionError && (
+        <div className="state state-error" role="alert">{actionError}</div>
       )}
-      {!isPatient && (
-        <DenialsSection client={client} canManage={canManage} tick={tick} bump={() => setTick((t) => t + 1)} />
-      )}
-      <StatementSection
-        client={client}
-        role={role}
-        ownPatientRef={claims[0]?.patient?.reference ?? null}
-        tick={tick}
-        bump={() => setTick((t) => t + 1)}
+      <Tabs
+        ariaLabel="Billing sections"
+        tabs={[
+          { key: "claims", label: "Claims" },
+          ...(!isPatient && canReadCoding
+            ? [{ key: "coding", label: "HIM coding" }]
+            : []),
+          ...(!isPatient
+            ? [
+                { key: "remittance", label: "Remittance" },
+                { key: "denials", label: "Denials" },
+              ]
+            : []),
+          { key: "statements", label: "Statements" },
+          { key: "ur", label: "Utilisation review" },
+        ]}
+        activeKey={tab}
+        onChange={setTab}
+        panels={{
+          claims: claimsPanel,
+          ...(!isPatient && canReadCoding
+            ? {
+                coding: (
+                  <CodingSection client={client} canCode={canCode} tick={tick} bump={() => setTick((t) => t + 1)} />
+                ),
+              }
+            : {}),
+          ...(!isPatient
+            ? {
+                remittance: (
+                  <RemittanceSection client={client} canManage={canManage} tick={tick} bump={() => setTick((t) => t + 1)} />
+                ),
+                denials: (
+                  <DenialsSection client={client} canManage={canManage} tick={tick} bump={() => setTick((t) => t + 1)} />
+                ),
+              }
+            : {}),
+          statements: statementPanel,
+          ur: <URPanel client={client} role={role} />,
+        }}
       />
     </section>
   );
@@ -745,7 +844,7 @@ function DenialsSection({
         return (
           <div key={claimId}>
             <p>
-              <strong>{claimId}</strong> · <span className="badge">{item.kind}</span>{" "}
+              <strong>{claimId}</strong> · <StatusBadge tone={item.kind === "denied" ? "bad" : "warn"}>{item.kind}</StatusBadge>{" "}
               · status {item.claim.status} · balance{" "}
               <strong>{money(item.claim.financials.balance)}</strong>
               {item.work.assignee ? ` · assigned to ${item.work.assignee}` : ""}
@@ -870,10 +969,14 @@ function StatementSection({
   bump: () => void;
 }) {
   const isPatient = role === "patient";
+  const { permissions } = useRuntimeConfig();
+  const canPrint = permissions["reports.run"]?.[role] === true;
   const [patientInput, setPatientInput] = useState("");
   const [patient, setPatient] = useState<string | null>(null);
   const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [methods, setMethods] = useState<Record<string, string>>({});
+  const [lastPaymentId, setLastPaymentId] = useState<string | null>(null);
+  const [printError, setPrintError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -890,12 +993,22 @@ function StatementSection({
     setBusy(true);
     setError(null);
     try {
-      await client.recordPatientPayment(claimId, amount, methods[claimId] ?? "card");
+      const record = await client.recordPatientPayment(claimId, amount, methods[claimId] ?? "card");
+      setLastPaymentId(record.id);
       bump();
     } catch (err) {
       setError(`Recording payment failed: ${sectionError(err)}`);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function printDoc(label: string, fn: () => Promise<unknown>) {
+    setPrintError(null);
+    try {
+      await fn();
+    } catch (err) {
+      setPrintError(`${label} failed: ${sectionError(err)}`);
     }
   }
 
@@ -956,7 +1069,7 @@ function StatementSection({
               {stmt.claims.map((line) => (
                 <tr key={line.claim_id}>
                   <td>{line.claim_id}</td>
-                  <td><span className="badge">{line.status ?? "—"}</span></td>
+                  <td><StatusBadge tone={claimTone(line.status)}>{line.status ?? "—"}</StatusBadge></td>
                   <td>{money(line.total)}</td>
                   <td>{money(line.paid)}</td>
                   <td>{money(line.adjustments)}</td>
@@ -1011,6 +1124,33 @@ function StatementSection({
             <strong>{money(stmt.totals.patient_due)}</strong> · total claim
             balance outstanding: <strong>{money(stmt.totals.balance)}</strong>
           </p>
+          {canPrint && target && (
+            <p>
+              <button
+                type="button"
+                onClick={() =>
+                  void printDoc("Statement PDF", async () => {
+                    saveDownloadedFile(await client.printStatement(target));
+                  })
+                }
+              >
+                Print statement (PDF)
+              </button>
+              {lastPaymentId && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    void printDoc("Receipt PDF", async () => {
+                      saveDownloadedFile(await client.printReceipt(lastPaymentId));
+                    })
+                  }
+                >
+                  Print receipt for last payment
+                </button>
+              )}
+            </p>
+          )}
+          {printError && <p className="error-note" role="alert">{printError}</p>}
           <p className="hint">{stmt.disclaimer}</p>
         </div>
       )}
