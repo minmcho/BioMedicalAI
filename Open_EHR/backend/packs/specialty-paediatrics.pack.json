@@ -1,0 +1,738 @@
+{
+  "name": "specialty-paediatrics",
+  "version": "1.1.0",
+  "description": "Specialty operations pack — paediatrics (Phase 15, BD-08; Phase 17 closes the BD-08 residual). Age-banded vitals flowsheet + growth/development assessment forms, a paediatric chronic-care registry cohort, and paediatric capacity: the pack republishes terminology/locations in full (the Phase 5 profile-pack configuration pattern) with a Paediatric Unit and four paediatric beds appended, so the census shows paediatric beds as a distinct unit class when the pack is enabled. SAFETY — stated precisely: Phase 15 could express ONLY lab-presence / lab-range / lab-age rules per medication code, so weight-based (mg/kg) dose checking was NOT expressible and was not claimed. Phase 17 extends the pharmacy monitoring vocabulary with a weight-based rule type (dose-per-kg bounds per age band, evaluated against the patient's recorded weight and birthDate), and this pack now publishes mg/kg rules as governed config: paracetamol dispensing BLOCKS on a dose outside 10–15 mg/kg/dose or 60 mg/kg/day for the patient's age band, and BLOCKS as cannot-evaluate when no weight is recorded. The lab-gated gentamicin rule (trough <= 2.0 mg/L + creatinine, each within 7 days) is retained in the psychiatry pattern.",
+  "modules": [
+    {
+      "id": "paediatrics-workspace",
+      "name": "Paediatrics workspace",
+      "enabled": false
+    },
+    {
+      "id": "paediatrics-registry",
+      "name": "Paediatric registry",
+      "enabled": false
+    }
+  ],
+  "forms": [
+    {
+      "id": "paeds-vitals-flowsheet",
+      "name": "Paediatric Vitals Flowsheet (age-banded)",
+      "fields": [
+        "age-band",
+        "heart-rate",
+        "respiratory-rate",
+        "spo2",
+        "temperature-c",
+        "pain-scale",
+        "pain-score"
+      ]
+    },
+    {
+      "id": "paeds-growth-development",
+      "name": "Growth & Development Assessment",
+      "fields": [
+        "weight-kg",
+        "height-cm",
+        "head-circumference-cm",
+        "weight-centile",
+        "developmental-milestones",
+        "immunisations-up-to-date",
+        "safeguarding-concerns"
+      ]
+    }
+  ],
+  "api_endpoints": [],
+  "configuration": [
+    {
+      "kind": "terminology",
+      "key": "locations",
+      "payload": {
+        "name": "OpenCare hospital locations + Paediatric Unit (specialty-paediatrics pack)",
+        "system": "urn:opencare:location",
+        "bedStatuses": [
+          "available",
+          "occupied",
+          "cleaning",
+          "blocked"
+        ],
+        "concepts": [
+          {
+            "code": "facility-main",
+            "display": "OpenCare Hospital",
+            "type": "facility",
+            "active": true
+          },
+          {
+            "code": "unit-medsurg",
+            "display": "Medical-Surgical Unit",
+            "type": "unit",
+            "active": true,
+            "parent": "facility-main"
+          },
+          {
+            "code": "unit-icu",
+            "display": "Intensive Care Unit",
+            "type": "unit",
+            "active": true,
+            "parent": "facility-main"
+          },
+          {
+            "code": "MS-101A",
+            "display": "Med-Surg Room 101 Bed A",
+            "type": "bed",
+            "active": true,
+            "parent": "unit-medsurg",
+            "room": "101",
+            "bed": "A"
+          },
+          {
+            "code": "MS-101B",
+            "display": "Med-Surg Room 101 Bed B",
+            "type": "bed",
+            "active": true,
+            "parent": "unit-medsurg",
+            "room": "101",
+            "bed": "B"
+          },
+          {
+            "code": "MS-102A",
+            "display": "Med-Surg Room 102 Bed A",
+            "type": "bed",
+            "active": true,
+            "parent": "unit-medsurg",
+            "room": "102",
+            "bed": "A"
+          },
+          {
+            "code": "MS-102B",
+            "display": "Med-Surg Room 102 Bed B",
+            "type": "bed",
+            "active": true,
+            "parent": "unit-medsurg",
+            "room": "102",
+            "bed": "B"
+          },
+          {
+            "code": "MS-103A",
+            "display": "Med-Surg Room 103 Bed A",
+            "type": "bed",
+            "active": true,
+            "parent": "unit-medsurg",
+            "room": "103",
+            "bed": "A"
+          },
+          {
+            "code": "MS-103B",
+            "display": "Med-Surg Room 103 Bed B",
+            "type": "bed",
+            "active": true,
+            "parent": "unit-medsurg",
+            "room": "103",
+            "bed": "B"
+          },
+          {
+            "code": "MS-104A",
+            "display": "Med-Surg Room 104 Bed A",
+            "type": "bed",
+            "active": true,
+            "parent": "unit-medsurg",
+            "room": "104",
+            "bed": "A"
+          },
+          {
+            "code": "MS-104B",
+            "display": "Med-Surg Room 104 Bed B",
+            "type": "bed",
+            "active": true,
+            "parent": "unit-medsurg",
+            "room": "104",
+            "bed": "B"
+          },
+          {
+            "code": "MS-105A",
+            "display": "Med-Surg Room 105 Bed A",
+            "type": "bed",
+            "active": true,
+            "parent": "unit-medsurg",
+            "room": "105",
+            "bed": "A"
+          },
+          {
+            "code": "MS-105B",
+            "display": "Med-Surg Room 105 Bed B",
+            "type": "bed",
+            "active": true,
+            "parent": "unit-medsurg",
+            "room": "105",
+            "bed": "B"
+          },
+          {
+            "code": "MS-106A",
+            "display": "Med-Surg Room 106 Bed A",
+            "type": "bed",
+            "active": true,
+            "parent": "unit-medsurg",
+            "room": "106",
+            "bed": "A"
+          },
+          {
+            "code": "MS-106B",
+            "display": "Med-Surg Room 106 Bed B",
+            "type": "bed",
+            "active": true,
+            "parent": "unit-medsurg",
+            "room": "106",
+            "bed": "B"
+          },
+          {
+            "code": "ICU-201",
+            "display": "ICU Room 201",
+            "type": "bed",
+            "active": true,
+            "parent": "unit-icu",
+            "room": "201",
+            "bed": "1"
+          },
+          {
+            "code": "ICU-202",
+            "display": "ICU Room 202",
+            "type": "bed",
+            "active": true,
+            "parent": "unit-icu",
+            "room": "202",
+            "bed": "1"
+          },
+          {
+            "code": "ICU-203",
+            "display": "ICU Room 203",
+            "type": "bed",
+            "active": true,
+            "parent": "unit-icu",
+            "room": "203",
+            "bed": "1"
+          },
+          {
+            "code": "ICU-204",
+            "display": "ICU Room 204",
+            "type": "bed",
+            "active": true,
+            "parent": "unit-icu",
+            "room": "204",
+            "bed": "1"
+          },
+          {
+            "code": "ICU-205",
+            "display": "ICU Room 205",
+            "type": "bed",
+            "active": true,
+            "parent": "unit-icu",
+            "room": "205",
+            "bed": "1"
+          },
+          {
+            "code": "ICU-206",
+            "display": "ICU Room 206",
+            "type": "bed",
+            "active": true,
+            "parent": "unit-icu",
+            "room": "206",
+            "bed": "1"
+          },
+          {
+            "code": "unit-paeds",
+            "display": "Paediatric Unit",
+            "type": "unit",
+            "active": true,
+            "parent": "facility-main"
+          },
+          {
+            "code": "PEDS-301A",
+            "display": "Paediatrics Room 301 Bed A",
+            "type": "bed",
+            "active": true,
+            "parent": "unit-paeds",
+            "room": "301",
+            "bed": "A"
+          },
+          {
+            "code": "PEDS-301B",
+            "display": "Paediatrics Room 301 Bed B",
+            "type": "bed",
+            "active": true,
+            "parent": "unit-paeds",
+            "room": "301",
+            "bed": "B"
+          },
+          {
+            "code": "PEDS-302A",
+            "display": "Paediatrics Room 302 Bed A",
+            "type": "bed",
+            "active": true,
+            "parent": "unit-paeds",
+            "room": "302",
+            "bed": "A"
+          },
+          {
+            "code": "PEDS-302B",
+            "display": "Paediatrics Room 302 Bed B",
+            "type": "bed",
+            "active": true,
+            "parent": "unit-paeds",
+            "room": "302",
+            "bed": "B"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "formulary",
+      "payload": {
+        "name": "OpenCare formulary (RxNorm, synthetic) + paediatrics gentamicin + paracetamol (specialty-paediatrics pack)",
+        "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+        "bcmaRights": [
+          "right-dispense",
+          "right-medication",
+          "right-patient"
+        ],
+        "concepts": [
+          {
+            "code": "1049221",
+            "display": "Lisinopril 10 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 120
+          },
+          {
+            "code": "847232",
+            "display": "Metformin hydrochloride 500 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 200
+          },
+          {
+            "code": "1044910",
+            "display": "Atorvastatin 20 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 90
+          },
+          {
+            "code": "1048467",
+            "display": "Sertraline 50 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 60
+          },
+          {
+            "code": "1351886",
+            "display": "Apixaban 5 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 45
+          },
+          {
+            "code": "245314",
+            "display": "Albuterol 0.09 MG/ACTUAT Metered Dose Inhaler",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": false
+          },
+          {
+            "code": "gentamicin",
+            "display": "Gentamicin 40 MG/ML Injectable Solution (local synthetic code)",
+            "active": true,
+            "system": "urn:opencare:local-formulary",
+            "stockTracked": true,
+            "initialStock": 50
+          },
+          {
+            "code": "paracetamol",
+            "display": "Paracetamol 250 MG Oral Tablet (local synthetic code)",
+            "active": true,
+            "system": "urn:opencare:local-formulary",
+            "stockTracked": true,
+            "initialStock": 80
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "medication-monitoring",
+      "payload": {
+        "name": "Medication monitoring rules (high-risk medications) + paediatrics gentamicin lab gate + paracetamol mg/kg rule (specialty-paediatrics pack, Phase 17)",
+        "system": "urn:opencare:medication-monitoring",
+        "concepts": [
+          {
+            "code": "gentamicin",
+            "display": "Gentamicin — trough + renal gating rule",
+            "active": true
+          },
+          {
+            "code": "paracetamol",
+            "display": "Paracetamol — weight-based (mg/kg) dose rule (Phase 17)",
+            "active": true
+          }
+        ],
+        "rules": [
+          {
+            "medicationCode": "gentamicin",
+            "medicationDisplay": "Gentamicin",
+            "action": "block",
+            "requiredLabs": [
+              {
+                "code": "35668-3",
+                "display": "Gentamicin trough level",
+                "maxValue": 2.0,
+                "maxAgeDays": 7
+              },
+              {
+                "code": "2160-0",
+                "display": "Serum creatinine",
+                "maxAgeDays": 7
+              }
+            ]
+          },
+          {
+            "medicationCode": "paracetamol",
+            "medicationDisplay": "Paracetamol",
+            "action": "block",
+            "weightBasedDosing": {
+              "doseUnit": "mg",
+              "ageBands": [
+                {
+                  "ageBand": "0-3m",
+                  "minAgeYears": 0,
+                  "maxAgeYears": 0.25,
+                  "minMgPerKgPerDose": 10,
+                  "maxMgPerKgPerDose": 15,
+                  "maxMgPerKgPerDay": 60
+                },
+                {
+                  "ageBand": "3-12m",
+                  "minAgeYears": 0.25,
+                  "maxAgeYears": 1,
+                  "minMgPerKgPerDose": 10,
+                  "maxMgPerKgPerDose": 15,
+                  "maxMgPerKgPerDay": 60
+                },
+                {
+                  "ageBand": "1-4y",
+                  "minAgeYears": 1,
+                  "maxAgeYears": 5,
+                  "minMgPerKgPerDose": 10,
+                  "maxMgPerKgPerDose": 15,
+                  "maxMgPerKgPerDay": 60
+                },
+                {
+                  "ageBand": "5-11y",
+                  "minAgeYears": 5,
+                  "maxAgeYears": 12,
+                  "minMgPerKgPerDose": 10,
+                  "maxMgPerKgPerDose": 15,
+                  "maxMgPerKgPerDay": 60
+                },
+                {
+                  "ageBand": "12-17y",
+                  "minAgeYears": 12,
+                  "maxAgeYears": 18,
+                  "minMgPerKgPerDose": 10,
+                  "maxMgPerKgPerDose": 15,
+                  "maxMgPerKgPerDay": 60
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "orderset",
+      "key": "paediatrics-admission",
+      "payload": {
+        "name": "Paediatrics — admission bundle",
+        "description": "Admission: paediatric review, age-banded observations, play-therapy referral, parent/carer presence plan.",
+        "orders": [
+          {
+            "type": "consult",
+            "code": "paediatrics-review",
+            "display": "Paediatric review — admission",
+            "performerRole": "clinician"
+          },
+          {
+            "type": "nursing",
+            "code": "age-banded-observations",
+            "display": "Age-banded observations (PEWS-pattern)"
+          },
+          {
+            "type": "activity",
+            "code": "play-therapy",
+            "display": "Play therapy / child-life referral"
+          },
+          {
+            "type": "nursing",
+            "code": "parent-presence-plan",
+            "display": "Parent/carer presence + feeding plan"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "paeds-vitals-flowsheet",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Paediatric vitals flowsheet (age-banded)",
+        "item": [
+          {
+            "linkId": "age-band",
+            "text": "Age band",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "0-3m",
+                  "display": "0–3 months"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "3-12m",
+                  "display": "3–12 months"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "1-4y",
+                  "display": "1–4 years"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "5-11y",
+                  "display": "5–11 years"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "12-17y",
+                  "display": "12–17 years"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "heart-rate",
+            "text": "Heart rate (bpm)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "respiratory-rate",
+            "text": "Respiratory rate (/min)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "spo2",
+            "text": "SpO2 (%)",
+            "type": "decimal",
+            "required": false
+          },
+          {
+            "linkId": "temperature-c",
+            "text": "Temperature (°C)",
+            "type": "decimal",
+            "required": false
+          },
+          {
+            "linkId": "pain-scale",
+            "text": "Pain scale used",
+            "type": "choice",
+            "required": false,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "flacc",
+                  "display": "FLACC (observational)"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "wong-baker",
+                  "display": "Wong-Baker FACES"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "numeric",
+                  "display": "Numeric 0–10"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "pain-score",
+            "text": "Pain score (0-10)",
+            "type": "integer",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "paeds-growth-development",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Growth & development assessment",
+        "item": [
+          {
+            "linkId": "weight-kg",
+            "text": "Weight (kg)",
+            "type": "decimal",
+            "required": true
+          },
+          {
+            "linkId": "height-cm",
+            "text": "Height / length (cm)",
+            "type": "decimal",
+            "required": true
+          },
+          {
+            "linkId": "head-circumference-cm",
+            "text": "Head circumference (cm)",
+            "type": "decimal",
+            "required": false
+          },
+          {
+            "linkId": "weight-centile",
+            "text": "Weight centile (0-100)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "developmental-milestones",
+            "text": "Developmental milestones",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "age-appropriate",
+                  "display": "Age-appropriate"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "concern",
+                  "display": "Concern — monitor"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "referred",
+                  "display": "Referred for assessment"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "immunisations-up-to-date",
+            "text": "Immunisations up to date",
+            "type": "boolean",
+            "required": true
+          },
+          {
+            "linkId": "safeguarding-concerns",
+            "text": "Safeguarding concerns",
+            "type": "boolean",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "paediatrics-codes",
+      "payload": {
+        "name": "Paediatrics terminology subset",
+        "system": "http://snomed.info/sct",
+        "concepts": [
+          {
+            "code": "195967001",
+            "display": "Asthma (synthetic subset)",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "46635009",
+            "display": "Type 1 diabetes mellitus (synthetic subset)",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "8438004",
+            "display": "Paediatric examination (synthetic subset)",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "cohort",
+      "key": "paediatrics-registry",
+      "payload": {
+        "name": "Paediatric chronic-care registry",
+        "description": "Children with asthma or type 1 diabetes — the cohort for growth/development and immunisation recall.",
+        "smallCellThreshold": 5,
+        "ageBands": [
+          [
+            0,
+            17,
+            "0-17"
+          ],
+          [
+            18,
+            44,
+            "18-44"
+          ],
+          [
+            45,
+            64,
+            "45-64"
+          ],
+          [
+            65,
+            74,
+            "65-74"
+          ],
+          [
+            75,
+            null,
+            "75+"
+          ]
+        ],
+        "conditionCodes": [
+          {
+            "system": "http://snomed.info/sct",
+            "code": "195967001"
+          },
+          {
+            "system": "http://snomed.info/sct",
+            "code": "46635009"
+          }
+        ]
+      }
+    }
+  ]
+}

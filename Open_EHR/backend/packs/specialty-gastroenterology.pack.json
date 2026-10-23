@@ -1,7 +1,7 @@
 {
   "name": "specialty-gastroenterology",
-  "version": "1.0.0",
-  "description": "Specialty operations pack \u2014 gastroenterology (roadmap \u00a74). Endoscopy workflow (prep order set -> procedure report form with prep quality + pathology linkage fields), IBD clinic with a disease-activity flowsheet (Harvey-Bradshaw-shaped), liver clinic terminology; registry: IBD cohort. Colonoscopy quality measures (adenoma detection, prep quality) are Phase 9 measure configs over the procedure data.",
+  "version": "1.1.0",
+  "description": "Specialty operations pack \u2014 gastroenterology (roadmap \u00a74). Endoscopy workflow (prep order set -> procedure report form with prep quality + pathology linkage fields), IBD clinic with a disease-activity flowsheet (Harvey-Bradshaw-shaped), liver clinic terminology; registry: IBD cohort. Colonoscopy quality measures (adenoma detection, prep quality) are Phase 9 measure configs over the procedure data. Phase 15 depth (BD-03): MEDICATION MONITORING in the psychiatry pattern \u2014 the pack republishes the formulary with methotrexate and the monitoring rules the generic pharmacy gate evaluates: methotrexate dispensing BLOCKS without an ALT within 30 days and an ANC >= 1.5 within 30 days (hepatotoxicity + myelosuppression surveillance for IBD immunosuppression).",
   "modules": [
     {
       "id": "gi-workspace",
@@ -255,6 +255,24 @@
             "text": "General well-being (0-4)",
             "type": "integer",
             "required": false
+          },
+          {
+            "linkId": "nocturnal-symptoms",
+            "text": "Nocturnal symptoms",
+            "type": "boolean",
+            "required": false
+          },
+          {
+            "linkId": "steroid-days",
+            "text": "Days on corticosteroids this episode",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "weight-kg",
+            "text": "Weight (kg)",
+            "type": "decimal",
+            "required": false
           }
         ]
       }
@@ -341,6 +359,111 @@
           {
             "system": "http://snomed.info/sct",
             "code": "64766004"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "formulary",
+      "payload": {
+        "name": "OpenCare formulary (RxNorm, synthetic) + gastroenterology methotrexate (specialty-gastroenterology pack)",
+        "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+        "bcmaRights": [
+          "right-dispense",
+          "right-medication",
+          "right-patient"
+        ],
+        "concepts": [
+          {
+            "code": "1049221",
+            "display": "Lisinopril 10 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 120
+          },
+          {
+            "code": "847232",
+            "display": "Metformin hydrochloride 500 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 200
+          },
+          {
+            "code": "1044910",
+            "display": "Atorvastatin 20 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 90
+          },
+          {
+            "code": "1048467",
+            "display": "Sertraline 50 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 60
+          },
+          {
+            "code": "1351886",
+            "display": "Apixaban 5 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 45
+          },
+          {
+            "code": "245314",
+            "display": "Albuterol 0.09 MG/ACTUAT Metered Dose Inhaler",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": false
+          },
+          {
+            "code": "methotrexate",
+            "display": "Methotrexate 2.5 MG Oral Tablet (local synthetic code)",
+            "active": true,
+            "system": "urn:opencare:local-formulary",
+            "stockTracked": true,
+            "initialStock": 40
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "medication-monitoring",
+      "payload": {
+        "name": "Medication monitoring rules (high-risk medications) + gastroenterology methotrexate rule (specialty-gastroenterology pack)",
+        "system": "urn:opencare:medication-monitoring",
+        "concepts": [
+          {
+            "code": "methotrexate",
+            "display": "Methotrexate \u2014 ALT + ANC gating rule",
+            "active": true
+          }
+        ],
+        "rules": [
+          {
+            "medicationCode": "methotrexate",
+            "medicationDisplay": "Methotrexate",
+            "action": "block",
+            "requiredLabs": [
+              {
+                "code": "1742-6",
+                "display": "Alanine aminotransferase (ALT)",
+                "maxAgeDays": 30
+              },
+              {
+                "code": "751-8",
+                "display": "Absolute neutrophil count (ANC)",
+                "minValue": 1.5,
+                "maxAgeDays": 30
+              }
+            ]
           }
         ]
       }

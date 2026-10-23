@@ -17,6 +17,11 @@ Governance rules enforced here:
 - Every create/update/publish/disable/rollback writes a hash-chained
   AuditLog row.
 """
+import copy
+import hashlib
+import json
+from types import SimpleNamespace
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -29,7 +34,7 @@ from .configstore import (ADT_WORKFLOW_KEY, BRANDING_KEY, CONFIG_KINDS,
                           diff_payloads, get_config_version,
                           list_config_versions, published_config,
                           published_configs, role_allowed, validate_payload)
-from .models import ConfigStatus, StudioConfig, User
+from .models import AuditLog, ConfigStatus, StudioConfig, User
 from .security import get_db, require_capability
 
 router = APIRouter(prefix="/studio/config", tags=["studio-config"])
@@ -204,6 +209,23 @@ def publish(kind: str, key: str, version: int, session: Session = Depends(get_db
             status_code=409,
             detail=(f"Config {kind}/{key} v{version} was superseded; use rollback "
                     "to bring its payload back"))
+    # C-AI four-eyes (AI-G3, app.four_eyes): publishing an ai-provider
+    # definition always requires a second person; publishing an agent
+    # requires one when the agent's tier is T2/T3. The rollback path
+    # (_publish_row via rollback) is EXEMPT: rollback restores a
+    # previously approved payload — it is not a new approval, and the
+    # payload it restores already passed this gate when first
+    # published.
+    from . import four_eyes
+    if kind == "ai-provider" or (
+            kind == "agent"
+            and four_eyes.agent_tier_of(row.payload)
+            in four_eyes.TIER_GATED_KINDS["agent"]):
+        four_eyes.enforce(
+            session, actor=user.username, authors={row.created_by},
+            action="studio.config.publish",
+            entity=f"config:{kind}/{key}@v{version}",
+            detail=f"publish {kind} '{key}' v{version}")
     return _config_out(_publish_row(row, session, user, "studio.config.publish", {}))
 
 
@@ -330,6 +352,260 @@ def _seed_published(session: Session, kind: str, key: str, payload: dict) -> Non
                           "superseded_version": None, "seeded_default": True})
 
 
+# ---------------------------------------------------------------------------
+# Seeded-default upgrade path (Home & Module UX pass, WS1c)
+#
+# _seed_published is insert-if-absent and never upgrades: a database
+# seeded by an older build keeps that era's published navigation/main
+# (and branding/default) forever. This machinery recognises an
+# UNTOUCHED seeded default and publishes the current code default as a
+# NEW version (superseding, never mutating, the old row); a customised
+# payload is left alone and noted once per distinct payload hash as
+# drift. Recognition is exactly per the coordinator ledger:
+#   payload != current code default AND either
+#     (P) provenance-clean, or
+#     (F) fingerprint match against a known legacy-default projection.
+# ---------------------------------------------------------------------------
+
+# _publish_row only reads ``user.username`` (audit actor + updated_by);
+# the upgrade acts as the system actor, matching the
+# app.studio._SYSTEM_ACTOR idiom for system publishes.
+_SYSTEM_ACTOR = SimpleNamespace(username="system")
+
+# Pre-UX group for every module (Era D) — the groups the navigation
+# carried before the Home & Module UX regroup. Built into legacy
+# projections by transformation of the CURRENT default (see
+# _legacy_nav_projections), never as a frozen payload copy.
+_LEGACY_GROUP_BY_MODULE: dict[str, str] = {
+    "patients": "Patient Care",
+    "inbox": "Patient Care",
+    "scheduling": "Patient Care",
+    "portal": "Patient Care",
+    "billing": "Revenue",
+    "ed": "Clinical",
+    "radiology": "Clinical",
+    "surgery": "Clinical",
+    "lab": "Laboratory",
+    "pharmacy": "Pharmacy",
+    "beds": "Operations",
+    "command": "Operations",
+    "er-ops": "Operations",
+    "unit-board": "Operations",
+    "clinic": "Operations",
+    "aftercare": "Operations",
+    "safety": "Operations",
+    "support": "Operations",
+    "workforce": "Operations",
+    "teams": "Operations",
+    "pophealth": "Data & Platform",
+    "reports": "Data & Platform",
+    "imports": "Data & Platform",
+    "devices": "Data & Platform",
+    "data-platform": "Data & Platform",
+    "federation": "Data & Platform",
+    "research": "Data & Platform",
+    "analytics": "Data & Platform",
+    "documents": "Data & Platform",
+    "studio": "System Studio",
+}
+
+
+def _nav_projection(payload) -> tuple:
+    """Canonical navigation projection: a sorted tuple of
+    (module, label, tuple(sorted(roles)), group) per item.
+
+    Deliberately ignores item order, ``order``, ``purpose``, ``icon``
+    and ``sections``: order is presentation, purpose/icon are the UX
+    pass's additive fields, and sections are deep-links inside a
+    module. Publishing anything at all is a human publish, which the
+    provenance arm (P) catches — the fingerprint (F) only needs to
+    recognise the structural identity (which modules, with what
+    labels/roles, in which groups) of a legacy seeded default.
+    """
+    if not isinstance(payload, dict):
+        return ()
+    items = payload.get("items")
+    if not isinstance(items, list):
+        return ()
+    tuples = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        module = item.get("module") if isinstance(item.get("module"), str) else ""
+        label = item.get("label") if isinstance(item.get("label"), str) else ""
+        group = item.get("group") if isinstance(item.get("group"), str) else ""
+        roles = item.get("roles")
+        roles_tuple = tuple(sorted(roles)) if isinstance(roles, list) and all(
+            isinstance(r, str) for r in roles) else ()
+        tuples.append((module, label, roles_tuple, group))
+    return tuple(sorted(tuples))
+
+
+def _legacy_nav_projections() -> set:
+    """Known legacy-default projections, built from the CURRENT
+    default by transformation:
+
+    - Era D: the full 30-module set with purpose/icon stripped (the
+      projection ignores them anyway) and the pre-UX groups restored
+      via _LEGACY_GROUP_BY_MODULE.
+    - Era C: Era D minus {teams}.
+    - Era B: Era C minus {federation, research, analytics, documents}.
+    - Era A: Era B minus {support}.
+
+    Modules introduced after every legacy era (Inventory & Materials
+    pass: "inventory") belong to NO era — they are excluded from all
+    four projections, so a genuine legacy payload keeps matching its
+    era exactly and still upgrades to the current default (which is
+    how those databases gain the new module's card).
+    """
+    base = []
+    for item in default_navigation_payload().get("items") or []:
+        module = item.get("module")
+        roles = item.get("roles")
+        roles_tuple = tuple(sorted(roles)) if isinstance(roles, list) else ()
+        base.append((module, item.get("label"), roles_tuple,
+                     _LEGACY_GROUP_BY_MODULE.get(module, item.get("group"))))
+
+    def _proj(exclude: set) -> tuple:
+        return tuple(sorted(t for t in base if t[0] not in exclude))
+
+    era_b_exclude = {"teams", "federation", "research", "analytics", "documents"}
+    post_era = {"inventory"}  # postdates every legacy era (see above)
+    return {
+        _proj(post_era),
+        _proj(post_era | {"teams"}),
+        _proj(post_era | era_b_exclude),
+        _proj(post_era | era_b_exclude | {"support"}),
+    }
+
+
+def _is_provenance_clean(session: Session, kind: str, key: str,
+                         versions: list) -> bool:
+    """(P) Provenance arm: every StudioConfig row for the key was
+    created_by "system" AND no studio.config.publish audit row for
+    ``config:{kind}/{key}@*`` lacks seeded_default=True or carries a
+    non-"system" actor.
+
+    At least one such publish row must exist: provenance is positive
+    evidence the payload was seeded. A payload with no audit history
+    at all carries no such evidence and is not provenance-clean (it
+    may still match the fingerprint arm, or be noted as drift).
+    """
+    if not versions:
+        return False
+    if any(row.created_by != "system" for row in versions):
+        return False
+    prefix = f"config:{kind}/{key}@"
+    publish_rows = list(session.scalars(
+        select(AuditLog).where(
+            AuditLog.action == "studio.config.publish",
+            AuditLog.entity.like(prefix + "%"))).all())
+    # Defensive: LIKE treats %/_ in the prefix literally enough for
+    # our keys, but confirm the prefix in Python as well.
+    publish_rows = [r for r in publish_rows if r.entity.startswith(prefix)]
+    if not publish_rows:
+        return False
+    for row in publish_rows:
+        if row.actor != "system":
+            return False
+        payload = row.payload or {}
+        if not isinstance(payload, dict) or payload.get("seeded_default") is not True:
+            return False
+    return True
+
+
+def _matches_legacy_fingerprint(kind: str, key: str, payload,
+                                current_default) -> bool:
+    """(F) Fingerprint arm."""
+    if kind == "navigation" and key == NAVIGATION_KEY:
+        return _nav_projection(payload) in _legacy_nav_projections()
+    if kind == "branding" and key == BRANDING_KEY:
+        # Branding's fingerprint is its full current default payload:
+        # there is a single historical branding default, so an
+        # untouched branding payload EQUALS the current default and
+        # the caller has already no-oped. A differing payload can
+        # therefore only upgrade via the provenance arm. The check is
+        # kept explicit so the machinery is wired for branding exactly
+        # as specified.
+        return payload == current_default
+    return False
+
+
+def _payload_hash(payload) -> str:
+    return hashlib.sha256(json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), default=str
+    ).encode("utf-8")).hexdigest()
+
+
+def upgrade_seeded_default(session: Session, kind: str, key: str,
+                           current_default: dict) -> None:
+    """Upgrade one seeded config (navigation/main or branding/default)
+    when its published payload is an untouched legacy default; note
+    drift once per distinct payload hash when it is customised.
+
+    Idempotent: when the published payload already equals the current
+    default this is a no-op, so a second startup run changes nothing.
+    """
+    published = published_config(session, kind, key)
+    if published is None:
+        return
+    if published.payload == current_default:
+        return
+    versions = list_config_versions(session, kind, key)
+    if _is_provenance_clean(session, kind, key, versions) or \
+            _matches_legacy_fingerprint(kind, key, published.payload,
+                                        current_default):
+        old_version = published.version
+        next_version = (versions[-1].version + 1) if versions else 1
+        new_row = StudioConfig(
+            kind=kind, key=key, version=next_version,
+            status=ConfigStatus.draft,
+            payload=copy.deepcopy(current_default),
+            created_by="system", updated_by="system")
+        session.add(new_row)
+        session.flush()
+        append_audit(session, actor="system", action="studio.config.create",
+                     entity=f"config:{kind}/{key}@v{next_version}",
+                     payload={"kind": kind, "key": key,
+                              "version": next_version,
+                              "seeded_default": True,
+                              "seed_upgrade": True,
+                              "from_version": old_version})
+        # _publish_row supersedes the old published row (never mutates
+        # its payload), marks the new row published, writes the publish
+        # audit with the extended payload, and commits.
+        _publish_row(new_row, session, _SYSTEM_ACTOR,
+                     "studio.config.publish",
+                     {"seeded_default": True, "seed_upgrade": True,
+                      "from_version": old_version})
+        return
+    # Customised (neither P nor F) and != current default: leave the
+    # payload alone; write ONE drift note per distinct payload hash.
+    payload_hash = _payload_hash(published.payload)
+    existing_drift = session.scalars(
+        select(AuditLog).where(
+            AuditLog.action == "studio.config.seed_drift")).all()
+    for row in existing_drift:
+        drift_payload = row.payload or {}
+        if isinstance(drift_payload, dict) \
+                and drift_payload.get("kind") == kind \
+                and drift_payload.get("key") == key \
+                and drift_payload.get("payload_hash") == payload_hash:
+            return
+    append_audit(session, actor="system",
+                 action="studio.config.seed_drift",
+                 entity=f"config:{kind}/{key}@v{published.version}",
+                 payload={"kind": kind, "key": key,
+                          "version": published.version,
+                          "payload_hash": payload_hash,
+                          "hash": payload_hash})
+    session.commit()
+
+
+# Backwards-friendly private alias (internal callers use the public name).
+_upgrade_seeded_default = upgrade_seeded_default
+
+
 def ensure_default_configs(session: Session) -> None:
     """Seed the built-in published v1 configs at startup (idempotent):
 
@@ -347,4 +623,56 @@ def ensure_default_configs(session: Session) -> None:
                     default_navigation_payload())
     _seed_published(session, "branding", BRANDING_KEY,
                     default_branding_payload())
+    # WS1c seeded-default upgrade path: after the navigation and
+    # branding seeds above, upgrade an untouched legacy seeded default
+    # to the current code default (or note drift once if customised).
+    # Fresh databases seeded just above carry the current default, so
+    # both calls no-op there. No other seeded config is wired.
+    upgrade_seeded_default(session, "navigation", NAVIGATION_KEY,
+                           default_navigation_payload())
+    upgrade_seeded_default(session, "branding", BRANDING_KEY,
+                           default_branding_payload())
+    # Phase 10 (Track K): the downtime read-only flag — published from
+    # first boot in the OFF state, so the downtime middleware's config
+    # is governed data an operator flips, never a code path.
+    _seed_published(session, "integration", "downtime",
+                    {"readOnly": False, "message": ""})
+    # Phase 17 (WS-PACKGATE, BD-01 completion): pack-enablement route
+    # gating ships ON. The published pack-gating config is seeded
+    # enabled — the default lives in governed config data, not in a
+    # code constant — and app.pack_gate treats absent config as ON
+    # as the backstop. An operator turns the gate off only by
+    # publishing {"enabled": false} (the audited escape hatch);
+    # insert-if-absent seeding never overwrites that choice. The
+    # core packs whose routes this gates are seeded enabled through
+    # the pack lifecycle by app.studio (see main.create_app).
+    _seed_published(session, "integration", "pack-gating",
+                    {"enabled": True})
+    # Phase 17: the Studio OIDC registration — published DISABLED with no
+    # issuer, so a fresh deployment behaves exactly as before until a
+    # site publishes an enabled version pointing at its IdP (e.g. the
+    # live Keycloak realm). No secrets ever live in config.
+    _seed_published(session, "integration", "oidc",
+                    {"enabled": False, "issuer": "", "jwksUrl": "",
+                     "clientId": "opencare-backend", "audience": "opencare-backend",
+                     "rolesClaim": "realm_access.roles"})
+    # Phase 17 (BD-54 / CMP-33): session idle-lock + tap-and-go re-entry
+    # policy, consumed by the web shell (app.session_security).
+    _seed_published(session, "integration", "session-security",
+                    {"enabled": True, "idleLockMinutes": 15,
+                     "reentryGraceMinutes": 5})
+    # Phase 10 (Track B): dashboards are config. One published
+    # operations overview ships as the worked example — sites publish
+    # their own `dashboard` configs for their own views; the generic
+    # Studio Dashboards view renders any of them.
+    _seed_published(session, "dashboard", "operations-overview", {
+        "title": "Operations overview",
+        "widgets": [
+            {"id": "census", "title": "Patients in beds",
+             "endpoint": "/inpatient/census", "display": "total"},
+            {"id": "critical-open", "title": "Critical reports awaiting closure",
+             "endpoint": "/lab/critical-reports", "display": "total"},
+            {"id": "verification-queue", "title": "Lab reports in verification",
+             "endpoint": "/lab/verification-queue", "display": "total"},
+        ]})
     session.commit()

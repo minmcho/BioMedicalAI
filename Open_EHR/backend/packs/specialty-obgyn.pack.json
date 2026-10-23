@@ -1,7 +1,7 @@
 {
   "name": "specialty-obgyn",
-  "version": "1.0.0",
-  "description": "Specialty operations pack \u2014 obstetrics & gynaecology (roadmap \u00a74). Prenatal visit flowsheet (fundal height, fetal heart, GBS/glucose screening fields keyed by gestational age), labour & delivery record form, postpartum check set, gynae procedure terminology; registry: prenatal cohort. Well-woman screening recalls ride the Phase 3 cohort mechanism.",
+  "version": "1.1.0",
+  "description": "Specialty operations pack \u2014 obstetrics & gynaecology (roadmap \u00a74). Prenatal visit flowsheet (fundal height, fetal heart, GBS/glucose screening fields keyed by gestational age), labour & delivery record form, postpartum check set, gynae procedure terminology; registry: prenatal cohort. Well-woman screening recalls ride the Phase 3 cohort mechanism. Phase 15 depth (BD-03): MEDICATION MONITORING in the psychiatry pattern \u2014 the pack republishes the formulary with labetalol and the monitoring rule the generic pharmacy gate evaluates: labetalol dispensing FLAGS when no systolic blood pressure or ALT is on file within 30 days (hypertension-in-pregnancy surveillance; ALT watches for HELLP-pattern change).",
   "modules": [
     {
       "id": "obgyn-workspace",
@@ -246,6 +246,50 @@
                 }
               }
             ]
+          },
+          {
+            "linkId": "proteinuria",
+            "text": "Proteinuria (dipstick)",
+            "type": "choice",
+            "required": false,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "negative",
+                  "display": "Negative"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "trace",
+                  "display": "Trace"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "1+",
+                  "display": "1+"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "2+",
+                  "display": "2+"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "3+",
+                  "display": "3+"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "headache-visual-symptoms",
+            "text": "Headache or visual symptoms (pre-eclampsia screen)",
+            "type": "boolean",
+            "required": false
           }
         ]
       }
@@ -382,6 +426,110 @@
           {
             "system": "http://snomed.info/sct",
             "code": "77386006"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "formulary",
+      "payload": {
+        "name": "OpenCare formulary (RxNorm, synthetic) + obgyn labetalol (specialty-obgyn pack)",
+        "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+        "bcmaRights": [
+          "right-dispense",
+          "right-medication",
+          "right-patient"
+        ],
+        "concepts": [
+          {
+            "code": "1049221",
+            "display": "Lisinopril 10 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 120
+          },
+          {
+            "code": "847232",
+            "display": "Metformin hydrochloride 500 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 200
+          },
+          {
+            "code": "1044910",
+            "display": "Atorvastatin 20 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 90
+          },
+          {
+            "code": "1048467",
+            "display": "Sertraline 50 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 60
+          },
+          {
+            "code": "1351886",
+            "display": "Apixaban 5 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 45
+          },
+          {
+            "code": "245314",
+            "display": "Albuterol 0.09 MG/ACTUAT Metered Dose Inhaler",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": false
+          },
+          {
+            "code": "labetalol",
+            "display": "Labetalol hydrochloride 200 MG Oral Tablet (local synthetic code)",
+            "active": true,
+            "system": "urn:opencare:local-formulary",
+            "stockTracked": true,
+            "initialStock": 60
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "medication-monitoring",
+      "payload": {
+        "name": "Medication monitoring rules (high-risk medications) + obgyn labetalol rule (specialty-obgyn pack)",
+        "system": "urn:opencare:medication-monitoring",
+        "concepts": [
+          {
+            "code": "labetalol",
+            "display": "Labetalol \u2014 BP + ALT flag rule",
+            "active": true
+          }
+        ],
+        "rules": [
+          {
+            "medicationCode": "labetalol",
+            "medicationDisplay": "Labetalol",
+            "action": "flag",
+            "requiredLabs": [
+              {
+                "code": "8480-6",
+                "display": "Systolic blood pressure",
+                "maxAgeDays": 30
+              },
+              {
+                "code": "1742-6",
+                "display": "Alanine aminotransferase (ALT)",
+                "maxAgeDays": 30
+              }
+            ]
           }
         ]
       }

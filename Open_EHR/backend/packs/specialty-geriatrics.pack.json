@@ -1,7 +1,7 @@
 {
   "name": "specialty-geriatrics",
-  "version": "1.0.0",
-  "description": "Specialty operations pack \u2014 geriatrics (roadmap \u00a74). Comprehensive geriatric assessment (cognition, ADL/IADL, falls, frailty, polypharmacy with a deprescribing flag, advance care planning, caregiver strain), delirium screening flowsheet, falls-precaution order set; registry: frail-elderly cohort (dementia + osteoporosis markers) for falls/readmission measures.",
+  "version": "1.1.0",
+  "description": "Specialty operations pack \u2014 geriatrics (roadmap \u00a74). Comprehensive geriatric assessment (cognition, ADL/IADL, falls, frailty, polypharmacy with a deprescribing flag, advance care planning, caregiver strain), delirium screening flowsheet, falls-precaution order set; registry: frail-elderly cohort (dementia + osteoporosis markers) for falls/readmission measures. Phase 15 depth (BD-03): WORKFLOW RULE as governed Studio `rule` config \u2014 when a pharmacist verifies a nitrofurantoin order (the pack republishes the formulary with it) and the patient's Cockcroft-Gault CrCl from the DUR screening event is below 30 mL/min, the rules engine opens a geriatric prescribing-review Task (Beers-pattern: nitrofurantoin is avoided at low CrCl). The rule is data: a site retunes the threshold by publishing a new rule version.",
   "modules": [
     {
       "id": "geriatrics-workspace",
@@ -36,6 +36,17 @@
         "cam-positive",
         "orientation",
         "agitation-score"
+      ]
+    },
+    {
+      "id": "geriatrics-falls-flowsheet",
+      "name": "Falls Assessment Flowsheet",
+      "fields": [
+        "timed-up-and-go-seconds",
+        "orthostatic-systolic-drop",
+        "assistive-device",
+        "environmental-hazards",
+        "interventions"
       ]
     }
   ],
@@ -301,6 +312,199 @@
           {
             "system": "http://snomed.info/sct",
             "code": "64859006"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "formulary",
+      "payload": {
+        "name": "OpenCare formulary (RxNorm, synthetic) + geriatrics nitrofurantoin (specialty-geriatrics pack)",
+        "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+        "bcmaRights": [
+          "right-dispense",
+          "right-medication",
+          "right-patient"
+        ],
+        "concepts": [
+          {
+            "code": "1049221",
+            "display": "Lisinopril 10 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 120
+          },
+          {
+            "code": "847232",
+            "display": "Metformin hydrochloride 500 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 200
+          },
+          {
+            "code": "1044910",
+            "display": "Atorvastatin 20 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 90
+          },
+          {
+            "code": "1048467",
+            "display": "Sertraline 50 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 60
+          },
+          {
+            "code": "1351886",
+            "display": "Apixaban 5 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 45
+          },
+          {
+            "code": "245314",
+            "display": "Albuterol 0.09 MG/ACTUAT Metered Dose Inhaler",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": false
+          },
+          {
+            "code": "nitrofurantoin",
+            "display": "Nitrofurantoin 100 MG Oral Capsule (local synthetic code)",
+            "active": true,
+            "system": "urn:opencare:local-formulary",
+            "stockTracked": true,
+            "initialStock": 60
+          }
+        ]
+      }
+    },
+    {
+      "kind": "rule",
+      "key": "geriatrics-nitrofurantoin-renal-review",
+      "payload": {
+        "name": "Geriatric prescribing review \u2014 nitrofurantoin at low CrCl",
+        "description": "Beers-pattern safety rule: a pharmacist verifying nitrofurantoin for a patient whose screened creatinine clearance is below 30 mL/min opens a geriatric prescribing-review Task for the pharmacy team.",
+        "event": "pharmacy.dur.screened",
+        "condition": {
+          "all": [
+            {
+              "signal": "medication_code",
+              "op": "eq",
+              "value": "nitrofurantoin"
+            },
+            {
+              "signal": "crcl_ml_min",
+              "op": "lt",
+              "value": 30
+            }
+          ]
+        },
+        "action": {
+          "type": "create_task",
+          "params": {
+            "title": "Geriatric prescribing review \u2014 nitrofurantoin with CrCl < 30 mL/min",
+            "ownerRole": "pharmacist"
+          }
+        },
+        "enabled": true
+      }
+    },
+    {
+      "kind": "orderset",
+      "key": "geriatrics-deprescribing-review",
+      "payload": {
+        "name": "Geriatrics \u2014 deprescribing review",
+        "description": "Polypharmacy review bundle: pharmacist medication review, falls-risk nursing assessment, anticholinergic-burden screen.",
+        "orders": [
+          {
+            "type": "consult",
+            "code": "pharmacist-medication-review",
+            "display": "Pharmacist medication review \u2014 deprescribing",
+            "performerRole": "clinician"
+          },
+          {
+            "type": "nursing",
+            "code": "falls-risk-assessment",
+            "display": "Falls-risk assessment (Morse-pattern)"
+          },
+          {
+            "type": "nursing",
+            "code": "anticholinergic-burden-screen",
+            "display": "Anticholinergic burden screen"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "geriatrics-falls-flowsheet",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Falls assessment flowsheet",
+        "item": [
+          {
+            "linkId": "timed-up-and-go-seconds",
+            "text": "Timed Up and Go (seconds)",
+            "type": "decimal",
+            "required": true
+          },
+          {
+            "linkId": "orthostatic-systolic-drop",
+            "text": "Orthostatic systolic drop (mmHg)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "assistive-device",
+            "text": "Assistive device",
+            "type": "choice",
+            "required": false,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "none",
+                  "display": "None"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "stick",
+                  "display": "Walking stick"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "frame",
+                  "display": "Frame / walker"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "wheelchair",
+                  "display": "Wheelchair"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "environmental-hazards",
+            "text": "Environmental hazards identified",
+            "type": "boolean",
+            "required": false
+          },
+          {
+            "linkId": "interventions",
+            "text": "Interventions put in place",
+            "type": "text",
+            "required": false
           }
         ]
       }

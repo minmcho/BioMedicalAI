@@ -1,7 +1,7 @@
 {
   "name": "specialty-orthopedics",
-  "version": "1.0.0",
-  "description": "Specialty operations pack \u2014 orthopedics (roadmap \u00a74). Fracture clinic workflow, joint-replacement pathway (pre-op -> OR -> implant record -> PT milestones), cast/splint documentation, bone-health screening (DEXA + fracture-risk on the intake), and PROMs as a recurring flowsheet; registry: joint (osteoarthritis) cohort.",
+  "version": "1.1.0",
+  "description": "Specialty operations pack \u2014 orthopedics (roadmap \u00a74). Fracture clinic workflow, joint-replacement pathway (pre-op -> OR -> implant record -> PT milestones), cast/splint documentation, bone-health screening (DEXA + fracture-risk on the intake), and PROMs as a recurring flowsheet; registry: joint (osteoarthritis) cohort. Phase 15 depth (BD-03): MEDICATION MONITORING in the psychiatry pattern \u2014 the pack publishes a monitoring rule the generic pharmacy gate evaluates: apixaban (the post-joint-replacement VTE-prophylaxis anticoagulant, already in the base formulary) dispensing FLAGS when no haemoglobin or creatinine is on file within 90 days (bleeding + renal watch after arthroplasty).",
   "modules": [
     {
       "id": "orthopedics-workspace",
@@ -217,6 +217,18 @@
                 }
               }
             ]
+          },
+          {
+            "linkId": "prom-stiffness",
+            "text": "PROM \u2014 stiffness (0-10)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "prom-qol",
+            "text": "PROM \u2014 quality of life (0-10)",
+            "type": "integer",
+            "required": false
           }
         ]
       }
@@ -293,6 +305,40 @@
           {
             "system": "http://snomed.info/sct",
             "code": "239873007"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "medication-monitoring",
+      "payload": {
+        "name": "Medication monitoring rules (high-risk medications) + orthopedics apixaban rule (specialty-orthopedics pack)",
+        "system": "urn:opencare:medication-monitoring",
+        "concepts": [
+          {
+            "code": "1351886",
+            "display": "Apixaban \u2014 haemoglobin + renal flag rule",
+            "active": true
+          }
+        ],
+        "rules": [
+          {
+            "medicationCode": "1351886",
+            "medicationDisplay": "Apixaban",
+            "action": "flag",
+            "requiredLabs": [
+              {
+                "code": "718-7",
+                "display": "Haemoglobin",
+                "maxAgeDays": 90
+              },
+              {
+                "code": "2160-0",
+                "display": "Serum creatinine",
+                "maxAgeDays": 90
+              }
+            ]
           }
         ]
       }

@@ -1,0 +1,601 @@
+{
+  "name": "specialty-transplant",
+  "version": "1.0.0",
+  "description": "Specialty operations pack \u2014 solid-organ transplant (Phase 15, BD-05). Waitlist/registry cohort, donor\u2013recipient linkage as a governed form + published terminology, and IMMUNOSUPPRESSION MONITORING in the psychiatry clozapine pattern: the pack republishes the formulary (tacrolimus, mycophenolate) and the medication-monitoring rules the generic pharmacy gate evaluates \u2014 tacrolimus dispensing BLOCKS without a trough level <= 20 ng/mL, a creatinine and a potassium <= 5.5 mmol/L, each within 14 days (narrow therapeutic index + nephrotoxicity watch). Donor records are synthetic linkage data only; no external organ-procurement integration is claimed.",
+  "modules": [
+    {
+      "id": "transplant-workspace",
+      "name": "Transplant workspace",
+      "enabled": false
+    },
+    {
+      "id": "transplant-registry",
+      "name": "Transplant waitlist registry",
+      "enabled": false
+    }
+  ],
+  "forms": [
+    {
+      "id": "transplant-assessment",
+      "name": "Transplant Assessment",
+      "fields": [
+        "organ",
+        "transplant-date",
+        "graft-function",
+        "rejection-signs",
+        "infection-screen",
+        "adherence"
+      ]
+    },
+    {
+      "id": "transplant-donor-linkage",
+      "name": "Donor\u2013Recipient Linkage",
+      "fields": [
+        "donor-type",
+        "donor-reference",
+        "organ",
+        "donor-relationship",
+        "crossmatch-result",
+        "consent-confirmed",
+        "linkage-verified-by"
+      ]
+    }
+  ],
+  "api_endpoints": [],
+  "configuration": [
+    {
+      "kind": "terminology",
+      "key": "formulary",
+      "payload": {
+        "name": "OpenCare formulary (RxNorm, synthetic) + transplant immunosuppression (specialty-transplant pack)",
+        "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+        "bcmaRights": [
+          "right-dispense",
+          "right-medication",
+          "right-patient"
+        ],
+        "concepts": [
+          {
+            "code": "1049221",
+            "display": "Lisinopril 10 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 120
+          },
+          {
+            "code": "847232",
+            "display": "Metformin hydrochloride 500 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 200
+          },
+          {
+            "code": "1044910",
+            "display": "Atorvastatin 20 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 90
+          },
+          {
+            "code": "1048467",
+            "display": "Sertraline 50 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 60
+          },
+          {
+            "code": "1351886",
+            "display": "Apixaban 5 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 45
+          },
+          {
+            "code": "245314",
+            "display": "Albuterol 0.09 MG/ACTUAT Metered Dose Inhaler",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": false
+          },
+          {
+            "code": "tacrolimus",
+            "display": "Tacrolimus 1 MG Oral Capsule (local synthetic code)",
+            "active": true,
+            "system": "urn:opencare:local-formulary",
+            "stockTracked": true,
+            "initialStock": 40
+          },
+          {
+            "code": "mycophenolate",
+            "display": "Mycophenolate mofetil 250 MG Oral Capsule (local synthetic code)",
+            "active": true,
+            "system": "urn:opencare:local-formulary",
+            "stockTracked": true,
+            "initialStock": 60
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "medication-monitoring",
+      "payload": {
+        "name": "Medication monitoring rules (high-risk medications) + transplant tacrolimus rule (specialty-transplant pack)",
+        "system": "urn:opencare:medication-monitoring",
+        "concepts": [
+          {
+            "code": "tacrolimus",
+            "display": "Tacrolimus \u2014 trough + renal gating rule",
+            "active": true
+          }
+        ],
+        "rules": [
+          {
+            "medicationCode": "tacrolimus",
+            "medicationDisplay": "Tacrolimus",
+            "action": "block",
+            "requiredLabs": [
+              {
+                "code": "77347-1",
+                "display": "Tacrolimus trough level",
+                "maxValue": 20.0,
+                "maxAgeDays": 14
+              },
+              {
+                "code": "2160-0",
+                "display": "Serum creatinine",
+                "maxAgeDays": 14
+              },
+              {
+                "code": "2823-3",
+                "display": "Serum potassium",
+                "maxValue": 5.5,
+                "maxAgeDays": 14
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "orderset",
+      "key": "transplant-postop-bundle",
+      "payload": {
+        "name": "Transplant \u2014 post-operative immunosuppression bundle",
+        "description": "Day-0 bundle: calcineurin inhibitor + antimetabolite, transplant review, graft observations.",
+        "orders": [
+          {
+            "type": "medication",
+            "code": "tacrolimus",
+            "display": "Tacrolimus 1 MG Oral Capsule"
+          },
+          {
+            "type": "medication",
+            "code": "mycophenolate",
+            "display": "Mycophenolate mofetil 250 MG Oral Capsule"
+          },
+          {
+            "type": "consult",
+            "code": "transplant-review",
+            "display": "Transplant team review \u2014 post-operative",
+            "performerRole": "clinician"
+          },
+          {
+            "type": "nursing",
+            "code": "graft-observations",
+            "display": "Graft observations every 4 hours"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "orderset",
+      "key": "transplant-rejection-workup",
+      "payload": {
+        "name": "Transplant \u2014 suspected rejection workup",
+        "description": "Rejection workup: urgent transplant review, graft biopsy procedure slot, tacrolimus-level nursing draw.",
+        "orders": [
+          {
+            "type": "consult",
+            "code": "transplant-review-urgent",
+            "display": "Urgent transplant review \u2014 suspected rejection",
+            "performerRole": "clinician"
+          },
+          {
+            "type": "procedure",
+            "code": "graft-biopsy",
+            "display": "Graft biopsy"
+          },
+          {
+            "type": "nursing",
+            "code": "tacrolimus-level-draw",
+            "display": "Tacrolimus trough level \u2014 timed pre-dose draw"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "transplant-assessment",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Transplant assessment",
+        "item": [
+          {
+            "linkId": "organ",
+            "text": "Transplanted organ",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "kidney",
+                  "display": "Kidney"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "liver",
+                  "display": "Liver"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "heart",
+                  "display": "Heart"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "lung",
+                  "display": "Lung"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "pancreas",
+                  "display": "Pancreas"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "intestine",
+                  "display": "Intestine"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "transplant-date",
+            "text": "Date of transplant",
+            "type": "date",
+            "required": true
+          },
+          {
+            "linkId": "graft-function",
+            "text": "Graft function",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "good",
+                  "display": "Good"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "delayed",
+                  "display": "Delayed graft function"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "impaired",
+                  "display": "Impaired"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "failed",
+                  "display": "Graft failure"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "rejection-signs",
+            "text": "Signs of rejection present",
+            "type": "boolean",
+            "required": true
+          },
+          {
+            "linkId": "infection-screen",
+            "text": "Infection screen completed",
+            "type": "boolean",
+            "required": false
+          },
+          {
+            "linkId": "adherence",
+            "text": "Immunosuppression adherence",
+            "type": "choice",
+            "required": false,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "full",
+                  "display": "Full"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "partial",
+                  "display": "Partial"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "poor",
+                  "display": "Poor \u2014 support plan needed"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "transplant-donor-linkage",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Donor\u2013recipient linkage record",
+        "item": [
+          {
+            "linkId": "donor-type",
+            "text": "Donor type",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "living-related",
+                  "display": "Living \u2014 related"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "living-unrelated",
+                  "display": "Living \u2014 unrelated"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "deceased-dbd",
+                  "display": "Deceased \u2014 donation after brain death"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "deceased-dcd",
+                  "display": "Deceased \u2014 donation after circulatory death"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "donor-reference",
+            "text": "Donor record reference (synthetic linkage id)",
+            "type": "string",
+            "required": true
+          },
+          {
+            "linkId": "organ",
+            "text": "Organ linked",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "kidney",
+                  "display": "Kidney"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "liver",
+                  "display": "Liver"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "heart",
+                  "display": "Heart"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "lung",
+                  "display": "Lung"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "pancreas",
+                  "display": "Pancreas"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "intestine",
+                  "display": "Intestine"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "donor-relationship",
+            "text": "Donor relationship to recipient",
+            "type": "choice",
+            "required": false,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "parent",
+                  "display": "Parent"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "sibling",
+                  "display": "Sibling"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "spouse-partner",
+                  "display": "Spouse / partner"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "other-family",
+                  "display": "Other family"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "unrelated",
+                  "display": "Unrelated"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "deceased-anonymous",
+                  "display": "Deceased \u2014 anonymous"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "crossmatch-result",
+            "text": "Final crossmatch result",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "negative",
+                  "display": "Negative \u2014 compatible"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "positive",
+                  "display": "Positive \u2014 do not proceed"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "consent-confirmed",
+            "text": "Donor consent / authorisation confirmed",
+            "type": "boolean",
+            "required": true
+          },
+          {
+            "linkId": "linkage-verified-by",
+            "text": "Linkage verified by (staff name / id)",
+            "type": "string",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "transplant-codes",
+      "payload": {
+        "name": "Transplant terminology subset",
+        "system": "http://snomed.info/sct",
+        "concepts": [
+          {
+            "code": "161663000",
+            "display": "History of organ transplant (synthetic subset)",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "313039003",
+            "display": "Transplant recipient follow-up (synthetic subset)",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "70536003",
+            "display": "Kidney transplant (synthetic subset)",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "18027006",
+            "display": "Liver transplant (synthetic subset)",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "cohort",
+      "key": "transplant-registry",
+      "payload": {
+        "name": "Transplant waitlist + recipient registry",
+        "description": "Persons with a history of solid-organ transplant \u2014 the waitlist/recipient cohort for immunosuppression-monitoring recall.",
+        "smallCellThreshold": 5,
+        "ageBands": [
+          [
+            0,
+            17,
+            "0-17"
+          ],
+          [
+            18,
+            44,
+            "18-44"
+          ],
+          [
+            45,
+            64,
+            "45-64"
+          ],
+          [
+            65,
+            74,
+            "65-74"
+          ],
+          [
+            75,
+            null,
+            "75+"
+          ]
+        ],
+        "conditionCodes": [
+          {
+            "system": "http://snomed.info/sct",
+            "code": "161663000"
+          },
+          {
+            "system": "http://snomed.info/sct",
+            "code": "313039003"
+          }
+        ]
+      }
+    }
+  ]
+}

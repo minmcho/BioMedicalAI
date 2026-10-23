@@ -162,6 +162,47 @@ class ProcedureOccurrence(WarehouseBase):
     source_procedure_id: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, index=True)
 
 
+# ---------------------------------------------------------------------------
+# Standard vocabulary load (ATHENA / OMOP) — Phase 16 WS-H (BD-44).
+#
+# These two tables hold the STANDARD vocabulary load (the full ATHENA
+# CONCEPT / CONCEPT_RELATIONSHIP files, loaded by app.analytics) BESIDE
+# the curated `concept_map` below. `concept_map` stays the small,
+# documented, site-curated subset the ETL resolves against; the vocab
+# tables are the production-scale reference the curated subset is a
+# stand-in for (see the module docstring's honesty rules). They live in
+# the warehouse database, never the clinical store.
+# ---------------------------------------------------------------------------
+
+class VocabConcept(WarehouseBase):
+    """One ATHENA CONCEPT row (OMOP standard vocabulary)."""
+    __tablename__ = "vocab_concept"
+    concept_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    concept_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    domain_id: Mapped[str] = mapped_column(String(20), nullable=False, default="", index=True)
+    vocabulary_id: Mapped[str] = mapped_column(String(20), nullable=False, default="", index=True)
+    concept_class_id: Mapped[str] = mapped_column(String(20), nullable=False, default="")
+    standard_concept: Mapped[str | None] = mapped_column(String(1), nullable=True)
+    concept_code: Mapped[str] = mapped_column(String(50), nullable=False, default="")
+    valid_start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    valid_end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    invalid_reason: Mapped[str | None] = mapped_column(String(1), nullable=True)
+
+
+class VocabRelationship(WarehouseBase):
+    """One ATHENA CONCEPT_RELATIONSHIP row."""
+    __tablename__ = "vocab_relationship"
+    __table_args__ = (UniqueConstraint("concept_id_1", "concept_id_2",
+                                       "relationship_id"),)
+    id: Mapped[int] = _pk("vocab_relationship_id_seq")
+    concept_id_1: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    concept_id_2: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    relationship_id: Mapped[str] = mapped_column(String(20), nullable=False, default="")
+    valid_start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    valid_end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    invalid_reason: Mapped[str | None] = mapped_column(String(1), nullable=True)
+
+
 class ConceptMap(WarehouseBase):
     """Source code/system -> OMOP concept id (curated subset, see docstring)."""
     __tablename__ = "concept_map"

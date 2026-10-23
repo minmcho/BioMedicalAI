@@ -8,6 +8,7 @@ installation itself.
 import json
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
@@ -46,6 +47,14 @@ def load_pack_manifests(session: Session) -> list[ModulePack]:
             session.add(pack)
             session.flush()
         packs.append(pack)
+    # Phase 10 (Track B, pack lifecycle completion): packs authored
+    # through the Studio API (POST /studio/packs) live only in the
+    # database — they are first-class packs and must list/install
+    # exactly like file packs.
+    known = {(p.name, p.version) for p in packs}
+    for pack in session.scalars(select(ModulePack)).all():
+        if (pack.name, pack.version) not in known:
+            packs.append(pack)
     session.commit()
     return packs
 
@@ -63,6 +72,57 @@ def _installation_out(inst: PackInstallation, pack: ModulePack) -> dict:
 def list_packs(session: Session = Depends(get_db),
                user: User = Depends(require_capability("studio.read"))):
     return [_pack_out(p) for p in load_pack_manifests(session)]
+
+
+@router.post("/packs", status_code=201)
+async def create_pack(request: Request, session: Session = Depends(get_db),
+                      user: User = Depends(require_capability("studio.manage"))):
+    """Author a NEW pack as a designer draft (Phase 10, Track B — pack
+    lifecycle completion: create-draft joins install as an entry point
+    to the same approve -> attach -> enable lifecycle, so packs no
+    longer have to be born as files on disk). The manifest is data;
+    any declared backend surface must ship DISABLED (enabled=false) —
+    a manifest that tries to self-enable an endpoint is refused 422,
+    exactly as installation never flips the flag either."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail="Request body must be valid JSON")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail="Request body must be a JSON object")
+    name = body.get("name")
+    version = body.get("version")
+    manifest = body.get("manifest")
+    if not isinstance(name, str) or not name.strip():
+        raise HTTPException(status_code=422, detail="Pack requires a non-empty 'name'")
+    if not isinstance(version, str) or not version.strip():
+        raise HTTPException(status_code=422, detail="Pack requires a non-empty 'version'")
+    if not isinstance(manifest, dict):
+        raise HTTPException(status_code=422, detail="Pack requires a 'manifest' object")
+    for endpoint in manifest.get("api_endpoints") or []:
+        if isinstance(endpoint, dict) and endpoint.get("enabled"):
+            raise HTTPException(
+                status_code=422,
+                detail=("Pack manifests ship backend surface disabled: "
+                        "endpoint "
+                        f"{endpoint.get('method', '')} {endpoint.get('path', '')} "
+                        "declares enabled=true; enablement is a separate "
+                        "governed step, never a manifest claim"))
+    load_pack_manifests(session)
+    existing = session.scalars(
+        select(ModulePack).where(ModulePack.name == name.strip(),
+                                 ModulePack.version == version.strip())).first()
+    if existing is not None:
+        raise HTTPException(status_code=409,
+                            detail=f"Pack {name}@{version} already exists")
+    pack = ModulePack(name=name.strip(), version=version.strip(), manifest=manifest)
+    session.add(pack)
+    session.flush()
+    append_audit(session, actor=user.username, action="studio.pack.create",
+                 entity=f"pack:{pack.name}@{pack.version}",
+                 payload={"pack_id": pack.id, "authored_via": "studio-api"})
+    session.commit()
+    return _pack_out(pack)
 
 
 @router.post("/packs/{name}/install", status_code=201)
@@ -277,6 +337,94 @@ async def enable(installation_id: int, request: Request,
 def disable(installation_id: int, session: Session = Depends(get_db),
             user: User = Depends(require_capability("studio.manage"))):
     return _transition("disable", installation_id, session, user)
+
+
+# ---------------------------------------------------------------------------
+# Phase 17 (WS-PACKGATE, BD-01 completion): seeded core packs.
+#
+# Pack-gating now ships ON (seeded published integration/pack-gating
+# {"enabled": true}; absent config also means ON — app.pack_gate).
+# For a fresh deployment to SERVE under that posture, the packs that
+# declare the core application's own routes must be enabled — and
+# they are enabled the governed way, through the same lifecycle an
+# operator drives in Studio (install -> approve -> attach -> enable,
+# each step hash-chain audited), never by a route exemption or a
+# status written behind the lifecycle's back.
+#
+# SEEDED_CORE_PACKS is deliberately an explicit list, not a rule
+# derived from the manifests: auto-enabling every endpoint-declaring
+# pack would silently enable a future OPTIONAL pack the day its
+# manifest starts declaring routes. These three are the core: their
+# manifests declare the FHIR core (patients/encounters/observations),
+# the laboratory spine and the interoperability surface that the
+# seeded navigation modules run on. Every other file pack is a
+# deployment-profile or specialty pack: it declares no api_endpoints,
+# and enabling it APPLIES site-changing configuration (profiles) or
+# specialty order sets/forms/cohorts — a deliberate operator act,
+# never a boot default.
+#
+# Operator-respecting idempotency: a pack that already has an
+# installation in ANY status is left exactly as it is. In
+# particular a core pack an operator later DISABLES stays disabled
+# across restarts — the seed creates the initial governed state, it
+# does not police it.
+# ---------------------------------------------------------------------------
+
+SEEDED_CORE_PACKS = ("clinical-core", "interop", "lab")
+
+# _apply_pack_configuration only reads `user.username` (audit actor +
+# config created_by); the seed acts as the system actor, matching
+# studio_config._seed_published's actor="system" convention.
+_SYSTEM_ACTOR = SimpleNamespace(username="system")
+
+
+def ensure_core_pack_installations(session: Session) -> list[PackInstallation]:
+    """Seed the core packs as ENABLED installations through the
+    governed lifecycle (see the block comment above). Idempotent:
+    packs with an existing installation are untouched."""
+    load_pack_manifests(session)
+    seeded: list[PackInstallation] = []
+    for name in SEEDED_CORE_PACKS:
+        pack = session.scalars(
+            select(ModulePack).where(ModulePack.name == name)).first()
+        if pack is None:
+            continue  # manifest not on disk in this deployment
+        existing = session.scalars(
+            select(PackInstallation)
+            .where(PackInstallation.pack_id == pack.id)).first()
+        if existing is not None:
+            continue  # operator state (incl. disabled) is authoritative
+        inst = PackInstallation(
+            pack_id=pack.id, status=InstallationStatus.installed_draft,
+            installed_by="system")
+        session.add(inst)
+        session.flush()
+        append_audit(session, actor="system", action="studio.install",
+                     entity=f"pack:{pack.name}@{pack.version}",
+                     payload={"installation_id": inst.id,
+                              "seeded_default": True})
+        applied: list[dict] = []
+        for action in ("approve", "attach", "enable"):
+            required, target = TRANSITIONS[action]
+            if action == "enable":
+                # Mirror the enable endpoint exactly: a pack carrying
+                # `configuration` applies it as part of enabling.
+                # (The seeded core packs carry none today; this keeps
+                # the seed honest if one ever does.)
+                applied = _apply_pack_configuration(
+                    session, pack, _SYSTEM_ACTOR, {})
+            inst.status = target
+            session.flush()
+            payload = {"from_status": required.value,
+                       "to_status": target.value,
+                       "seeded_default": True}
+            if action == "enable":
+                payload["applied_configuration"] = applied
+            append_audit(session, actor="system", action=f"studio.{action}",
+                         entity=f"installation:{inst.id}", payload=payload)
+        seeded.append(inst)
+    session.commit()
+    return seeded
 
 
 @router.get("/installations")

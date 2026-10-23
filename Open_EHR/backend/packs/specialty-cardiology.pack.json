@@ -1,7 +1,7 @@
 {
   "name": "specialty-cardiology",
-  "version": "1.0.0",
-  "description": "Specialty operations pack \u2014 cardiology (roadmap \u00a74). Chest-pain/ACS pathway order set (timed troponin protocol carried on the pathway form), heart-failure clinic order set + GDMT flowsheet, HEART-score risk form, structured echocardiography report form, device-clinic terminology; registry: heart-failure + post-MI cohort. Timeliness measures (door-to-balloon style) are Phase 9 measure configs over ADT/order timestamps.",
+  "version": "1.1.0",
+  "description": "Specialty operations pack \u2014 cardiology (roadmap \u00a74). Chest-pain/ACS pathway order set (timed troponin protocol carried on the pathway form), heart-failure clinic order set + GDMT flowsheet, HEART-score risk form, structured echocardiography report form, device-clinic terminology; registry: heart-failure + post-MI cohort. Timeliness measures (door-to-balloon style) are Phase 9 measure configs over ADT/order timestamps. Phase 15 depth (BD-03): MEDICATION MONITORING in the psychiatry pattern \u2014 the pack republishes the formulary with digoxin and the medication-monitoring rules the generic pharmacy gate evaluates: digoxin dispensing BLOCKS without a potassium in 3.5\u20135.5 mmol/L within 30 days and a digoxin level <= 2.0 ng/mL within 90 days (hypokalaemia potentiates digoxin toxicity; the level caps the therapeutic range).",
   "modules": [
     {
       "id": "cardiology-workspace",
@@ -303,6 +303,50 @@
             "text": "Valve findings",
             "type": "text",
             "required": false
+          },
+          {
+            "linkId": "diastolic-function",
+            "text": "Diastolic function",
+            "type": "choice",
+            "required": false,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "normal",
+                  "display": "Normal"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "grade-1",
+                  "display": "Grade I \u2014 impaired relaxation"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "grade-2",
+                  "display": "Grade II \u2014 pseudonormal"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "grade-3",
+                  "display": "Grade III \u2014 restrictive"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "pericardial-effusion",
+            "text": "Pericardial effusion present",
+            "type": "boolean",
+            "required": false
+          },
+          {
+            "linkId": "estimated-pa-pressure",
+            "text": "Estimated PA pressure (mmHg)",
+            "type": "decimal",
+            "required": false
           }
         ]
       }
@@ -449,6 +493,113 @@
           {
             "system": "http://snomed.info/sct",
             "code": "22298006"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "formulary",
+      "payload": {
+        "name": "OpenCare formulary (RxNorm, synthetic) + cardiology digoxin (specialty-cardiology pack)",
+        "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+        "bcmaRights": [
+          "right-dispense",
+          "right-medication",
+          "right-patient"
+        ],
+        "concepts": [
+          {
+            "code": "1049221",
+            "display": "Lisinopril 10 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 120
+          },
+          {
+            "code": "847232",
+            "display": "Metformin hydrochloride 500 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 200
+          },
+          {
+            "code": "1044910",
+            "display": "Atorvastatin 20 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 90
+          },
+          {
+            "code": "1048467",
+            "display": "Sertraline 50 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 60
+          },
+          {
+            "code": "1351886",
+            "display": "Apixaban 5 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 45
+          },
+          {
+            "code": "245314",
+            "display": "Albuterol 0.09 MG/ACTUAT Metered Dose Inhaler",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": false
+          },
+          {
+            "code": "digoxin",
+            "display": "Digoxin 0.125 MG Oral Tablet (local synthetic code)",
+            "active": true,
+            "system": "urn:opencare:local-formulary",
+            "stockTracked": true,
+            "initialStock": 60
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "medication-monitoring",
+      "payload": {
+        "name": "Medication monitoring rules (high-risk medications) + cardiology digoxin rule (specialty-cardiology pack)",
+        "system": "urn:opencare:medication-monitoring",
+        "concepts": [
+          {
+            "code": "digoxin",
+            "display": "Digoxin \u2014 potassium + level gating rule",
+            "active": true
+          }
+        ],
+        "rules": [
+          {
+            "medicationCode": "digoxin",
+            "medicationDisplay": "Digoxin",
+            "action": "block",
+            "requiredLabs": [
+              {
+                "code": "2823-3",
+                "display": "Serum potassium",
+                "minValue": 3.5,
+                "maxValue": 5.5,
+                "maxAgeDays": 30
+              },
+              {
+                "code": "10535-3",
+                "display": "Digoxin level",
+                "maxValue": 2.0,
+                "maxAgeDays": 90
+              }
+            ]
           }
         ]
       }

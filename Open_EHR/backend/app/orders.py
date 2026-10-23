@@ -37,9 +37,15 @@ Decision support (honest, config-driven, and deliberately narrow):
   approved authorisation covering the patient + service (422 naming
   the missing authorisation; `auth_override_reason` proceeds and is
   recorded on the order). Inert under the seeded payer defaults.
-- Drug-interaction checking is NOT implemented: there is no interaction
-  database in this system, and none is faked (see the Phase 5 SQA
-  report's NOT RUN list).
+- Drug-interaction checking (Phase 17, BD-70) is bring-your-own-
+  licensed-source: at medication-order placement the candidate is
+  pair-checked against the patient's open medication orders through
+  app.pharmacy_ops' governed loader, ONLY when a deployer-supplied
+  licensed source is configured there. Findings flag on the placement
+  response (severity + source attribution) — placement is not
+  refused. With no source configured (the shipped state) the screen
+  is inert and the response says so; no interaction data ships with
+  this system and none is faked.
 
 Consults: a consult order also creates a FHIR Task for the receiving
 role; the task surfaces in that role's inbox (GET /orders/inbox) once
@@ -73,6 +79,14 @@ router = APIRouter(prefix="/orders", tags=["orders"])
 
 ORDER_TYPES_KEY = "order-types"
 ORDER_WORKFLOW_KEY = "order-flow"
+# Wave A (CHART-B3): the governed sig-builder vocabulary — routes,
+# frequencies and dose units — is published terminology, key
+# ``medication-sig``, seeded by ensure_orders_defaults like the
+# order-type catalogue. The sig builder in the web chart reads it
+# from GET /orders/types (``medication_sig``) and the placement
+# validator below enforces it server-side.
+MEDICATION_SIG_KEY = "medication-sig"
+MEDICATION_SIG_SYSTEM = "urn:opencare:medication-sig"
 ORDER_TYPES_SYSTEM = "urn:opencare:order-type"
 RXNORM = "http://www.nlm.nih.gov/research/umls/rxnorm"
 
@@ -153,6 +167,64 @@ def default_order_types_payload() -> dict:
     }
 
 
+def default_medication_sig_payload() -> dict:
+    """The governed medication-sig vocabulary (Wave A, CHART-B3).
+
+    routes / units are code+display concepts. Each frequency carries
+    `timesPerDay` for display/maths AND the FHIR timing.repeat triple
+    (`frequency` per `period` `periodUnit`) the MAR interval maths
+    (app.orders._order_interval_hours) and the pharmacy dose maths
+    (app.pharmacy.doses_per_day_of) already parse — the two must stay
+    consistent: 24 / (period_hours / frequency) == timesPerDay.
+    `as-needed` has timesPerDay 0 and NO repeat triple: a PRN-only
+    frequency has no scheduled interval, so doses_per_day_of returns
+    None for it, which is the honest answer."""
+    def freq(code, display, times_per_day, repeat=None):
+        entry = {"code": code, "display": display,
+                 "timesPerDay": times_per_day, "active": True}
+        if repeat is not None:
+            entry["repeat"] = repeat
+        return entry
+
+    return {
+        "name": "OpenCare medication sig vocabulary (routes / "
+                "frequencies / dose units)",
+        "system": MEDICATION_SIG_SYSTEM,
+        "routes": [
+            {"code": code, "display": display, "active": True}
+            for code, display in [
+                ("oral", "Oral"), ("intravenous", "Intravenous"),
+                ("intramuscular", "Intramuscular"),
+                ("subcutaneous", "Subcutaneous"), ("inhaled", "Inhaled"),
+                ("topical", "Topical"), ("rectal", "Rectal"),
+                ("sublingual", "Sublingual"),
+            ]
+        ],
+        "frequencies": [
+            freq("once-daily", "Once daily", 1,
+                 {"frequency": 1, "period": 1, "periodUnit": "d"}),
+            freq("twice-daily", "Twice daily", 2,
+                 {"frequency": 2, "period": 1, "periodUnit": "d"}),
+            freq("three-times-daily", "Three times daily", 3,
+                 {"frequency": 3, "period": 1, "periodUnit": "d"}),
+            freq("four-times-daily", "Four times daily", 4,
+                 {"frequency": 4, "period": 1, "periodUnit": "d"}),
+            freq("every-6-hours", "Every 6 hours", 4,
+                 {"frequency": 1, "period": 6, "periodUnit": "h"}),
+            freq("every-8-hours", "Every 8 hours", 3,
+                 {"frequency": 1, "period": 8, "periodUnit": "h"}),
+            freq("every-12-hours", "Every 12 hours", 2,
+                 {"frequency": 1, "period": 12, "periodUnit": "h"}),
+            freq("as-needed", "As needed (PRN)", 0),
+        ],
+        "units": [
+            {"code": code, "display": code, "active": True}
+            for code in ("mg", "mcg", "g", "mL", "units", "tablets",
+                         "drops", "puffs")
+        ],
+    }
+
+
 def default_order_workflow_payload() -> dict:
     states = sorted(DEFAULT_ORDER_TRANSITIONS.keys())
     transitions = []
@@ -226,6 +298,8 @@ def ensure_orders_defaults(session: Session) -> None:
     demo order sets as published Studio config v1 (idempotent)."""
     _seed_published(session, "terminology", ORDER_TYPES_KEY,
                     default_order_types_payload())
+    _seed_published(session, "terminology", MEDICATION_SIG_KEY,
+                    default_medication_sig_payload())
     _seed_published(session, "workflow", ORDER_WORKFLOW_KEY,
                     default_order_workflow_payload())
     for key, payload in default_order_set_payloads().items():
@@ -258,6 +332,140 @@ def _type_concept(session: Session, type_code: str) -> dict | None:
 def _order_machine(session: Session):
     return load_workflow_machine(session, ORDER_WORKFLOW_KEY,
                                  DEFAULT_ORDER_TRANSITIONS)
+
+
+def _sig_vocabulary(session: Session) -> dict:
+    """The published medication-sig terminology payload; falls back to
+    the seeded defaults when nothing is published (the seed normally
+    guarantees a published v1, so the fallback only covers a site that
+    disabled the seed — validation must still be governed, never
+    free-form)."""
+    cfg = published_config(session, "terminology", MEDICATION_SIG_KEY)
+    if cfg is not None and isinstance(cfg.payload, dict):
+        return cfg.payload
+    return default_medication_sig_payload()
+
+
+def _vocab_codes(entries) -> set[str]:
+    codes: set[str] = set()
+    for entry in entries or []:
+        if isinstance(entry, str) and entry:
+            codes.add(entry)
+        elif isinstance(entry, dict) and entry.get("code") \
+                and entry.get("active") is not False:
+            codes.add(str(entry["code"]))
+    return codes
+
+
+def _validate_dosage_instruction(session: Session, payload: dict) -> None:
+    """Wave A (CHART-B3) server-side sig validation. When a medication
+    placement carries a structured `dosageInstruction` list, EVERY
+    entry must be a complete governed sig: text present; a
+    doseQuantity (direct or under doseAndRate, the two shapes
+    app.pharmacy.dose_quantity_of reads) with value > 0 and a unit in
+    the published medication-sig vocabulary; a route coding in the
+    vocabulary; and timing — either a usable timing.repeat
+    (frequency/period/periodUnit, the shape doses_per_day_of parses),
+    a timing.code, or asNeeded. Any failure is a 422 NAMING the field.
+    Text-only dosage (dosage_text / dosageText, no list) stays
+    accepted for backwards compatibility, exactly as before."""
+    dosage = payload.get("dosageInstruction")
+    if dosage is None:
+        return
+    if not isinstance(dosage, list):
+        raise HTTPException(
+            status_code=422,
+            detail="Field 'dosageInstruction' must be a list of dosage "
+                   "instructions")
+    if not dosage:
+        return
+    vocab = _sig_vocabulary(session)
+    route_codes = _vocab_codes(vocab.get("routes"))
+    unit_codes = _vocab_codes(vocab.get("units"))
+    for i, entry in enumerate(dosage):
+        where = f"dosageInstruction[{i}]"
+        if not isinstance(entry, dict):
+            raise HTTPException(
+                status_code=422,
+                detail=f"Field '{where}' must be an object")
+        text = entry.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise HTTPException(
+                status_code=422,
+                detail=f"Field '{where}.text' is required (the "
+                       "human-readable sig)")
+        quantity = entry.get("doseQuantity")
+        if not isinstance(quantity, dict):
+            rates = entry.get("doseAndRate") or []
+            if rates and isinstance(rates[0], dict):
+                quantity = rates[0].get("doseQuantity")
+        if not isinstance(quantity, dict):
+            raise HTTPException(
+                status_code=422,
+                detail=f"Field '{where}.doseAndRate.doseQuantity' is "
+                       "required for a structured sig")
+        value = quantity.get("value")
+        if isinstance(value, bool) or not isinstance(value, (int, float)) \
+                or not value > 0:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Field '{where}.doseAndRate.doseQuantity.value' "
+                       "must be a number greater than 0")
+        unit = quantity.get("unit") or quantity.get("code")
+        if not isinstance(unit, str) or not unit:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Field '{where}.doseAndRate.doseQuantity.unit' "
+                       "is required")
+        if unit_codes and unit not in unit_codes:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Field '{where}.doseAndRate.doseQuantity.unit': "
+                       f"'{unit}' is not in the published medication-sig "
+                       "dose units")
+        route = entry.get("route") or {}
+        route_code = None
+        if isinstance(route, dict):
+            for coding in route.get("coding") or []:
+                if isinstance(coding, dict) and coding.get("code"):
+                    route_code = str(coding["code"])
+                    break
+        if not route_code:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Field '{where}.route' is required (a route "
+                       "coding from the medication-sig vocabulary)")
+        if route_codes and route_code not in route_codes:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Field '{where}.route': '{route_code}' is not "
+                       "in the published medication-sig routes")
+        timing = entry.get("timing") or {}
+        has_timing = False
+        if isinstance(timing, dict):
+            repeat = timing.get("repeat") or {}
+            if isinstance(repeat, dict):
+                freq = repeat.get("frequency")
+                period = repeat.get("period")
+                if isinstance(freq, (int, float)) \
+                        and not isinstance(freq, bool) \
+                        and isinstance(period, (int, float)) \
+                        and not isinstance(period, bool) \
+                        and freq > 0 and period > 0 \
+                        and repeat.get("periodUnit") in ("min", "h", "d", "wk"):
+                    has_timing = True
+            code = timing.get("code") or {}
+            if isinstance(code, dict) and (
+                    code.get("coding") or code.get("text")):
+                has_timing = True
+        if entry.get("asNeededBoolean") is True or entry.get("asNeeded"):
+            has_timing = True
+        if not has_timing:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Field '{where}.timing' is required (a "
+                       "frequency: timing.repeat, timing.code, or an "
+                       "as-needed flag)")
 
 
 # ---------------------------------------------------------------------------
@@ -452,6 +660,26 @@ def _enforce_auth(session: Session, row: FhirResource, body: dict,
                 "— the reason is recorded on the order"))
 
 
+def _interaction_screen(session: Session, patient_ref: str, code: str):
+    """Phase 17 (BD-70): pair-check a candidate medication against
+    the patient's open medication orders via the pharmacy governed
+    loader (lazy import — app.pharmacy_ops imports app.orders, so
+    the dependency stays one-way at module load). Returns
+    (findings, status, warning_strings); findings is [] and the
+    status is the explicit no-source statement when no licensed
+    source is configured."""
+    from .pharmacy_ops import (_interaction_status,
+                                interaction_findings_for_patient)
+    findings = interaction_findings_for_patient(session, patient_ref, code)
+    status = _interaction_status(session)
+    warnings = [
+        (f"interaction: {f['drug_a']} + {f['drug_b']} — "
+         f"{f['severity']} (source: {f['source']}): "
+         f"{f['summary'] or f['mechanism']}")
+        for f in findings]
+    return findings, status, warnings
+
+
 def _duplicate_warnings(session: Session, patient_ref: str, type_code: str,
                         code: str, exclude_id: str | None = None) -> list[str]:
     warnings = []
@@ -512,6 +740,8 @@ def _validate_placement(session: Session, payload: dict) -> tuple[dict, str]:
                 status_code=422,
                 detail=(f"Order type '{type_code}' requires field "
                         f"'{field_name}'"))
+    if concept.get("resourceType") == "MedicationRequest":
+        _validate_dosage_instruction(session, payload)
     subject = payload.get("subject") or {}
     patient_ref = subject.get("reference") if isinstance(subject, dict) else None
     if not patient_ref and payload.get("patient"):
@@ -646,10 +876,14 @@ def order_types(session: Session = Depends(get_db),
                 user: User = Depends(require_capability("orders.read"))):
     cfg = published_config(session, "terminology", ORDER_TYPES_KEY)
     workflow_cfg = published_config(session, "workflow", ORDER_WORKFLOW_KEY)
+    sig_cfg = published_config(session, "terminology", MEDICATION_SIG_KEY)
     return {"order_types": cfg.payload if cfg else None,
             "version": cfg.version if cfg else None,
             "workflow": workflow_cfg.payload if workflow_cfg else None,
-            "workflow_version": workflow_cfg.version if workflow_cfg else None}
+            "workflow_version": workflow_cfg.version if workflow_cfg else None,
+            # Wave A (CHART-B3): the governed sig-builder vocabulary.
+            "medication_sig": sig_cfg.payload if sig_cfg else None,
+            "medication_sig_version": sig_cfg.version if sig_cfg else None}
 
 
 @router.get("/sets")
@@ -674,10 +908,19 @@ async def place_order(request: Request, session: Session = Depends(get_db),
             warnings.append(
                 f"allergy-overridden: {conflict['display']} (code "
                 f"{conflict['code']}) — override reason recorded on the order")
+    interaction_findings: list[dict] = []
+    interaction_status = None
+    interaction_warnings: list[str] = []
+    if concept["code"] == "medication":
+        interaction_findings, interaction_status, interaction_warnings = \
+            _interaction_screen(session, patient_ref, code)
     rendered, placement_warnings = _create_order(
         session, user, payload, concept, patient_ref)
     return {"order": rendered, "order_type": concept["code"],
-            "warnings": warnings + placement_warnings}
+            "warnings": warnings + interaction_warnings
+            + placement_warnings,
+            "interaction_findings": interaction_findings,
+            "interaction_checking": interaction_status}
 
 
 @router.post("/from-set", status_code=201)
@@ -727,12 +970,19 @@ async def place_order_set(request: Request, session: Session = Depends(get_db),
 
     orders_out = []
     warnings: list[str] = []
+    interaction_findings: list[dict] = []
     for merged, concept in prepared:
+        if concept["code"] == "medication":
+            findings, _, screen_warnings = _interaction_screen(
+                session, patient_ref, str(_field(merged, "code")))
+            interaction_findings.extend(findings)
+            warnings.extend(screen_warnings)
         rendered, item_warnings = _create_order(
             session, user, merged, concept, patient_ref, from_set=set_key)
         orders_out.append(rendered)
         warnings.extend(item_warnings)
     return {"set": set_key, "orders": orders_out, "warnings": warnings,
+            "interaction_findings": interaction_findings,
             "total": len(orders_out)}
 
 

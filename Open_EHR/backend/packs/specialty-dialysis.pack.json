@@ -1,0 +1,380 @@
+{
+  "name": "specialty-dialysis",
+  "version": "1.0.0",
+  "description": "Specialty operations pack \u2014 dialysis / renal replacement (Phase 15, BD-06). Session scheduling rides the published slot-types catalogue exactly as Phase 9 telehealth did: the pack republishes terminology/slot-types in full (base types + the telehealth append preserved) with a `dialysis-session` type (240 minutes). A treatment flowsheet form, a vascular-access tracking form + terminology, and an adequacy order set whose codes (BUN, creatinine, potassium, haemoglobin, BMP/CBC panels) are all analytes/panels of the published lab catalogue, so the set places on the ordinary CPOE spine and every item also places on the lab spine (/lab/orders) \u2014 Kt/V is computed from the pre/post BUN pair the set's notes call for.",
+  "modules": [
+    {
+      "id": "dialysis-workspace",
+      "name": "Dialysis workspace",
+      "enabled": false
+    },
+    {
+      "id": "dialysis-registry",
+      "name": "Dialysis registry",
+      "enabled": false
+    }
+  ],
+  "forms": [
+    {
+      "id": "dialysis-session-flowsheet",
+      "name": "Dialysis Session Flowsheet",
+      "fields": [
+        "session-start",
+        "duration-minutes",
+        "pre-weight-kg",
+        "post-weight-kg",
+        "ultrafiltration-ml",
+        "blood-flow-rate-ml-min",
+        "heparin-dose-units",
+        "intradialytic-hypotension",
+        "access-site-observations"
+      ]
+    },
+    {
+      "id": "dialysis-vascular-access",
+      "name": "Vascular Access Tracking",
+      "fields": [
+        "access-type",
+        "access-site",
+        "thrill-present",
+        "bruit-present",
+        "signs-of-infection",
+        "cannulation-difficulty"
+      ]
+    }
+  ],
+  "api_endpoints": [],
+  "configuration": [
+    {
+      "kind": "terminology",
+      "key": "slot-types",
+      "payload": {
+        "name": "OpenCare appointment slot types + dialysis-session (specialty-dialysis pack)",
+        "system": "urn:opencare:slot-type",
+        "concepts": [
+          {
+            "code": "new-patient",
+            "display": "New patient visit",
+            "active": true,
+            "system": "urn:opencare:slot-type",
+            "durationMinutes": 60
+          },
+          {
+            "code": "follow-up",
+            "display": "Follow-up visit",
+            "active": true,
+            "system": "urn:opencare:slot-type",
+            "durationMinutes": 30
+          },
+          {
+            "code": "procedure",
+            "display": "Procedure slot",
+            "active": true,
+            "system": "urn:opencare:slot-type",
+            "durationMinutes": 45
+          },
+          {
+            "code": "telehealth",
+            "display": "Telehealth visit",
+            "active": true,
+            "system": "urn:opencare:slot-type",
+            "durationMinutes": 30
+          },
+          {
+            "code": "dialysis-session",
+            "display": "Dialysis session",
+            "active": true,
+            "system": "urn:opencare:slot-type",
+            "durationMinutes": 240
+          }
+        ]
+      }
+    },
+    {
+      "kind": "orderset",
+      "key": "dialysis-session-bundle",
+      "payload": {
+        "name": "Dialysis \u2014 treatment session bundle",
+        "description": "One haemodialysis session: the session procedure, vascular-access check and intradialytic monitoring.",
+        "orders": [
+          {
+            "type": "procedure",
+            "code": "haemodialysis-session",
+            "display": "Haemodialysis session"
+          },
+          {
+            "type": "nursing",
+            "code": "vascular-access-check",
+            "display": "Vascular access check \u2014 thrill, bruit, infection signs"
+          },
+          {
+            "type": "nursing",
+            "code": "intradialytic-monitoring",
+            "display": "Intradialytic observations every 30 minutes"
+          },
+          {
+            "type": "diet",
+            "code": "renal-diet-counselling",
+            "display": "Renal diet + fluid-restriction counselling"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "orderset",
+      "key": "dialysis-adequacy-labs",
+      "payload": {
+        "name": "Dialysis \u2014 monthly adequacy labs (Kt/V)",
+        "description": "Adequacy panel on the lab spine: every code is an analyte/panel of the published lab catalogue. Draw BUN pre- and post-session for the Kt/V pair.",
+        "orders": [
+          {
+            "type": "procedure",
+            "code": "3094-0",
+            "display": "Urea nitrogen (BUN) \u2014 pre/post pair for Kt/V"
+          },
+          {
+            "type": "procedure",
+            "code": "51990-0",
+            "display": "Basic metabolic panel"
+          },
+          {
+            "type": "procedure",
+            "code": "58410-2",
+            "display": "Complete blood count (hemogram) panel"
+          },
+          {
+            "type": "procedure",
+            "code": "2823-3",
+            "display": "Potassium"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "dialysis-session-flowsheet",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Dialysis session flowsheet",
+        "item": [
+          {
+            "linkId": "session-start",
+            "text": "Session start",
+            "type": "dateTime",
+            "required": true
+          },
+          {
+            "linkId": "duration-minutes",
+            "text": "Session duration (minutes)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "pre-weight-kg",
+            "text": "Pre-dialysis weight (kg)",
+            "type": "decimal",
+            "required": true
+          },
+          {
+            "linkId": "post-weight-kg",
+            "text": "Post-dialysis weight (kg)",
+            "type": "decimal",
+            "required": true
+          },
+          {
+            "linkId": "ultrafiltration-ml",
+            "text": "Ultrafiltration achieved (mL)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "blood-flow-rate-ml-min",
+            "text": "Blood flow rate (mL/min)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "heparin-dose-units",
+            "text": "Heparin dose (units)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "intradialytic-hypotension",
+            "text": "Intradialytic hypotension",
+            "type": "boolean",
+            "required": true
+          },
+          {
+            "linkId": "access-site-observations",
+            "text": "Access-site observations",
+            "type": "text",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "dialysis-vascular-access",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Vascular access tracking",
+        "item": [
+          {
+            "linkId": "access-type",
+            "text": "Access type",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "av-fistula",
+                  "display": "Arteriovenous fistula"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "av-graft",
+                  "display": "Arteriovenous graft"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "tunnelled-catheter",
+                  "display": "Tunnelled central venous catheter"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "non-tunnelled-catheter",
+                  "display": "Non-tunnelled central venous catheter"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "access-site",
+            "text": "Access site (limb / location)",
+            "type": "string",
+            "required": true
+          },
+          {
+            "linkId": "thrill-present",
+            "text": "Thrill palpable",
+            "type": "boolean",
+            "required": true
+          },
+          {
+            "linkId": "bruit-present",
+            "text": "Bruit audible",
+            "type": "boolean",
+            "required": false
+          },
+          {
+            "linkId": "signs-of-infection",
+            "text": "Signs of infection at access site",
+            "type": "boolean",
+            "required": true
+          },
+          {
+            "linkId": "cannulation-difficulty",
+            "text": "Cannulation difficulty",
+            "type": "choice",
+            "required": false,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "none",
+                  "display": "None"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "multiple-attempts",
+                  "display": "Multiple attempts"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "failed",
+                  "display": "Failed \u2014 escalate"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "dialysis-codes",
+      "payload": {
+        "name": "Dialysis terminology subset",
+        "system": "http://snomed.info/sct",
+        "concepts": [
+          {
+            "code": "302497006",
+            "display": "Haemodialysis (synthetic subset)",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "46177005",
+            "display": "End-stage renal disease (synthetic subset)",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          },
+          {
+            "code": "723188008",
+            "display": "Arteriovenous fistula for dialysis (synthetic subset)",
+            "active": true,
+            "system": "http://snomed.info/sct"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "cohort",
+      "key": "dialysis-registry",
+      "payload": {
+        "name": "Dialysis registry",
+        "description": "Persons with end-stage renal disease on dialysis \u2014 the cohort for adequacy (Kt/V) and access-surveillance recall.",
+        "smallCellThreshold": 5,
+        "ageBands": [
+          [
+            0,
+            17,
+            "0-17"
+          ],
+          [
+            18,
+            44,
+            "18-44"
+          ],
+          [
+            45,
+            64,
+            "45-64"
+          ],
+          [
+            65,
+            74,
+            "65-74"
+          ],
+          [
+            75,
+            null,
+            "75+"
+          ]
+        ],
+        "conditionCodes": [
+          {
+            "system": "http://snomed.info/sct",
+            "code": "46177005"
+          }
+        ]
+      }
+    }
+  ]
+}

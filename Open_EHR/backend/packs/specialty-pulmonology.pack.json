@@ -1,7 +1,7 @@
 {
   "name": "specialty-pulmonology",
-  "version": "1.0.0",
-  "description": "Specialty operations pack \u2014 pulmonology & lung (roadmap \u00a74). Spirometry/PFT orders with FEV1/FVC results landing on the PFT flowsheet, COPD/asthma action plans, sleep-study pathway, bronchoscopy procedure terminology; registry: COPD + asthma cohort (the lung-nodule tracking registry rides this same cohort mechanism with nodule codes at sites that publish them).",
+  "version": "1.1.0",
+  "description": "Specialty operations pack \u2014 pulmonology & lung (roadmap \u00a74). Spirometry/PFT orders with FEV1/FVC results landing on the PFT flowsheet, COPD/asthma action plans, sleep-study pathway, bronchoscopy procedure terminology; registry: COPD + asthma cohort (the lung-nodule tracking registry rides this same cohort mechanism with nodule codes at sites that publish them). Phase 15 depth (BD-03): MEDICATION MONITORING in the psychiatry pattern \u2014 the pack republishes the formulary with theophylline and the monitoring rule the generic pharmacy gate evaluates: theophylline dispensing BLOCKS without a level <= 20 mg/L within 90 days (narrow therapeutic index).",
   "modules": [
     {
       "id": "pulmonology-workspace",
@@ -199,6 +199,18 @@
             "text": "DLCO (% predicted)",
             "type": "decimal",
             "required": false
+          },
+          {
+            "linkId": "fev1-pct-predicted",
+            "text": "FEV1 (% predicted)",
+            "type": "decimal",
+            "required": false
+          },
+          {
+            "linkId": "bronchodilator-response",
+            "text": "Significant bronchodilator response",
+            "type": "boolean",
+            "required": false
           }
         ]
       }
@@ -321,6 +333,106 @@
           {
             "system": "http://snomed.info/sct",
             "code": "195967001"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "formulary",
+      "payload": {
+        "name": "OpenCare formulary (RxNorm, synthetic) + pulmonology theophylline (specialty-pulmonology pack)",
+        "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+        "bcmaRights": [
+          "right-dispense",
+          "right-medication",
+          "right-patient"
+        ],
+        "concepts": [
+          {
+            "code": "1049221",
+            "display": "Lisinopril 10 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 120
+          },
+          {
+            "code": "847232",
+            "display": "Metformin hydrochloride 500 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 200
+          },
+          {
+            "code": "1044910",
+            "display": "Atorvastatin 20 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 90
+          },
+          {
+            "code": "1048467",
+            "display": "Sertraline 50 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 60
+          },
+          {
+            "code": "1351886",
+            "display": "Apixaban 5 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 45
+          },
+          {
+            "code": "245314",
+            "display": "Albuterol 0.09 MG/ACTUAT Metered Dose Inhaler",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": false
+          },
+          {
+            "code": "theophylline",
+            "display": "Theophylline 200 MG Extended Release Oral Tablet (local synthetic code)",
+            "active": true,
+            "system": "urn:opencare:local-formulary",
+            "stockTracked": true,
+            "initialStock": 40
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "medication-monitoring",
+      "payload": {
+        "name": "Medication monitoring rules (high-risk medications) + pulmonology theophylline rule (specialty-pulmonology pack)",
+        "system": "urn:opencare:medication-monitoring",
+        "concepts": [
+          {
+            "code": "theophylline",
+            "display": "Theophylline \u2014 level gating rule",
+            "active": true
+          }
+        ],
+        "rules": [
+          {
+            "medicationCode": "theophylline",
+            "medicationDisplay": "Theophylline",
+            "action": "block",
+            "requiredLabs": [
+              {
+                "code": "4049-8",
+                "display": "Theophylline level",
+                "maxValue": 20.0,
+                "maxAgeDays": 90
+              }
+            ]
           }
         ]
       }

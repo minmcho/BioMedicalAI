@@ -1,7 +1,7 @@
 {
   "name": "specialty-oncology",
-  "version": "1.0.0",
-  "description": "Specialty operations pack \u2014 cancer (roadmap \u00a74). Diagnosis/staging charting (TNM + ECOG), chemotherapy REGIMENS as cycle/day order-set data (regimen -> cycle -> day: the cycle/day structure rides each order-set item's note onto the placed order), antiemetic/supportive-care bundles, toxicity flowsheets (CTCAE-style grades), tumour-board documentation with a trial-screening flag, and the cancer registry cohort. All content is Studio configuration applied at pack enable; the regimen adherence measures a site wants are Phase 9 measure configs over the same data.",
+  "version": "1.1.0",
+  "description": "Specialty operations pack \u2014 cancer (roadmap \u00a74). Diagnosis/staging charting (TNM + ECOG), chemotherapy REGIMENS as cycle/day order-set data (regimen -> cycle -> day: the cycle/day structure rides each order-set item's note onto the placed order), antiemetic/supportive-care bundles, toxicity flowsheets (CTCAE-style grades), tumour-board documentation with a trial-screening flag, and the cancer registry cohort. All content is Studio configuration applied at pack enable; the regimen adherence measures a site wants are Phase 9 measure configs over the same data. Phase 15 regimen depth: a named-regimen library (FOLFOX and AC order sets with the cycle/day structure documented in each set), a treatment-plan form (regimen, cycle number, intent, BSA), a dedicated TNM staging form, an oncology assessment form, a two-clinician chemotherapy-verification form, and chemotherapy safety through the generic pharmacy medication-monitoring hook \u2014 the pack publishes the formulary extension (chemotherapy agents incl. methotrexate) and a FLAG level-monitoring rule for methotrexate, a narrow-therapeutic-index agent (machinery: app.pharmacy.medication_monitoring_check; rules: this pack's terminology append).",
   "modules": [
     {
       "id": "oncology-workspace",
@@ -50,6 +50,55 @@
         "board-recommendation",
         "trial-screening-flag",
         "survivorship-plan"
+      ]
+    },
+    {
+      "id": "oncology-treatment-plan",
+      "name": "Oncology Treatment Plan",
+      "fields": [
+        "regimen",
+        "cycle-number",
+        "intent",
+        "bsa-m2",
+        "planned-cycles",
+        "start-date"
+      ]
+    },
+    {
+      "id": "oncology-staging",
+      "name": "TNM Staging",
+      "fields": [
+        "primary-site",
+        "tnm-t",
+        "tnm-n",
+        "tnm-m",
+        "stage-group",
+        "staging-basis"
+      ]
+    },
+    {
+      "id": "oncology-assessment",
+      "name": "Oncology Assessment",
+      "fields": [
+        "assessment-summary",
+        "ecog",
+        "pain-score",
+        "weight-kg",
+        "allergies-reviewed",
+        "prior-therapy"
+      ]
+    },
+    {
+      "id": "oncology-chemo-verification",
+      "name": "Chemotherapy Verification (two-clinician)",
+      "fields": [
+        "regimen",
+        "cycle-number",
+        "patient-identity-verified",
+        "dose-and-bsa-verified",
+        "first-clinician",
+        "second-clinician",
+        "verification-outcome"
       ]
     }
   ],
@@ -424,6 +473,690 @@
           {
             "system": "http://snomed.info/sct",
             "code": "399068003"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "orderset",
+      "key": "oncology-regimen-folfox",
+      "payload": {
+        "name": "Oncology regimen \u2014 FOLFOX (synthetic demo)",
+        "description": "Named regimen library entry: FOLFOX, 14-day cycles. Cycle/day structure: Day 1 \u2014 antiemetic premedication, oxaliplatin + leucovorin, fluorouracil bolus then infusion start, hydration and infusion-chair monitoring; Day 2 \u2014 fluorouracil infusion continues/completes; Days 3-13 \u2014 rest/supportive care until the next cycle. The cycle/day for every item rides its note onto the placed order. All agents are synthetic demo codes from the pack formulary.",
+        "orders": [
+          {
+            "type": "medication",
+            "code": "ondansetron-demo",
+            "display": "Antiemetic premedication (ondansetron, synthetic demo)",
+            "note": "Regimen FOLFOX \u2014 Cycle 1 Day 1 \u2014 premedication, 30 min before chemotherapy"
+          },
+          {
+            "type": "medication",
+            "code": "oxaliplatin-demo",
+            "display": "Oxaliplatin (synthetic demo regimen)",
+            "note": "Regimen FOLFOX \u2014 Cycle 1 Day 1 \u2014 chemotherapy"
+          },
+          {
+            "type": "medication",
+            "code": "leucovorin-demo",
+            "display": "Leucovorin (synthetic demo regimen)",
+            "note": "Regimen FOLFOX \u2014 Cycle 1 Day 1 \u2014 chemotherapy modulation"
+          },
+          {
+            "type": "medication",
+            "code": "fluorouracil-demo",
+            "display": "Fluorouracil (synthetic demo regimen)",
+            "note": "Regimen FOLFOX \u2014 Cycle 1 Day 1 bolus, infusion continues Day 2"
+          },
+          {
+            "type": "nursing",
+            "code": "iv-hydration",
+            "display": "IV hydration pre/post chemotherapy",
+            "note": "Regimen FOLFOX \u2014 Cycle 1 Day 1"
+          },
+          {
+            "type": "nursing",
+            "code": "infusion-monitoring",
+            "display": "Infusion chair monitoring every 15 minutes",
+            "note": "Regimen FOLFOX \u2014 Cycle 1 Day 1 \u2014 infusion chair"
+          },
+          {
+            "type": "medication",
+            "code": "antiemetic-takehome-demo",
+            "display": "Take-home antiemetic bundle (synthetic demo)",
+            "note": "Regimen FOLFOX \u2014 Cycle 1 Days 2-4 \u2014 supportive care"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "orderset",
+      "key": "oncology-regimen-ac",
+      "payload": {
+        "name": "Oncology regimen \u2014 AC (doxorubicin + cyclophosphamide, synthetic demo)",
+        "description": "Named regimen library entry: AC, 21-day cycles. Cycle/day structure: Day 1 \u2014 antiemetic premedication, doxorubicin + cyclophosphamide, hydration and monitoring; Day 2 \u2014 growth-factor support; Days 2-4 \u2014 take-home antiemetics; Days 3-20 \u2014 rest/supportive care until the next cycle. The cycle/day for every item rides its note onto the placed order. All agents are synthetic demo codes from the pack formulary.",
+        "orders": [
+          {
+            "type": "medication",
+            "code": "ondansetron-demo",
+            "display": "Antiemetic premedication (ondansetron, synthetic demo)",
+            "note": "Regimen AC \u2014 Cycle 1 Day 1 \u2014 premedication, 30 min before chemotherapy"
+          },
+          {
+            "type": "medication",
+            "code": "doxorubicin-demo",
+            "display": "Doxorubicin (synthetic demo regimen)",
+            "note": "Regimen AC \u2014 Cycle 1 Day 1 \u2014 chemotherapy"
+          },
+          {
+            "type": "medication",
+            "code": "cyclophosphamide-demo",
+            "display": "Cyclophosphamide (synthetic demo regimen)",
+            "note": "Regimen AC \u2014 Cycle 1 Day 1 \u2014 chemotherapy"
+          },
+          {
+            "type": "nursing",
+            "code": "iv-hydration",
+            "display": "IV hydration pre/post chemotherapy",
+            "note": "Regimen AC \u2014 Cycle 1 Day 1"
+          },
+          {
+            "type": "nursing",
+            "code": "infusion-monitoring",
+            "display": "Infusion chair monitoring every 15 minutes",
+            "note": "Regimen AC \u2014 Cycle 1 Day 1 \u2014 infusion chair"
+          },
+          {
+            "type": "medication",
+            "code": "growth-factor-demo",
+            "display": "Growth factor support (synthetic demo)",
+            "note": "Regimen AC \u2014 Cycle 1 Day 2 post-chemotherapy"
+          },
+          {
+            "type": "medication",
+            "code": "antiemetic-takehome-demo",
+            "display": "Take-home antiemetic bundle (synthetic demo)",
+            "note": "Regimen AC \u2014 Cycle 1 Days 2-4 \u2014 supportive care"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "oncology-treatment-plan",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Oncology treatment plan",
+        "item": [
+          {
+            "linkId": "regimen",
+            "text": "Regimen (published order set)",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "oncology-regimen-folfox",
+                  "display": "FOLFOX (14-day cycles)"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "oncology-regimen-ac",
+                  "display": "AC \u2014 doxorubicin + cyclophosphamide (21-day cycles)"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "oncology-regimen-cycle",
+                  "display": "Generic two-drug cycle (demo)"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "cycle-number",
+            "text": "Cycle number",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "intent",
+            "text": "Treatment intent",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "curative",
+                  "display": "Curative"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "adjuvant",
+                  "display": "Adjuvant"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "neoadjuvant",
+                  "display": "Neoadjuvant"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "palliative",
+                  "display": "Palliative"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "bsa-m2",
+            "text": "Body surface area (m2) \u2014 dose basis",
+            "type": "decimal",
+            "required": true
+          },
+          {
+            "linkId": "planned-cycles",
+            "text": "Planned cycles",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "start-date",
+            "text": "Planned start date",
+            "type": "date",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "oncology-staging",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "TNM staging",
+        "item": [
+          {
+            "linkId": "primary-site",
+            "text": "Primary tumour site",
+            "type": "string",
+            "required": true
+          },
+          {
+            "linkId": "tnm-t",
+            "text": "TNM \u2014 T (primary tumour)",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "TX",
+                  "display": "TX \u2014 cannot be assessed"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "T0",
+                  "display": "T0 \u2014 no primary tumour"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "Tis",
+                  "display": "Tis \u2014 carcinoma in situ"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "T1",
+                  "display": "T1"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "T2",
+                  "display": "T2"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "T3",
+                  "display": "T3"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "T4",
+                  "display": "T4"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "tnm-n",
+            "text": "TNM \u2014 N (regional nodes)",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "NX",
+                  "display": "NX \u2014 cannot be assessed"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "N0",
+                  "display": "N0 \u2014 no nodal spread"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "N1",
+                  "display": "N1"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "N2",
+                  "display": "N2"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "N3",
+                  "display": "N3"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "tnm-m",
+            "text": "TNM \u2014 M (distant metastasis)",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "M0",
+                  "display": "M0 \u2014 no distant metastasis"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "M1",
+                  "display": "M1 \u2014 distant metastasis"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "stage-group",
+            "text": "Stage group",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "I",
+                  "display": "Stage I"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "II",
+                  "display": "Stage II"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "III",
+                  "display": "Stage III"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "IV",
+                  "display": "Stage IV"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "unknown",
+                  "display": "Unknown"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "staging-basis",
+            "text": "Staging basis (imaging / pathology references)",
+            "type": "text",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "oncology-assessment",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Oncology assessment",
+        "item": [
+          {
+            "linkId": "assessment-summary",
+            "text": "Assessment summary",
+            "type": "text",
+            "required": true
+          },
+          {
+            "linkId": "ecog",
+            "text": "ECOG performance status (0-4)",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "pain-score",
+            "text": "Pain score (0-10)",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "linkId": "weight-kg",
+            "text": "Weight (kg)",
+            "type": "decimal",
+            "required": false
+          },
+          {
+            "linkId": "allergies-reviewed",
+            "text": "Allergies reviewed",
+            "type": "boolean",
+            "required": true
+          },
+          {
+            "linkId": "prior-therapy",
+            "text": "Prior therapy",
+            "type": "text",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "oncology-chemo-verification",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Chemotherapy verification \u2014 two-clinician check",
+        "item": [
+          {
+            "linkId": "regimen",
+            "text": "Regimen verified against the treatment plan",
+            "type": "string",
+            "required": true
+          },
+          {
+            "linkId": "cycle-number",
+            "text": "Cycle number",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "linkId": "patient-identity-verified",
+            "text": "Patient identity verified by two identifiers",
+            "type": "boolean",
+            "required": true
+          },
+          {
+            "linkId": "dose-and-bsa-verified",
+            "text": "Dose recalculated and verified against BSA",
+            "type": "boolean",
+            "required": true
+          },
+          {
+            "linkId": "first-clinician",
+            "text": "First clinician (verifier)",
+            "type": "string",
+            "required": true
+          },
+          {
+            "linkId": "second-clinician",
+            "text": "Second clinician (independent check)",
+            "type": "string",
+            "required": true
+          },
+          {
+            "linkId": "verification-outcome",
+            "text": "Verification outcome",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "verified",
+                  "display": "Verified \u2014 cleared for administration"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "not-verified",
+                  "display": "Not verified \u2014 do not administer"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "formulary",
+      "payload": {
+        "name": "OpenCare formulary (RxNorm, synthetic) + oncology chemotherapy agents (specialty-oncology pack)",
+        "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+        "bcmaRights": [
+          "right-dispense",
+          "right-medication",
+          "right-patient"
+        ],
+        "concepts": [
+          {
+            "code": "1049221",
+            "display": "Lisinopril 10 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 120
+          },
+          {
+            "code": "847232",
+            "display": "Metformin hydrochloride 500 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 200
+          },
+          {
+            "code": "1044910",
+            "display": "Atorvastatin 20 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 90
+          },
+          {
+            "code": "1048467",
+            "display": "Sertraline 50 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 60
+          },
+          {
+            "code": "1351886",
+            "display": "Apixaban 5 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 45
+          },
+          {
+            "code": "245314",
+            "display": "Albuterol 0.09 MG/ACTUAT Metered Dose Inhaler",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": false
+          },
+          {
+            "code": "1049625",
+            "display": "Oxycodone hydrochloride 5 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 40
+          },
+          {
+            "code": "197589",
+            "display": "Lorazepam 1 MG Oral Tablet",
+            "active": true,
+            "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+            "stockTracked": true,
+            "initialStock": 60
+          },
+          {
+            "code": "ondansetron-demo",
+            "display": "Ondansetron 8 MG Oral Tablet (synthetic demo)",
+            "active": true,
+            "system": "urn:opencare:local-formulary",
+            "stockTracked": true,
+            "initialStock": 100
+          },
+          {
+            "code": "oxaliplatin-demo",
+            "display": "Oxaliplatin injectable (synthetic demo regimen agent)",
+            "active": true,
+            "system": "urn:opencare:local-formulary",
+            "stockTracked": true,
+            "initialStock": 40
+          },
+          {
+            "code": "leucovorin-demo",
+            "display": "Leucovorin injectable (synthetic demo regimen agent)",
+            "active": true,
+            "system": "urn:opencare:local-formulary",
+            "stockTracked": true,
+            "initialStock": 80
+          },
+          {
+            "code": "fluorouracil-demo",
+            "display": "Fluorouracil injectable (synthetic demo regimen agent)",
+            "active": true,
+            "system": "urn:opencare:local-formulary",
+            "stockTracked": true,
+            "initialStock": 60
+          },
+          {
+            "code": "doxorubicin-demo",
+            "display": "Doxorubicin injectable (synthetic demo regimen agent)",
+            "active": true,
+            "system": "urn:opencare:local-formulary",
+            "stockTracked": true,
+            "initialStock": 40
+          },
+          {
+            "code": "cyclophosphamide-demo",
+            "display": "Cyclophosphamide injectable (synthetic demo regimen agent)",
+            "active": true,
+            "system": "urn:opencare:local-formulary",
+            "stockTracked": true,
+            "initialStock": 50
+          },
+          {
+            "code": "methotrexate",
+            "display": "Methotrexate 25 MG/ML Injectable Solution (local synthetic code) \u2014 narrow therapeutic index",
+            "active": true,
+            "system": "urn:opencare:local-formulary",
+            "stockTracked": true,
+            "initialStock": 40
+          },
+          {
+            "code": "growth-factor-demo",
+            "display": "Growth factor support (synthetic demo)",
+            "active": true,
+            "system": "urn:opencare:local-formulary",
+            "stockTracked": true,
+            "initialStock": 30
+          },
+          {
+            "code": "anti-vegf-demo",
+            "display": "Antiemetic premedication (ondansetron, synthetic demo)",
+            "active": true,
+            "system": "urn:opencare:local-formulary",
+            "stockTracked": true,
+            "initialStock": 60
+          },
+          {
+            "code": "chemo-agent-a-demo",
+            "display": "Cytotoxic agent A (synthetic demo regimen)",
+            "active": true,
+            "system": "urn:opencare:local-formulary",
+            "stockTracked": true,
+            "initialStock": 40
+          },
+          {
+            "code": "chemo-agent-b-demo",
+            "display": "Cytotoxic agent B (synthetic demo regimen)",
+            "active": true,
+            "system": "urn:opencare:local-formulary",
+            "stockTracked": true,
+            "initialStock": 40
+          },
+          {
+            "code": "antiemetic-takehome-demo",
+            "display": "Take-home antiemetic bundle (synthetic demo)",
+            "active": true,
+            "system": "urn:opencare:local-formulary",
+            "stockTracked": true,
+            "initialStock": 60
+          }
+        ]
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "medication-monitoring",
+      "payload": {
+        "name": "Medication monitoring rules (high-risk medications) + oncology chemotherapy agents (specialty-oncology pack)",
+        "system": "urn:opencare:medication-monitoring",
+        "concepts": [
+          {
+            "code": "methotrexate",
+            "display": "Methotrexate \u2014 level + creatinine flag rule",
+            "active": true
+          }
+        ],
+        "rules": [
+          {
+            "medicationCode": "methotrexate",
+            "medicationDisplay": "Methotrexate",
+            "action": "flag",
+            "requiredLabs": [
+              {
+                "code": "1485-3",
+                "display": "Serum methotrexate level",
+                "maxAgeDays": 7
+              },
+              {
+                "code": "2160-0",
+                "display": "Serum creatinine",
+                "maxAgeDays": 30
+              }
+            ]
           }
         ]
       }

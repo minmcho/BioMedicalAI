@@ -1,7 +1,7 @@
 {
   "name": "specialty-diabetes-endo",
-  "version": "1.0.0",
-  "description": "Specialty operations pack \u2014 diabetes & endocrinology (roadmap \u00a74). Builds ON the Phase 5 seeded `diabetes-admission` order set (referenced, NOT duplicated): this pack adds the insulin titration set, the annual screening bundle (foot / eye / kidney recalls), the endocrine clinic intake, and a clinic flowsheet with hypoglycaemia event capture. CGM/pump device ingest is NOT part of this pack (no device interface exists \u2014 flowsheet entry is the capture path, stated plainly). Registry: the A1c-driven diabetes + endocrine cohort (T1 + T2), complementing the seeded Phase 3 diabetes registry.",
+  "version": "1.1.0",
+  "description": "Specialty operations pack \u2014 diabetes & endocrinology (roadmap \u00a74). Builds ON the Phase 5 seeded `diabetes-admission` order set (referenced, NOT duplicated): this pack adds the insulin titration set, the annual screening bundle (foot / eye / kidney recalls), the endocrine clinic intake, and a clinic flowsheet with hypoglycaemia event capture. CGM/pump device ingest is NOT part of this pack (no device interface exists \u2014 flowsheet entry is the capture path, stated plainly). Registry: the A1c-driven diabetes + endocrine cohort (T1 + T2), complementing the seeded Phase 3 diabetes registry. Phase 15 depth (BD-03): MEDICATION MONITORING in the psychiatry pattern \u2014 the pack publishes a medication-monitoring rule the generic pharmacy gate evaluates: metformin dispensing FLAGS (warns, never blocks) when no serum creatinine is on file within 180 days \u2014 the renal-function watch metformin safety requires.",
   "modules": [
     {
       "id": "diabetes-workspace",
@@ -35,6 +35,18 @@
         "hypo-event",
         "foot-check",
         "weight-kg"
+      ]
+    },
+    {
+      "id": "diabetes-foot-exam",
+      "name": "Diabetic Foot Examination",
+      "fields": [
+        "ulcer-present",
+        "ulcer-site",
+        "pedal-pulses",
+        "protective-sensation",
+        "risk-category",
+        "footwear-advice-given"
       ]
     }
   ],
@@ -320,6 +332,147 @@
           "threshold": 7.0,
           "windowDays": 365
         }
+      }
+    },
+    {
+      "kind": "terminology",
+      "key": "medication-monitoring",
+      "payload": {
+        "name": "Medication monitoring rules (high-risk medications) + diabetes metformin renal flag (specialty-diabetes-endo pack)",
+        "system": "urn:opencare:medication-monitoring",
+        "concepts": [
+          {
+            "code": "847232",
+            "display": "Metformin \u2014 renal monitoring flag rule",
+            "active": true
+          }
+        ],
+        "rules": [
+          {
+            "medicationCode": "847232",
+            "medicationDisplay": "Metformin",
+            "action": "flag",
+            "requiredLabs": [
+              {
+                "code": "2160-0",
+                "display": "Serum creatinine",
+                "maxAgeDays": 180
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "form",
+      "key": "diabetes-foot-exam",
+      "payload": {
+        "resourceType": "Questionnaire",
+        "title": "Diabetic foot examination",
+        "item": [
+          {
+            "linkId": "ulcer-present",
+            "text": "Active foot ulcer present",
+            "type": "boolean",
+            "required": true
+          },
+          {
+            "linkId": "ulcer-site",
+            "text": "Ulcer site / description",
+            "type": "text",
+            "required": false
+          },
+          {
+            "linkId": "pedal-pulses",
+            "text": "Pedal pulses",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "palpable",
+                  "display": "Palpable"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "diminished",
+                  "display": "Diminished"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "absent",
+                  "display": "Absent"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "protective-sensation",
+            "text": "Protective sensation (10 g monofilament)",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "intact",
+                  "display": "Intact"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "reduced",
+                  "display": "Reduced"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "absent",
+                  "display": "Absent"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "risk-category",
+            "text": "Foot risk category",
+            "type": "choice",
+            "required": true,
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "code": "low",
+                  "display": "Low"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "moderate",
+                  "display": "Moderate"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "high",
+                  "display": "High"
+                }
+              },
+              {
+                "valueCoding": {
+                  "code": "active-ulcer",
+                  "display": "Active ulcer / infection"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "footwear-advice-given",
+            "text": "Footwear advice given",
+            "type": "boolean",
+            "required": false
+          }
+        ]
       }
     }
   ]
