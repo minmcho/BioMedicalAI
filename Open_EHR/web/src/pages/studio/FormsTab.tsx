@@ -2,7 +2,6 @@ import type { ApiClient } from "../../api/client";
 import { ConfigEditorShell } from "./ConfigEditorShell";
 import { RowControls, moveItem } from "./fields";
 import {
-  FORM_TYPE_OPTIONS,
   emptyForm,
   parseForm,
   serializeForm,
@@ -15,6 +14,57 @@ import {
 // Questionnaire JSON ({resourceType, title, item[]}); choice options are
 // answerOption valueCodings. Everything saves as a draft and publishes
 // through the shell's governance controls.
+//
+// Palette alignment (Studio parity row 19): the field types offered are
+// EXACTLY backend/app/configstore.py's FORM_ITEM_TYPES —
+//   FORM_ITEM_TYPES = ("group", "display", "boolean", "decimal",
+//     "integer", "string", "text", "date", "dateTime", "time", "choice",
+//     "open-choice", "quantity")
+// — and every type is renderable by web/src/components/FormRenderer.tsx
+// (group -> fieldset, display -> static text, text -> textarea,
+// dateTime/time -> typed inputs, quantity -> numeric, open-choice ->
+// select over answerOption). models.FORM_TYPE_OPTIONS is the older
+// six-type subset, so the full mirror lives here. Per-field options
+// offered are exactly the ones validate_form checks: `required`
+// (boolean) and `valueSet` (a string reference, configstore
+// validate_form). No other per-field option is offered.
+
+export const ALL_FORM_TYPES = [
+  "group",
+  "display",
+  "boolean",
+  "decimal",
+  "integer",
+  "string",
+  "text",
+  "date",
+  "dateTime",
+  "time",
+  "choice",
+  "open-choice",
+  "quantity",
+] as const;
+
+const CHOICE_TYPES = ["choice", "open-choice"];
+
+/** serializeForm (models.ts) writes answerOption only for `choice`;
+ *  FormRenderer renders `open-choice` from answerOption too and
+ *  validate_form accepts it, so the wrapper restores answerOption for
+ *  open-choice items from the same options model — nothing else about
+ *  the serialization changes. */
+function serializeFormComplete(model: FormModel): Record<string, unknown> {
+  const payload = serializeForm(model);
+  const items = payload.item as Array<Record<string, unknown>>;
+  items.forEach((out, i) => {
+    const src = model.items[i];
+    if (src && src.type === "open-choice" && src.options.length > 0) {
+      out.answerOption = src.options.map((o) => ({
+        valueCoding: { code: o.code, display: o.display || o.code },
+      }));
+    }
+  });
+  return payload;
+}
 
 function FormPreview({ model }: { model: FormModel }) {
   return (
@@ -23,32 +73,57 @@ function FormPreview({ model }: { model: FormModel }) {
       {model.items.length === 0 ? (
         <p className="hint">No items yet.</p>
       ) : (
-        model.items.map((item, i) => (
-          <p key={i} className="studio-preview-field">
-            <label>
-              {item.text || item.linkId || `Item ${i + 1}`}
-              {item.required ? <span aria-hidden="true"> *</span> : null}{" "}
-              {item.type === "boolean" ? (
-                <input type="checkbox" disabled />
-              ) : item.type === "choice" ? (
-                <select disabled>
-                  <option value="">Select…</option>
-                  {item.options.map((o, j) => (
-                    <option key={j} value={o.code}>
-                      {o.display || o.code}
-                    </option>
-                  ))}
-                </select>
-              ) : item.type === "date" ? (
-                <input type="date" disabled />
-              ) : item.type === "decimal" || item.type === "integer" ? (
-                <input type="number" disabled />
-              ) : (
-                <input type="text" disabled />
-              )}
-            </label>
-          </p>
-        ))
+        model.items.map((item, i) => {
+          if (item.type === "display") {
+            return (
+              <p key={i} className="studio-preview-field">
+                {item.text || item.linkId || `Item ${i + 1}`}
+              </p>
+            );
+          }
+          if (item.type === "group") {
+            return (
+              <fieldset key={i} className="studio-preview-field">
+                <legend>{item.text || item.linkId || `Item ${i + 1}`}</legend>
+                <span className="hint">Section heading (group)</span>
+              </fieldset>
+            );
+          }
+          return (
+            <p key={i} className="studio-preview-field">
+              <label>
+                {item.text || item.linkId || `Item ${i + 1}`}
+                {item.required ? <span aria-hidden="true"> *</span> : null}{" "}
+                {item.type === "boolean" ? (
+                  <input type="checkbox" disabled />
+                ) : CHOICE_TYPES.includes(item.type) ? (
+                  <select disabled>
+                    <option value="">Select…</option>
+                    {item.options.map((o, j) => (
+                      <option key={j} value={o.code}>
+                        {o.display || o.code}
+                      </option>
+                    ))}
+                  </select>
+                ) : item.type === "date" ? (
+                  <input type="date" disabled />
+                ) : item.type === "dateTime" ? (
+                  <input type="datetime-local" disabled />
+                ) : item.type === "time" ? (
+                  <input type="time" disabled />
+                ) : item.type === "text" ? (
+                  <textarea disabled />
+                ) : item.type === "decimal" ||
+                  item.type === "integer" ||
+                  item.type === "quantity" ? (
+                  <input type="number" disabled />
+                ) : (
+                  <input type="text" disabled />
+                )}
+              </label>
+            </p>
+          );
+        })
       )}
       <p className="hint">Read-only preview of the published-form rendering.</p>
     </div>
@@ -61,6 +136,16 @@ function FormEditor({ model, setModel }: { model: FormModel; setModel: (m: FormM
       ...model,
       items: model.items.map((it, i) => (i === index ? { ...it, ...patch } : it)),
     });
+  };
+
+  /** `valueSet` is a validate_form-checked string field the flat model
+   *  carries in the item's preserved `rest` bag; editing it here writes
+   *  (or, when cleared, removes) exactly that field. */
+  const setValueSet = (index: number, item: FormItemModel, value: string) => {
+    const rest = { ...item.rest };
+    if (value) rest.valueSet = value;
+    else delete rest.valueSet;
+    setItem(index, { rest });
   };
 
   return (
@@ -76,11 +161,19 @@ function FormEditor({ model, setModel }: { model: FormModel; setModel: (m: FormM
           />
         </label>
       </p>
+      <p className="hint">
+        Field types match the backend validator exactly. A <code>group</code> item is a
+        section heading and a <code>display</code> item is static text — neither collects
+        an answer. Nested items inside a group are preserved from the loaded payload but
+        are edited in the Advanced (JSON) tab.
+      </p>
 
       {model.items.map((item, i) => {
-        const typeOptions = FORM_TYPE_OPTIONS.includes(item.type)
-          ? FORM_TYPE_OPTIONS
-          : [item.type, ...FORM_TYPE_OPTIONS];
+        const typeOptions = (ALL_FORM_TYPES as readonly string[]).includes(item.type)
+          ? [...ALL_FORM_TYPES]
+          : [item.type, ...ALL_FORM_TYPES];
+        const valueSet =
+          typeof item.rest.valueSet === "string" ? item.rest.valueSet : "";
         return (
           <fieldset key={i} className="studio-item">
             <legend>
@@ -135,9 +228,20 @@ function FormEditor({ model, setModel }: { model: FormModel; setModel: (m: FormM
                 onChange={(e) => setItem(i, { required: e.target.checked })}
               />{" "}
               Required
-            </label>
+            </label>{" "}
+            {CHOICE_TYPES.includes(item.type) ? (
+              <label>
+                Value set{" "}
+                <input
+                  aria-label={`Item ${i + 1} valueSet`}
+                  value={valueSet}
+                  placeholder="e.g. ValueSet/yes-no"
+                  onChange={(e) => setValueSet(i, item, e.target.value)}
+                />
+              </label>
+            ) : null}
 
-            {item.type === "choice" ? (
+            {CHOICE_TYPES.includes(item.type) ? (
               <div className="studio-subrows">
                 <p className="hint">Answer options (stored as answerOption valueCodings):</p>
                 {item.options.map((opt, j) => (
@@ -231,7 +335,7 @@ export function FormsTab({ client }: { client: ApiClient }) {
       kind="form"
       newKeyHint="e.g. intake"
       parse={parseForm}
-      serialize={serializeForm}
+      serialize={serializeFormComplete}
       empty={emptyForm}
     >
       {(model, setModel) => <FormEditor model={model} setModel={setModel} />}

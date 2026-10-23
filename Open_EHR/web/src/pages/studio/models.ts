@@ -386,12 +386,30 @@ export interface BrandingModel {
   primaryColor: string;
   logoUrl: string;
   supportContact: string;
+  /** Rich Design Elevation: the draft's theme.groupColors edits —
+   *  canonical nav group label -> #RRGGBB, holding ONLY the groups
+   *  the payload itself carries (published or edited here). The
+   *  editor displays the EFFECTIVE colour (this map, else the
+   *  built-in default from auth/runtimeConfig) per group; groups
+   *  absent from the map keep rendering in their default, so an
+   *  untouched editor never changes the payload's theme shape. */
+  groupColors: Record<string, string>;
   rest: Record<string, unknown>;
 }
+
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
 export function parseBranding(payload: Record<string, unknown>): BrandingModel {
   const { orgName, portalTitle, tagline, primaryColor, logoUrl, supportContact, ...rest } =
     payload;
+  const theme = isObj(payload.theme) ? payload.theme : {};
+  const rawGroupColors = isObj(theme.groupColors) ? theme.groupColors : {};
+  const groupColors: Record<string, string> = {};
+  for (const [label, value] of Object.entries(rawGroupColors)) {
+    if (typeof value === "string" && HEX_COLOR.test(value)) {
+      groupColors[label] = value;
+    }
+  }
   return {
     orgName: str(orgName),
     portalTitle: str(portalTitle),
@@ -399,6 +417,7 @@ export function parseBranding(payload: Record<string, unknown>): BrandingModel {
     primaryColor: str(primaryColor) || "#1a7f37",
     logoUrl: str(logoUrl),
     supportContact: str(supportContact),
+    groupColors,
     rest,
   };
 }
@@ -413,6 +432,23 @@ export function serializeBranding(model: BrandingModel): Record<string, unknown>
   if (model.primaryColor) payload.primaryColor = model.primaryColor;
   if (model.logoUrl) payload.logoUrl = model.logoUrl;
   if (model.supportContact) payload.supportContact = model.supportContact;
+  // Theme rides in `rest`; re-apply the groupColors edits on top of
+  // whatever theme the payload already carried (other theme fields
+  // are preserved verbatim). An empty edit map removes the key, so
+  // a payload that never had groupColors stays without it.
+  const theme: Record<string, unknown> = {
+    ...(isObj(model.rest.theme) ? model.rest.theme : {}),
+  };
+  if (Object.keys(model.groupColors).length > 0) {
+    theme.groupColors = model.groupColors;
+  } else {
+    delete theme.groupColors;
+  }
+  if (Object.keys(theme).length > 0) {
+    payload.theme = theme;
+  } else {
+    delete payload.theme;
+  }
   return payload;
 }
 
@@ -424,6 +460,7 @@ export function emptyBranding(): BrandingModel {
     primaryColor: "#1a7f37",
     logoUrl: "",
     supportContact: "",
+    groupColors: {},
     rest: {},
   };
 }
@@ -452,6 +489,12 @@ export const CAPABILITY_DEFAULTS: Record<string, Role[]> = {
   "billing.manage": ["admin", "configurator"],
   "pharmacy.dispense": ["admin", "configurator", "clinician"],
   "pharmacy.administer": ["admin", "clinician"],
+  // Phase 11 (pharmacy department depth) — mirrors configstore.py
+  // CAPABILITY_DEFAULTS exactly, like every row above.
+  "pharmacy.verify": ["admin", "clinician"],
+  "pharmacy.inventory": ["admin", "configurator", "clinician"],
+  "pharmacy.compound": ["admin", "configurator", "clinician"],
+  "pharmacy.cs": ["admin", "clinician"],
   "ed.work": ["admin", "configurator", "clinician"],
   "radiology.work": ["admin", "configurator", "clinician"],
   "radiology.verify": ["admin", "clinician"],
@@ -482,6 +525,69 @@ export const CAPABILITY_DEFAULTS: Record<string, Role[]> = {
   "messages.use": ["admin", "configurator", "clinician"],
   "portal.self-schedule": ["admin", "clinician", "patient"],
   "pophealth.export": ["admin", "configurator"],
+  // Phase 10 (agents + privacy) — mirrors configstore.py
+  // CAPABILITY_DEFAULTS exactly. The break-glass pair is split on
+  // purpose: opening roles != reviewing roles (separation of duties).
+  "agents.view": ["admin", "configurator", "clinician"],
+  "agents.run": ["admin", "configurator", "clinician"],
+  "privacy.breakglass": ["admin", "clinician"],
+  "privacy.review": ["admin", "configurator"],
+  // Phase 12 (care-continuum operations) — mirrors configstore.py
+  // CAPABILITY_DEFAULTS exactly, like every row above. safety.report
+  // is every staff role (anyone can file); safety.review is the
+  // safety team's triage queue.
+  "continuum.read": ["admin", "configurator", "clinician", "viewer"],
+  "continuum.work": ["admin", "configurator", "clinician"],
+  "safety.report": ["admin", "configurator", "clinician", "viewer"],
+  "safety.review": ["admin", "configurator", "clinician"],
+  // Phase 13 (people & data platform) — mirrors configstore.py
+  // CAPABILITY_DEFAULTS exactly, like every row above.
+  "workforce.read": ["admin", "configurator", "clinician", "viewer"],
+  "workforce.work": ["admin", "configurator"],
+  "reports.run": ["admin", "configurator", "clinician", "viewer"],
+  "data.export": ["admin", "configurator"],
+  "data.import": ["admin", "configurator"],
+  // Phase 14 (devices, IoT, lake & pipelines) — mirrors configstore.py
+  // CAPABILITY_DEFAULTS exactly, like every row above.
+  "devices.read": ["admin", "configurator", "clinician", "viewer"],
+  "devices.manage": ["admin", "configurator", "clinician"],
+  "pipelines.run": ["admin", "configurator"],
+  // Front Door pass (accounts & registration) — mirrors
+  // configstore.py CAPABILITY_DEFAULTS exactly, like every row above.
+  "accounts.manage": ["admin"],
+  "registration.work": ["admin", "configurator", "clinician", "viewer"],
+  // Phase 16 (Intelligence & Research) — mirrors configstore.py
+  // CAPABILITY_DEFAULTS exactly, like every row above. mcp.use
+  // includes the patient role ONLY through the module's published
+  // patient-scope guardrails; rag.search and analytics.use
+  // deliberately exclude viewer (row-level surfaces).
+  "federation.read": ["admin", "configurator", "clinician", "viewer"],
+  "federation.work": ["admin", "configurator", "clinician"],
+  "directories.read": ["admin", "configurator", "clinician", "viewer"],
+  "directories.sync": ["admin", "configurator"],
+  "agents.validate": ["admin", "configurator", "clinician"],
+  "innovation.manage": ["admin", "configurator", "clinician"],
+  "rag.search": ["admin", "configurator", "clinician"],
+  "mcp.use": ["admin", "configurator", "clinician", "viewer", "patient"],
+  "a2a.use": ["admin", "configurator", "clinician"],
+  "genomics.read": ["admin", "configurator", "clinician", "viewer"],
+  "genomics.work": ["admin", "configurator", "clinician"],
+  "research.read": ["admin", "configurator", "clinician", "viewer"],
+  "research.work": ["admin", "configurator", "clinician"],
+  "esign.sign": ["admin", "configurator", "clinician"],
+  "empi.steward": ["admin", "configurator", "clinician"],
+  "intake.work": ["admin", "configurator", "clinician"],
+  "analytics.use": ["admin", "configurator", "clinician"],
+  "maintenance.read": ["admin", "configurator", "clinician", "viewer"],
+  "maintenance.work": ["admin", "configurator", "clinician"],
+  // Workforce, Teams & Panels pass — mirrors configstore.py
+  // CAPABILITY_DEFAULTS exactly, like every row above. teams.read is
+  // staff-wide; teams.work covers assignment / coverage / panel work
+  // (clinicians included — they accept and cover); workforce.onboard
+  // is the HR onboarding workflow (admin + configurator).
+  "teams.read": ["admin", "configurator", "clinician", "viewer"],
+  "teams.work": ["admin", "configurator", "clinician"],
+  "workforce.onboard": ["admin", "configurator"],
 };
 
 /** capability -> role -> allowed (fully resolved matrix). */

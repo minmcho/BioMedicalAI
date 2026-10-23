@@ -35,6 +35,10 @@ export const CONFIG_KINDS: ConfigKind[] = [
   "permissions",
   "cohort",
   "integration",
+  // Platform pass WS10 — parity registries are governed kinds too.
+  "ai-provider",
+  "endpoint",
+  "tool",
 ];
 
 export interface ConfigGroup {

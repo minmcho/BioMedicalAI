@@ -183,6 +183,41 @@ describe("branding model", () => {
       tagline: "Care, configured.", supportContact: "support@example.org",
     });
   });
+
+  // Rich Design Elevation: theme.groupColors round-trips through
+  // the model; an untouched editor never invents the key.
+  it("round-trips theme.groupColors and preserves other theme fields", () => {
+    const payload = {
+      ...BRANDING,
+      theme: {
+        density: "compact",
+        groupColors: { Clinical: "#123456", "Patient Care": "#0b6e4f" },
+      },
+    };
+    const model = parseBranding(payload);
+    expect(model.groupColors).toEqual({
+      Clinical: "#123456",
+      "Patient Care": "#0b6e4f",
+    });
+    expect(serializeBranding(model)).toEqual(payload);
+  });
+
+  it("writes group colour edits into theme.groupColors on serialize", () => {
+    const model = parseBranding(BRANDING);
+    model.groupColors = { Insights: "#445500" };
+    expect(serializeBranding(model)).toEqual({
+      ...BRANDING,
+      theme: { groupColors: { Insights: "#445500" } },
+    });
+  });
+
+  it("drops malformed published group colours at parse", () => {
+    const model = parseBranding({
+      ...BRANDING,
+      theme: { groupColors: { Clinical: "blue", Insights: "#5c6618" } },
+    });
+    expect(model.groupColors).toEqual({ Insights: "#5c6618" });
+  });
 });
 
 describe("permissions model", () => {
@@ -210,7 +245,7 @@ describe("permissions model", () => {
     expect(caps["billing.manage"]).toEqual({
       admin: true, configurator: true, clinician: true, patient: false, viewer: false,
     });
-    // 36 capabilities: the original 14 plus the realignment's six
+    // 44 capabilities: the original 14 plus the realignment's six
     // (studio.read, lab.read, pharmacy.read, boards.read,
     // pophealth.view, pophealth.run) plus Phase 5's four (orders.read,
     // orders.place, notes.read, notes.write) plus Phase 6's two
@@ -218,10 +253,25 @@ describe("permissions model", () => {
     // (access.read, access.work, coding.read, coding.work) plus
     // Phase 8's three (interop.read, interop.manage, interop.export)
     // plus Phase 9's three (messages.use, portal.self-schedule,
-    // pophealth.export) — each new capability ships with defaults on
+    // pophealth.export) plus Phase 10's four (agents.view, agents.run,
+    // privacy.breakglass, privacy.review) plus Phase 11's four
+    // (pharmacy.verify, pharmacy.inventory, pharmacy.compound,
+    // pharmacy.cs) plus Phase 12's four (continuum.read,
+    // continuum.work, safety.report, safety.review) plus Phase 13's
+    // five (workforce.read, workforce.work, reports.run, data.export,
+    // data.import) plus Phase 14's three (devices.read, devices.manage,
+    // pipelines.run) plus the Front Door pass's two (accounts.manage,
+    // registration.work) plus Phase 16's nineteen (federation.read,
+    // federation.work, directories.read, directories.sync,
+    // agents.validate, innovation.manage, rag.search, mcp.use,
+    // a2a.use, genomics.read, genomics.work, research.read,
+    // research.work, esign.sign, empi.steward, intake.work,
+    // analytics.use, maintenance.read, maintenance.work) plus the
+    // Workforce, Teams & Panels pass's three (teams.read, teams.work,
+    // workforce.onboard) — each new capability ships with defaults on
     // the server (configstore.CAPABILITY_DEFAULTS) and this mirror,
     // per the realignment pattern.
-    expect(Object.keys(caps)).toHaveLength(36);
+    expect(Object.keys(caps)).toHaveLength(80);
   });
 });
 
