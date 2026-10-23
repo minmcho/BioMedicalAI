@@ -49,7 +49,7 @@ An original, open-source (Apache-2.0) EHR with feature categories similar to lar
 
 - **Design:** FastAPI clinical core (PostgreSQL primary behind a portable repository layer — other RDBMS, document, pgvector and Valkey/Redis-API stores by tier) with Go planned as the high-throughput API/integration tier and Rust for performance-critical compute (DICOM, de-identification, terminology); APIs each in their own lane — FHIR R4 REST, GraphQL, gRPC, MCP — and native SwiftUI (iOS) + Kotlin (Android) mobile. 100% open-source stack.
 - **System Studio concepts, reused:** versioned module packs install as designer drafts only and go live only through separate human steps — approve → attach → enable — with pack endpoints disabled until enabled, role gates, and a hash-chained audit log.
-- **Status:** Phase 0 (foundation: pack lifecycle, RBAC, audit, FHIR Patient/Encounter/Observation) and Phase 1 (core EHR: Condition, Procedure, MedicationRequest, DiagnosticReport, Appointment scheduling/ADT, results inbox, patient-portal read scoping, Keycloak-ready OIDC auth) are complete — **37 tests passing**, with a written SQA report per phase (`Open_EHR/docs/sqa/`). Next: Lab LIS, then the FHIR → OMOP warehouse.
+- **Status (2026-10-23 snapshot):** Phases 0–17 complete, each SQA-gated (`Open_EHR/docs/sqa/`), plus the gap programme's Wave A clinical safety gates, C-AI clinical-AI governance, and Inventory Depth — parent-verified test gates (backend 1,611 · web 589 at Inventory Depth close). Lab Depth is built; its final verification gate is in progress at this snapshot. This is a **pre-alpha snapshot published ahead of the project's final release gate — R&D system, NOT FOR CLINICAL USE** (see `Open_EHR/DISCLAIMER.md`).
 
 ## Biomedical Vision AI Preparation
 

@@ -1,0 +1,8 @@
+# OpenCare ADK runtime — Google ADK with the LiteLLM extension so model
+# strings like ollama_chat/llama3.2:3b (local-first) or hosted providers
+# both work. This service has its OWN environment (adk/.venv) so its
+# dependency tree never touches the EHR backend's.
+google-adk[extensions]>=2.12,<3
+fastapi>=0.115
+uvicorn[standard]>=0.30
+httpx>=0.27

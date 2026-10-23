@@ -11,7 +11,10 @@ like every other OpenCare module (roadmap §6: configure, don't fork):
   caller's own record exactly like the rest of the portal (another
   patient's thread is a 404, never a 403 — non-disclosure). Read
   state is a read-by extension on each message (usernames), so
-  unread counts are computed, never stored separately.
+  unread counts are computed, never stored separately. Bodies are
+  rich-text sanitized on write (app.richtext): the FHIR payload
+  carries the plain-text rendering, the app-facing body the
+  sanitized HTML — both envelope-encrypted (see RICH_HTML_EXTENSION).
 
 - TELEHEALTH is an appointment TYPE, not a parallel system: the
   `telehealth` slot type is appended to the published slot-types
@@ -34,6 +37,8 @@ like every other OpenCare module (roadmap §6: configure, don't fork):
   endpoint itself is capability-gated (`portal.self-schedule`), so a
   site can switch the whole feature off in the permissions config.
 """
+import json
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -41,7 +46,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import access, documentation, fhir
+from . import access, crypto, documentation, fhir, richtext
 from .audit import append_audit
 from .configstore import (list_config_versions, published_config,
                           role_allowed)
@@ -61,6 +66,24 @@ THREAD_EXTENSION = "urn:opencare:extension/message-thread"
 SENDER_ROLE_EXTENSION = "urn:opencare:extension/sender-role"
 READ_BY_EXTENSION = "urn:opencare:extension/read-by"
 APPOINTMENT_EXTENSION = "urn:opencare:extension/appointment"
+# Phase 10 (Track K): message BODIES are field-level encrypted at rest
+# (app.crypto envelope encryption). The Communication carries this
+# extension flagging that payload[0].contentString is an encryption
+# envelope (JSON), not the message text; readers decrypt transparently.
+# Messages written before Phase 10 (no flag) read back as plaintext —
+# the flag, not the shape, decides.
+ENCRYPTED_EXTENSION = "urn:opencare:extension/encrypted-content"
+# Rich text (Home & Module UX pass, app.richtext): when a message
+# body carries markup, the app-facing body is the SANITIZED HTML,
+# envelope-encrypted in this extension (valueString = envelope
+# JSON, so key re-wrap in app.keymgmt reaches it like every other
+# envelope in the body), while the Communication payload's
+# contentString carries the html_to_text plain rendering (also
+# envelope-encrypted) — the FHIR payload never carries author
+# markup. Markup-free messages keep the exact pre-pass storage:
+# one envelope of the text in the payload, no extension.
+RICH_HTML_EXTENSION = "urn:opencare:extension/message-rich-html"
+_TAG_LIKE_RE = re.compile(r"</?[A-Za-z][^<>]*>")
 
 
 def _now_iso() -> str:
@@ -265,11 +288,40 @@ def _read_by(body: dict) -> list[str]:
     return [u for u in (raw or "").split(",") if u]
 
 
-def _message_text(body: dict) -> str:
+def _payload_text(body: dict) -> str:
+    """The decrypted Communication payload contentString. For rich
+    messages this is the html_to_text plain rendering (the FHIR
+    form); for plain messages it is the message text itself."""
     for payload in body.get("payload") or []:
         if isinstance(payload, dict) and payload.get("contentString"):
-            return str(payload["contentString"])
+            raw = str(payload["contentString"])
+            if _extension(body, ENCRYPTED_EXTENSION) is not None:
+                try:
+                    return crypto.decrypt(json.loads(raw))
+                except (crypto.CryptoError, ValueError):
+                    return "[message could not be decrypted]"
+            return raw
     return ""
+
+
+def _message_text(body: dict) -> str:
+    """The readable message text (the app-facing body). Phase 10:
+    bodies flagged with the encrypted-content extension carry an
+    encryption envelope (JSON) in contentString and are decrypted
+    here — every authorised reader (staff thread views, portal
+    views, thread summaries) goes through this one function, so
+    decryption lives in exactly one place and the stored FHIR row
+    never holds plaintext. Rich messages (sanitized HTML was stored
+    at write time) decrypt their app-facing HTML body from the
+    rich-html extension instead; the payload holds their plain-text
+    rendering."""
+    ext = _extension(body, RICH_HTML_EXTENSION)
+    if ext is not None and ext.get("valueString"):
+        try:
+            return crypto.decrypt(json.loads(str(ext["valueString"])))
+        except (crypto.CryptoError, ValueError):
+            return "[message could not be decrypted]"
+    return _payload_text(body)
 
 
 def _decorate_message(row: FhirResource, user: User) -> dict:
@@ -363,6 +415,33 @@ def _create_message(session: Session, user: User, patient_ref: str,
                     topic: str | None = None) -> FhirResource:
     message_id = str(uuid.uuid4())
     thread = thread_id or message_id
+    # Phase 10 (Track K): the body is envelope-encrypted BEFORE it is
+    # stored — the FhirResource row holds ciphertext (envelope JSON)
+    # plus the key id; plaintext exists only in flight and in
+    # authorised reads (see _message_text).
+    # Rich text: a body carrying markup is sanitized on write
+    # (app.richtext.sanitize_html). Its FHIR payload contentString
+    # holds the html_to_text plain rendering; the sanitized HTML —
+    # the app-facing body — is envelope-encrypted in the rich-html
+    # extension. Markup-free bodies are stored exactly as before.
+    extensions = [
+        {"url": THREAD_EXTENSION, "valueString": thread},
+        {"url": SENDER_ROLE_EXTENSION, "valueString": user.role.value},
+        {"url": READ_BY_EXTENSION, "valueString": user.username},
+    ]
+    if _TAG_LIKE_RE.search(text):
+        clean_html = richtext.sanitize_html(text)
+        plain_text = richtext.html_to_text(clean_html)
+        envelope = crypto.encrypt(plain_text)
+        if clean_html != plain_text:
+            html_envelope = crypto.encrypt(clean_html)
+            extensions.append(
+                {"url": RICH_HTML_EXTENSION,
+                 "valueString": json.dumps(html_envelope)})
+    else:
+        envelope = crypto.encrypt(text)
+    extensions.append({"url": ENCRYPTED_EXTENSION, "valueBoolean": True,
+                       "valueString": envelope["kid"]})
     body = {
         "resourceType": "Communication",
         "id": message_id,
@@ -373,12 +452,8 @@ def _create_message(session: Session, user: User, patient_ref: str,
         "recipient": ([{"display": "care team"}]
                       if user.role == Role.patient
                       else [{"reference": patient_ref}]),
-        "payload": [{"contentString": text}],
-        "extension": [
-            {"url": THREAD_EXTENSION, "valueString": thread},
-            {"url": SENDER_ROLE_EXTENSION, "valueString": user.role.value},
-            {"url": READ_BY_EXTENSION, "valueString": user.username},
-        ],
+        "payload": [{"contentString": json.dumps(envelope)}],
+        "extension": extensions,
     }
     if topic:
         body["topic"] = {"text": topic}

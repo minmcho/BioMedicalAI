@@ -1,21 +1,24 @@
-Apache License
-                           Version 2.0, January 2004
-                        http://www.apache.org/licenses/
+OpenCare EHR is dual-licensed under either of:
 
-   Copyright 2026 OpenCare EHR contributors
+- Apache License, Version 2.0 (see `LICENSE-APACHE`), or
+- MIT License (see `LICENSE-MIT`),
 
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
+at your option.
 
-       http://www.apache.org/licenses/LICENSE-2.0
+Copyright © 2026 Min Cho and the OpenCare EHR contributors
+(see `CONTRIBUTORS.md`).
 
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+Unless you explicitly state otherwise, any contribution intentionally
+submitted for inclusion in this project by you shall be dual licensed
+as above, without any additional terms or conditions.
 
-The full Apache License, Version 2.0 text is available at the URL above and
-in the canonical apache.org distribution; this file carries the standard
-Apache-2.0 notice for this project.
+## Disclaimer
+
+This software is provided "AS IS", WITHOUT WARRANTY OF ANY KIND,
+express or implied. Use at your own risk: in no event shall the
+authors, copyright holders, or contributors be liable for any claim,
+damages, or other liability arising from the software or its use.
+This is a research and development (R&D) system, not a certified medical
+device; see `DISCLAIMER.md` for the full statement, including the
+conditions any clinical deployment would have to meet entirely at
+the deployer's own responsibility.

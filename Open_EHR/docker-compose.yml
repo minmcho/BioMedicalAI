@@ -47,6 +47,54 @@ services:
     depends_on:
       db:
         condition: service_healthy
+  mllp-gateway:
+    # Platform pass: Go MLLP gateway (services/go). Receives HL7 v2
+    # over MLLP and forwards payloads into the core's EXISTING
+    # offline-batch raw-zone contract (POST /devices/offline/batches);
+    # spools durably on disk and drains in order when the core is
+    # unreachable — never drops silently. The Python mllp service
+    # above remains the in-core listener; this is the edge/gateway
+    # tier (host port 2576 so the two never clash). Requires
+    # OPENCARE_GATEWAY_TOKEN (a devices.manage-capable token) and the
+    # published integration/offline config enabled in Studio.
+    build:
+      context: ./services/go
+    command: ["mllp-gateway"]
+    environment:
+      MLLP_ADDR: ":2575"
+      GATEWAY_HEALTH_ADDR: ":8081"
+      GATEWAY_SPOOL_DIR: /data/spool
+      CORE_URL: http://app:8000
+      OPENCARE_GATEWAY_TOKEN: ${OPENCARE_GATEWAY_TOKEN:-}
+    ports:
+      - "2576:2575"
+      - "8081:8081"
+    volumes:
+      - gatewayspool:/data/spool
+    depends_on:
+      app:
+        condition: service_started
+  edge-node:
+    # Platform pass: Go store-and-forward edge node (services/go).
+    # Belongs at a clinic/site edge, NOT in the central stack — hence
+    # the compose profile. On the edge host run:
+    #   EDGE_CORE_URL=https://core.example.org \
+    #     docker compose --profile edge up -d edge-node
+    # Captures payloads over HTTP while the WAN/core is down and
+    # syncs them in receive order when it returns (at-least-once).
+    profiles: ["edge"]
+    build:
+      context: ./services/go
+    command: ["edge-node"]
+    environment:
+      EDGE_ADDR: ":8082"
+      EDGE_QUEUE_DIR: /data/queue
+      CORE_URL: ${EDGE_CORE_URL:-http://app:8000}
+      OPENCARE_GATEWAY_TOKEN: ${OPENCARE_GATEWAY_TOKEN:-}
+    ports:
+      - "8082:8082"
+    volumes:
+      - edgequeue:/data/queue
   web:
     build:
       context: ./web
@@ -61,3 +109,5 @@ services:
 volumes:
   pgdata:
   valkeydata:
+  gatewayspool:
+  edgequeue:

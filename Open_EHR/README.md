@@ -1,14 +1,35 @@
 # OpenCare EHR (Open_EHR)
 
 Open-source, FHIR-native electronic health record. Original code,
-Apache-2.0 licensed. Feature categories are inspired by large enterprise EHR
+dual-licensed under Apache-2.0 or MIT at your option (see `LICENSE`).
+Feature categories are inspired by large enterprise EHR
 suites; no proprietary code, names, or trademarks are used.
 
-**Current state (original phase numbering, reconciled 2026-10-15 —
-see `docs/PHASES.md`): Phase 0 (SMART on FHIR app), Phase 1 (core EHR
-MVP incl. Synthea-style seed data) and Phase 2 (Lab LIS) are DONE, each
-SQA-gated; the Agentic ADK layer is delivered as a platform workstream
-alongside them.** A working, tested FastAPI core with:
+> **Research & development system — NOT FOR CLINICAL USE.**
+> OpenCare EHR is a research & development (R&D) system, developed and
+> tested exclusively with synthetic data. It is provided **"AS IS",
+> without warranty of any kind**, express or implied. It is **NOT A
+> CERTIFIED MEDICAL DEVICE**, has not been cleared or approved by the
+> FDA or any other regulator, and must not be used to store real
+> patient data or to support real clinical care. Anyone who downloads,
+> deploys, or builds on this software does so entirely at their own
+> risk and on their own responsibility — including independently
+> validating the system and satisfying every regulatory, privacy, and
+> security obligation in their jurisdiction. See
+> [`DISCLAIMER.md`](DISCLAIMER.md) for the full statement.
+
+**Current state (2026-10-23 snapshot — see `docs/PHASES.md` and
+`docs/sqa/`): Phases 0–17 are complete, each SQA-gated. A follow-on gap
+programme is in progress: Wave A (clinical safety gates), the C-AI
+clinical-AI governance build, and Inventory Depth are complete with
+parent-verified test gates; Lab Depth is built and its final
+verification gate is in progress at the time of this snapshot. This
+tree is a pre-alpha snapshot published ahead of the project's final
+release gate; the remaining programme (broken-journey, QC,
+relationship, surgery-costing and sweep waves, then a final rigid
+gate) is tracked in the project's deficiency register. Nothing in
+this tree has been validated for clinical use.** A working, tested
+FastAPI core with:
 
 - A System-Studio-style module-pack lifecycle (adapted concept): packs install
   as **designer drafts only** and become usable only through separate human

@@ -47,7 +47,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import fhir
+from . import documentation, fhir
 from .audit import append_audit
 from .configstore import (load_workflow_machine, payload_state_set,
                           published_config, transition_role_allowed,
@@ -80,6 +80,25 @@ APPOINTMENT_CASE_EXTENSION = "urn:opencare:extension/surgery-case"
 # case Procedure as an extension, appended by the schedule/transition
 # endpoints below. Timestamps are always server-stamped.
 CASE_TIMELINE_EXTENSION = "urn:opencare:extension/case-timeline"
+# Depth pass (Workstream 2): the WHO surgical safety checklist lives on
+# the case Procedure as an extension holding, per section, the stored
+# QuestionnaireResponse linkage + who/when — the same attach pattern
+# Phase 6 uses for the pre-op checklist (app.inpatient._attach_form_response).
+SAFETY_CHECKLIST_EXTENSION = "urn:opencare:extension/surgical-safety-checklist"
+SAFETY_FORM_KEY = "surgical-safety-checklist"
+# Section key (API + board payload) -> the form item codes of that
+# section. Item codes are prefixed signin- / timeout- / signout- in the
+# governed form so a stored response is self-describing.
+SAFETY_SECTIONS: dict[str, list[str]] = {
+    "sign-in": ["signin-identity-site-procedure", "signin-consent",
+                "signin-anaesthesia-check", "signin-allergies",
+                "signin-airway-risk"],
+    "time-out": ["timeout-introductions", "timeout-verbal-confirmation",
+                 "timeout-antibiotics", "timeout-imaging",
+                 "timeout-concerns"],
+    "sign-out": ["signout-procedure-recorded", "signout-counts",
+                 "signout-specimen", "signout-recovery"],
+}
 
 # ED states in which the patient is physically in the department (the
 # board census). departed/admitted are terminal and leave the board.
@@ -180,6 +199,59 @@ def default_or_rooms_payload() -> dict:
             ]}
 
 
+def _safety_form(title: str, items: list[dict]) -> dict:
+    return {"resourceType": "Questionnaire", "title": title, "item": items}
+
+
+def _safety_item(link_id, text):
+    # Every WHO checklist item is a required boolean confirmation. The
+    # items ride INSIDE their section group: the Phase 5 validator
+    # enforces required items at the top level of a response, so a
+    # per-section submission is enforced by the safety-checklist
+    # endpoint itself (it refuses a section whose items are not all
+    # answered, naming the missing codes) and then stored through the
+    # ordinary documentation._store_response machinery.
+    return {"linkId": link_id, "text": text, "type": "boolean",
+            "required": True}
+
+
+def default_safety_checklist_payload() -> dict:
+    """The WHO surgical safety checklist as ONE governed form with
+    three section groups (Sign In / Time Out / Sign Out)."""
+    return _safety_form("WHO surgical safety checklist", [
+        {"linkId": "sign-in", "text": "Sign In — before induction of anaesthesia",
+         "type": "group", "item": [
+             _safety_item("signin-identity-site-procedure",
+                          "Patient identity, site and procedure confirmed"),
+             _safety_item("signin-consent", "Consent confirmed"),
+             _safety_item("signin-anaesthesia-check",
+                          "Anaesthesia safety check complete"),
+             _safety_item("signin-allergies", "Allergies reviewed"),
+             _safety_item("signin-airway-risk",
+                          "Airway / aspiration risk assessed")]},
+        {"linkId": "time-out", "text": "Time Out — before skin incision",
+         "type": "group", "item": [
+             _safety_item("timeout-introductions",
+                          "Team members introduced by name and role"),
+             _safety_item("timeout-verbal-confirmation",
+                          "Patient, procedure and site verbally confirmed"),
+             _safety_item("timeout-antibiotics",
+                          "Antibiotic prophylaxis given"),
+             _safety_item("timeout-imaging", "Essential imaging displayed"),
+             _safety_item("timeout-concerns",
+                          "Anticipated critical concerns voiced")]},
+        {"linkId": "sign-out", "text": "Sign Out — before the patient leaves theatre",
+         "type": "group", "item": [
+             _safety_item("signout-procedure-recorded",
+                          "Name of the procedure recorded"),
+             _safety_item("signout-counts",
+                          "Instrument, sponge and needle counts correct"),
+             _safety_item("signout-specimen", "Specimen labelled"),
+             _safety_item("signout-recovery",
+                          "Recovery / post-operative concerns handed over")]},
+    ])
+
+
 def default_viewer_payload() -> dict:
     # The public OHIF demo viewer is the seeded default link target so the
     # link works out of the box; a deployment points viewer.baseUrl at
@@ -218,8 +290,17 @@ def ensure_boards_defaults(session: Session) -> None:
     ed_payload["governedStates"] = list(ED_GOVERNED_STATES)
     _seed_published(session, "workflow", ED_WORKFLOW_KEY, ed_payload)
     _seed_published(session, "terminology", ESI_KEY, default_triage_payload())
+    surgery_payload = _workflow_payload(DEFAULT_SURGERY_TRANSITIONS)
+    # Depth pass (Workstream 2): the WHO safety-checklist gate rides in
+    # the surgery workflow payload — when true, a case cannot move to
+    # in-op without a recorded time-out, nor to done without a recorded
+    # sign-out. Seeded TRUE; a site turns it off by publishing the
+    # workflow without the flag (or with it false).
+    surgery_payload["safetyChecklistGate"] = True
     _seed_published(session, "workflow", SURGERY_WORKFLOW_KEY,
-                    _workflow_payload(DEFAULT_SURGERY_TRANSITIONS))
+                    surgery_payload)
+    _seed_published(session, "form", SAFETY_FORM_KEY,
+                    default_safety_checklist_payload())
     _seed_published(session, "terminology", MODALITIES_KEY,
                     default_modalities_payload())
     _seed_published(session, "terminology", OR_ROOMS_KEY,
@@ -637,6 +718,13 @@ async def ed_admit(encounter_id: str, request: Request,
                  payload={"inpatient_encounter_id": inpatient["id"],
                           "patient": subject_ref,
                           "ward": ward if isinstance(ward, str) else None})
+    # Phase 12 (Track D): an ED admission is a new boarder until a
+    # bed is assigned — publish the boarding state to the rules
+    # engine in this transaction (the seeded escalation rule may
+    # open a bed-management Task). Lazy import: app.continuum
+    # builds on this module.
+    from .continuum import emit_boarding_event
+    emit_boarding_event(session, actor=user.username)
     session.commit()
     return {"ed_encounter": fhir._render(row), "inpatient_encounter": inpatient}
 
@@ -1088,6 +1176,51 @@ def _record_case_event(case: FhirResource, event: str, state: str,
     case.body = body
 
 
+def _safety_meta(body: dict) -> dict:
+    """The case's safety-checklist linkage meta ({section: {responseId,
+    completedBy, completedAt}}) from its extension; {} when none."""
+    ext = _get_extension(body or {}, SAFETY_CHECKLIST_EXTENSION)
+    if ext is not None and isinstance(ext.get("valueString"), str):
+        try:
+            parsed = json.loads(ext["valueString"])
+        except ValueError:
+            return {}
+        if isinstance(parsed, dict) and isinstance(parsed.get("sections"), dict):
+            return parsed["sections"]
+    return {}
+
+
+def safety_checklist_state(body: dict) -> dict:
+    """Per-section completion flags for the board payload:
+    {"sign-in": bool, "time-out": bool, "sign-out": bool}."""
+    meta = _safety_meta(body)
+    return {section: section in meta for section in SAFETY_SECTIONS}
+
+
+def _safety_gate_enabled(session: Session) -> bool:
+    """The gate toggle from the PUBLISHED surgery workflow payload
+    (`safetyChecklistGate`); absent/false = gate off."""
+    payload = workflow_payload(session, SURGERY_WORKFLOW_KEY) or {}
+    return payload.get("safetyChecklistGate") is True
+
+
+def _flatten_answers(answers) -> list[dict]:
+    """Submitted QuestionnaireResponse items -> a flat [{linkId,
+    answer}] list, expanding one level of group nesting (the shape
+    FormRenderer emits for grouped forms)."""
+    out: list[dict] = []
+    if not isinstance(answers, list):
+        return out
+    for entry in answers:
+        if not isinstance(entry, dict) or not entry.get("linkId"):
+            continue
+        if isinstance(entry.get("item"), list):
+            out.extend(_flatten_answers(entry["item"]))
+        elif entry.get("answer"):
+            out.append(entry)
+    return out
+
+
 def _case_entry(case: FhirResource, appointment: FhirResource) -> dict:
     room_ext = _get_extension(case.body or {}, OR_ROOM_EXTENSION) or {}
     appt_body = appointment.body or {}
@@ -1100,6 +1233,8 @@ def _case_entry(case: FhirResource, appointment: FhirResource) -> dict:
         "end": appt_body.get("end"),
         "patient_ref": _subject_ref(case.body or {}),
         "timeline": case_timeline(case.body or {}),
+        # Depth pass (Workstream 2): WHO checklist completion per section.
+        "safety_checklist": safety_checklist_state(case.body or {}),
     }
 
 
@@ -1275,6 +1410,72 @@ def surgery_board(date: str | None = Query(default=None),
     return {"date": day.isoformat(), "rooms": rooms, "total": total}
 
 
+@surgery_router.post("/cases/{case_id}/safety-checklist", status_code=201)
+async def submit_safety_checklist(case_id: str, request: Request,
+                                  session: Session = Depends(get_db),
+                                  user: User = Depends(require_capability("surgery.work"))):
+    """Record ONE section (sign-in / time-out / sign-out) of the WHO
+    surgical safety checklist for a case. The section's items are all
+    required: a submission missing any of them is refused (422, naming
+    the missing item codes) BEFORE storage; complete answers are
+    stored as a real QuestionnaireResponse against the published
+    `surgical-safety-checklist` form through the Phase 5 machinery
+    (documentation._store_response), and the section is recorded as
+    completed on the case (response id + timestamp + user) — the
+    Phase 6 attach pattern."""
+    payload = await _json_body(request)
+    section = payload.get("section")
+    if section not in SAFETY_SECTIONS:
+        raise HTTPException(
+            status_code=422,
+            detail=("Safety checklist requires 'section': one of "
+                    + ", ".join(sorted(SAFETY_SECTIONS))))
+    case, _appointment = _get_case(session, case_id)
+    cfg = published_config(session, "form", SAFETY_FORM_KEY)
+    if cfg is None:
+        raise HTTPException(
+            status_code=503,
+            detail=(f"No published surgical safety checklist form "
+                    f"(form/{SAFETY_FORM_KEY}); publish one in Studio "
+                    "before recording it"))
+    flat = _flatten_answers(payload.get("answers"))
+    answered = {entry["linkId"] for entry in flat}
+    expected = SAFETY_SECTIONS[section]
+    missing = [code for code in expected if code not in answered]
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail=(f"Safety checklist section '{section}' is missing "
+                    f"answers for required items: {', '.join(missing)}"))
+    stored_answers = [entry for entry in flat if entry["linkId"] in expected]
+    patient_ref = case.patient_ref or _subject_ref(case.body or {})
+    stored = documentation._store_response(
+        session, user, SAFETY_FORM_KEY, patient_ref, stored_answers)
+    body = dict(case.body or {})
+    sections = _safety_meta(body)
+    sections[section] = {"responseId": stored["id"],
+                         "formVersion": cfg.version,
+                         "completedBy": user.username,
+                         "completedAt": _now_iso()}
+    _set_extension(body, SAFETY_CHECKLIST_EXTENSION,
+                   valueString=json.dumps({"sections": sections}))
+    case.body = body
+    case.version += 1
+    session.flush()
+    append_audit(session, actor=user.username,
+                 action="surgery.case.safety-checklist",
+                 entity=f"Procedure/{case_id}",
+                 payload={"section": section, "response_id": stored["id"],
+                          "patient": patient_ref})
+    session.commit()
+    case_row = fhir._get_row("Procedure", case_id, session)
+    appointment = _case_appointment(session, case_row)
+    return {"case": _case_entry(case_row, appointment)
+            if appointment is not None else None,
+            "response": stored, "section": section,
+            "safety_checklist": safety_checklist_state(case_row.body or {})}
+
+
 @surgery_router.post("/cases/{case_id}/transition")
 async def transition_case(case_id: str, request: Request,
                           session: Session = Depends(get_db),
@@ -1298,6 +1499,29 @@ async def transition_case(case_id: str, request: Request,
             status_code=409,
             detail=f"Illegal surgery case transition '{current}' -> '{target}'")
     _check_transition_role(roles, current, target, user, "surgery case")
+    # Depth pass (Workstream 2): the WHO safety-checklist gate — when
+    # the published surgery workflow enables it, in-op requires a
+    # recorded time-out and done requires a recorded sign-out. The 409
+    # names the missing section so the board can surface it verbatim.
+    if _safety_gate_enabled(session):
+        checklist = safety_checklist_state(case.body or {})
+        required_section = {"in-op": "time-out", "done": "sign-out"}.get(target)
+        if required_section and not checklist.get(required_section):
+            raise HTTPException(
+                status_code=409,
+                detail=(f"Surgical safety checklist gate: case {case_id} "
+                        f"cannot move to '{target}' until the "
+                        f"'{required_section}' section of the WHO surgical "
+                        "safety checklist is recorded "
+                        f"(missing section: {required_section})"))
+    # Phase 15 (E): the PACU discharge gate — when the published
+    # surgery workflow enables `pacuScoreGate`, a pacu -> done move
+    # additionally requires a recorded, passing PACU score (the gate
+    # itself lives in app.surgery_depth; lazy import — that module
+    # builds on this one). Gate off/absent: no behaviour change.
+    if current == "pacu" and target == "done":
+        from .surgery_depth import check_pacu_gate
+        check_pacu_gate(session, case_id)
     _set_status(case, target)
     _record_case_event(case, target, target, user.username)
     if target == "done":

@@ -11,3 +11,48 @@ pyjwt[crypto]
 dbt-core
 dbt-duckdb
 duckdb-engine
+
+# Phase 13: server-side PDF for the report catalogue and printable
+# billing documents (invoice / receipt / statement / superbill).
+# ReportLab is pure-Python (BSD) — chosen over WeasyPrint, which needs
+# system Pango/Cairo libraries the deployment image does not carry.
+reportlab
+
+# Phase 14: MQTT adapter for IoT device feeds (paho-mqtt, Eclipse —
+# BSD/EPL dual-licensed open source). amqtt is a pure-Python broker
+# used ONLY by the test suite to prove the adapter against a real
+# localhost broker; production brokers are site infrastructure.
+paho-mqtt
+amqtt
+
+# Platform pass: Studio DB platform drivers. PyMySQL (MIT) is the
+# pure-Python driver for the MySQL / MariaDB SQLAlchemy dialects
+# (live-verified against MariaDB in the platform SQA). pymongo is
+# used ONLY by the FerretDB document-store smoke test — the clinical
+# store is SQLAlchemy-only and has no MongoDB adapter seam.
+PyMySQL
+pymongo
+
+# Phase 15: DICOM parsing for the radiology department's ingest +
+# archive (BD-35). pydicom is pure-Python (MIT) — DICOM objects are
+# parsed and generated locally; pixel bytes are stored through the
+# tiering cold store, no external PACS is involved.
+pydicom
+# Phase 16: document-intake PDF text extraction (BD-48). Pure-Python.
+pypdf
+
+# Phase 17 (BD-63): real S3 cold tier for the lake (boto3 against any
+# S3-compatible endpoint — MinIO in the local stack). Selected by the
+# published tiering config; the filesystem store stays the default.
+boto3
+# Phase 17 (BD-68): GraphQL aggregation lane (Strawberry / graphql-core).
+strawberry-graphql
+# Phase 17 (BD-67): gRPC contract stubs for the polyglot tier
+# boundaries (Python side; Go side uses google.golang.org/grpc).
+# Pinned with protobuf<7 to stay compatible with dbt's constraint.
+grpcio>=1.73,<1.74
+# Phase 17 (BD-61): observability — OpenTelemetry SDK + OTLP/HTTP
+# exporter + Prometheus exposition.
+opentelemetry-sdk
+opentelemetry-exporter-otlp-proto-http
+prometheus-client

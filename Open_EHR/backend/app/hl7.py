@@ -480,3 +480,71 @@ def extract_frame(buffer: bytes) -> tuple[str | None, bytes]:
     if frame.startswith(MLLP_START):
         frame = frame[len(MLLP_START):]
     return frame.decode("utf-8", errors="replace"), rest
+
+
+# ---------------------------------------------------------------------------
+# VXU builder (Phase 15, BD-33 — appended; nothing above was modified)
+# ---------------------------------------------------------------------------
+
+def build_vxu(immunization_body: dict, patient_body: dict, *,
+              control_id: str, sending_application: str, sending_facility: str,
+              receiving_application: str = "",
+              receiving_facility: str = "") -> str:
+    """VXU^V04 (unsolicited vaccination record update) for one FHIR
+    Immunization body + its Patient body, in the IIS style:
+
+    MSH / PID / ORC / RXA (+ RXR when the record carries a route or
+    site). RXA-5 is the vaccine CWE with coding-system name CVX;
+    RXA-15 the lot number; RXA-17 the manufacturer display; RXA-20
+    the completion status (CP for a completed administration, RE for
+    not-done). RXC is not emitted: the capture model records no
+    vaccine components, and an RXC would have to invent them."""
+    imm_id = str(immunization_body.get("id") or "")
+    occurrence = immunization_body.get("occurrenceDateTime") or ""
+    code, display, _system = _coding_of(immunization_body.get("vaccineCode"))
+    dose = immunization_body.get("doseQuantity") or {}
+    dose_value = dose.get("value")
+    dose_unit = str(dose.get("unit") or dose.get("code") or "")
+    manufacturer = immunization_body.get("manufacturer") or {}
+    manufacturer_display = str(manufacturer.get("display") or "") \
+        if isinstance(manufacturer, dict) else ""
+    status = str(immunization_body.get("status") or "")
+    completion = {"completed": "CP", "not-done": "RE"}.get(status, "")
+    refusal = ""
+    if status == "not-done":
+        rcode, rdisplay, _rsys = _coding_of(
+            immunization_body.get("statusReason"))
+        refusal = cwe(rcode, rdisplay, "NIP002") if rcode else ""
+    rxa_fields = [""] * 21
+    rxa_fields[0] = "0"                            # RXA-1 give sub-id counter
+    rxa_fields[1] = "1"                            # RXA-2 administration sub-id
+    rxa_fields[2] = hl7_datetime(occurrence)       # RXA-3 start of administration
+    rxa_fields[3] = hl7_datetime(occurrence)       # RXA-4 end of administration
+    rxa_fields[4] = cwe(code, display, "CVX")      # RXA-5 administered code
+    rxa_fields[5] = "" if dose_value is None else str(dose_value)  # RXA-6 amount
+    rxa_fields[6] = esc(dose_unit)                 # RXA-7 units
+    rxa_fields[14] = esc(immunization_body.get("lotNumber") or "")  # RXA-15 lot
+    rxa_fields[15] = hl7_date(immunization_body.get("expirationDate"))  # RXA-16
+    rxa_fields[16] = cwe("", manufacturer_display, "MVX") if manufacturer_display \
+        else ""                                    # RXA-17 manufacturer
+    rxa_fields[17] = refusal                       # RXA-18 refusal reason
+    rxa_fields[19] = completion                    # RXA-20 completion status
+    rxa_fields[20] = "A"                           # RXA-21 action code (add)
+    lines = [
+        build_msh("VXU^V04", control_id,
+                  sending_application=sending_application,
+                  sending_facility=sending_facility,
+                  receiving_application=receiving_application,
+                  receiving_facility=receiving_facility),
+        pid_segment(patient_body),
+        segment("ORC", "RE", imm_id, imm_id),
+        segment("RXA", *rxa_fields),
+    ]
+    route_code, route_display, _rs = _coding_of(immunization_body.get("route"))
+    site_code, site_display, _ss = _coding_of(immunization_body.get("site"))
+    if route_code or site_code:
+        lines.append(segment(
+            "RXR",
+            cwe(route_code, route_display, "HL70162") if route_code else "",
+            cwe(site_code, site_display, "HL70163") if site_code else ""))
+    return "\r".join(lines)

@@ -58,7 +58,7 @@ from .configstore import (load_workflow_machine, payload_state_set,
                           published_config, role_allowed,
                           transition_role_allowed, workflow_payload)
 from .models import (ConfigStatus, EligibilityCheck, FhirResource, PriorAuth,
-                     Role, StudioConfig, User, WaitlistEntry)
+                     Role, StaffMember, StudioConfig, User, WaitlistEntry)
 from .security import get_current_user, get_db, require_capability
 
 router = APIRouter(prefix="/access", tags=["access"])
@@ -1105,6 +1105,44 @@ async def accept_waitlist_offer(entry_id: str, request: Request,
     if isinstance(practitioner, str) and practitioner:
         ref = practitioner if "/" in practitioner else f"Practitioner/{practitioner}"
         participants.append({"actor": {"reference": ref}, "status": "accepted"})
+    # Phase 15 (BD-31): credential-gated scheduling. When the accept
+    # names BOTH a practitioner and a required privilege, the booking
+    # is gated by app.access_services.evaluate_credential_check: the
+    # practitioner id resolves to a staff-directory username, and the
+    # booking is refused (409) unless a covering credential is
+    # unexpired at the appointment start. No privilege named -> no
+    # gate: every pre-Phase-15 caller behaves exactly as before. The
+    # check is audited like the standalone checker endpoint.
+    privilege = payload.get("privilege")
+    if isinstance(practitioner, str) and practitioner \
+            and isinstance(privilege, str) and privilege:
+        from . import access_services
+        prac_id = practitioner.split("/", 1)[-1]
+        staff_row = session.scalars(select(StaffMember).where(
+            StaffMember.staff_id == prac_id)).first()
+        staff_username = staff_row.username if staff_row else prac_id
+        try:
+            booking_at = datetime.fromisoformat(start.replace("Z", "+00:00"))
+        except ValueError:
+            booking_at = None
+        verdict = access_services.evaluate_credential_check(
+            session, staff_username, privilege, at=booking_at)
+        append_audit(session, actor=user.username,
+                     action="scheduling.credential_check",
+                     entity=f"staff:{verdict.get('staff_id') or staff_username}",
+                     payload={"staff_username": staff_username,
+                              "privilege": privilege,
+                              "allowed": verdict["allowed"],
+                              "reason": verdict["reason"],
+                              "via": "access.waitlist.accept",
+                              "credential_id": (verdict.get("deciding_credential")
+                                                or {}).get("credential_id")})
+        if not verdict["allowed"]:
+            session.commit()
+            raise HTTPException(
+                status_code=409,
+                detail=(f"Credential-gated scheduling: {practitioner} may not "
+                        f"be booked for '{privilege}': {verdict['detail']}"))
     appt_body = {
         "resourceType": "Appointment",
         "id": str(uuid.uuid4()),

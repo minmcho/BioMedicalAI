@@ -54,7 +54,11 @@ without rewriting it — see docs/sqa/PHASE6B_SQA_REPORT.md:
   blood-bank and pathology orderable concepts whose `bench` field routes
   the order to its bench workflow (app.lab_benches runs those benches).
 - Post-analytical: auto-verification (config rules; verifies, NEVER
-  releases; audited as actor "system:auto-verify"), delta checks flagged
+  releases; audited as actor "system:auto-verify") — extended by Lab
+  Depth D7 (app.lab_autoverify): under a bench's PUBLISHED rule set a
+  fully passing set auto-RELEASES with its rule trace, and Lab Depth
+  D6 (app.lab_analyser) gates every ingest path on the reconciled
+  instrument registry status (LAB-m2 quarantine) — delta checks flagged
   on the verification queue, reflex rules creating flagged draft orders,
   and amended reports (new linked version, original preserved).
 - QC programme: control levels + Westgard-style flags computed at run
@@ -62,8 +66,10 @@ without rewriting it — see docs/sqa/PHASE6B_SQA_REPORT.md:
 """
 import csv
 import io
+import math
 import uuid
-from datetime import datetime, timezone
+from calendar import monthrange
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
@@ -71,7 +77,8 @@ from sqlalchemy.orm import Session
 
 from . import fhir
 from .audit import append_audit
-from .hl7 import _hl7_component, _hl7_field, parse_hl7_oru  # noqa: F401
+from .hl7 import _hl7_component, _hl7_field  # noqa: F401
+from .hl7 import parse_hl7_oru as _parse_hl7_oru_base  # noqa: F401
 # The HL7 v2 reader lives in app.hl7 (the ONE shared HL7 module) since
 # Phase 8; it is re-exported here so Phase 2 imports/tests are
 # untouched. (parse_hl7_oru + its field/component helpers moved
@@ -79,9 +86,17 @@ from .hl7 import _hl7_component, _hl7_field, parse_hl7_oru  # noqa: F401
 from .configstore import (load_workflow_machine, machine_from_payload,
                           payload_state_set, published_config,
                           transition_role_allowed, workflow_payload)
-from .models import (ConfigStatus, FhirResource, LabCriticalNotification,
-                     LabQcRun, Role, StudioConfig, User)
+from .models import (AuditLog, ConfigStatus, FhirResource,
+                     LabCriticalNotification, LabQcRun,
+                     PoctCompetencyRecord, PoctQcRecord, Role, StudioConfig,
+                     User, UserAccount)
 from .security import get_db, get_current_user, require_capability
+# Lab Depth W4 (LAB-D8/D9): the QC/calibration and reagent-lot
+# modules. Imported at top level (they import app.lab only lazily,
+# so there is no cycle) so their tables register on Base before
+# create_all in EVERY import context — the result-entry, QC and
+# ingest paths below call into them on ordinary lab requests.
+from . import lab_analyser, lab_autoverify, lab_qc, lab_reagents  # noqa: E402,F401
 
 router = APIRouter(prefix="/lab", tags=["lab"])
 
@@ -112,6 +127,19 @@ PATHOLOGY_WORKFLOW_KEY = "lab-pathology-flow"
 ORGANISMS_KEY = "micro-organisms"
 ANTIBIOTICS_KEY = "micro-antibiotics"
 SYNOPTIC_FORM_KEY = "pathology-synoptic"
+# Depth pass: cytology reports (gyn + non-gyn) run on the pathology
+# bench with their own published form; send-out routing and the POCT
+# programme are published terminology configs like the catalog.
+CYTOLOGY_FORM_KEY = "pathology-cytology"
+SENDOUT_LABS_KEY = "sendout-labs"
+SENDOUT_EXTENSION = "urn:opencare:extension/sendout"
+POCT_PROGRAMME_KEY = "poct-programme"
+# Lab Depth W9 (LAB-D15): the governed POCT DEPLOYMENT PROFILE —
+# published terminology config owned by app.lab_poct_qms. When the
+# profile publishes profileMode "enforce", its block flags turn the
+# programme's seeded-off switches into enforced policy at POCT
+# result entry (see _poct_effective_enforcement).
+POCT_PROFILE_KEY = "poct-deployment-profile"
 BENCH_WORKFLOW_KEYS = {"microbiology": MICRO_WORKFLOW_KEY,
                        "pathology": PATHOLOGY_WORKFLOW_KEY}
 REFLEX_EXTENSION = "urn:opencare:extension/reflex"
@@ -182,6 +210,31 @@ def _now_iso() -> str:
 # Default Studio configuration (seeded published v1 at startup)
 # ---------------------------------------------------------------------------
 
+def default_blood_bank_gate() -> dict:
+    """Wave A (LAB-B1): the governed blood-bank issue-gate parameters
+    carried in the published lab catalog as `bloodBankGate`.
+
+    Governed (site-configurable through Studio republication): how
+    long a negative antibody screen stays valid, which products may
+    use electronic crossmatch, and the emergency-release reason codes.
+    NOT governed: the ABO/Rh compatibility matrices themselves — those
+    are a clinical standard and live in code (app.lab_benches)."""
+    return {
+        "antibodyScreenValidityHours": 72,
+        "electronicCrossmatch": {"enabled": True, "products": ["rbc"]},
+        "emergencyReleaseReasonCodes": [
+            {"code": "life-threatening-haemorrhage",
+             "display": "Life-threatening haemorrhage — transfusion "
+                        "cannot wait for a full crossmatch"},
+            {"code": "massive-transfusion-protocol",
+             "display": "Massive transfusion protocol activated"},
+            {"code": "urgent-clinical-need",
+             "display": "Urgent clinical need documented by the "
+                        "treating clinician"},
+        ],
+    }
+
+
 def default_lab_catalog_payload() -> dict:
     def analyte(code, display, unit, low=None, high=None,
                 critical_low=None, critical_high=None, bench="chemistry",
@@ -214,7 +267,7 @@ def default_lab_catalog_payload() -> dict:
         # CBC analytes
         analyte("718-7", "Hemoglobin [Mass/volume] in Blood", "g/dL",
                 12.0, 15.5, critical_low=7.0, critical_high=20.0,
-                bench="haematology", delta={"pct": 15}),
+                bench="haematology", delta={"pct": 15, "windowHours": 168}),
         analyte("4544-3", "Hematocrit [Volume Fraction] of Blood by Automated count",
                 "%", 36.0, 46.0, critical_low=20.0, critical_high=60.0),
         analyte("6690-2", "Leukocytes [#/volume] in Blood by Automated count",
@@ -228,7 +281,7 @@ def default_lab_catalog_payload() -> dict:
         analyte("3094-0", "Urea nitrogen [Mass/volume] in Serum or Plasma", "mg/dL",
                 7.0, 20.0, critical_high=100.0),
         analyte("2160-0", "Creatinine [Mass/volume] in Serum or Plasma", "mg/dL",
-                0.5, 1.1, critical_high=5.0, delta={"absolute": 0.3}),
+                0.5, 1.1, critical_high=5.0, delta={"absolute": 0.3, "windowHours": 72}),
         analyte("2951-2", "Sodium [Moles/volume] in Serum or Plasma", "mmol/L",
                 136.0, 145.0, critical_low=120.0, critical_high=160.0),
         analyte("2823-3", "Potassium [Moles/volume] in Serum or Plasma", "mmol/L",
@@ -321,7 +374,365 @@ def default_lab_catalog_payload() -> dict:
         # through the pathology workflow (app.lab_benches).
         {"code": "11529-5", "display": "Surgical pathology study",
          "active": True, "bench": "pathology"},
+        # Depth pass — VIROLOGY bench. NAAT / antigen results are
+        # qualitative on the standard spine; viral loads are numeric
+        # and charted by the trend view (GET /lab/trends). Displays
+        # marked "local code" are local codings (the BB-*/COAG-PANEL
+        # precedent): a site maps them to its own LOINC set by
+        # republishing the catalog.
+        qualitative("94500-6", "SARS-CoV-2 RNA [Presence] in Respiratory specimen by NAA",
+                    ["Detected", "Not detected", "Inconclusive"], "virology"),
+        qualitative("VIR-INFA", "Influenza A RNA [Presence] by NAAT — local code",
+                    ["Detected", "Not detected"], "virology"),
+        qualitative("VIR-INFB", "Influenza B RNA [Presence] by NAAT — local code",
+                    ["Detected", "Not detected"], "virology"),
+        qualitative("VIR-RSV", "Respiratory syncytial virus RNA [Presence] by NAAT — local code",
+                    ["Detected", "Not detected"], "virology"),
+        {"code": "RVP-LOCAL",
+         "display": "Respiratory viral panel (multiplex NAAT) — local grouping code",
+         "active": True, "panel": True, "bench": "virology",
+         "components": ["94500-6", "VIR-INFA", "VIR-INFB", "VIR-RSV"]},
+        qualitative("HIV-AGAB", "HIV 1+2 antigen/antibody screen — local code",
+                    ["Reactive", "Nonreactive"], "virology"),
+        qualitative("HIV-DIFF", "HIV-1/HIV-2 antibody differentiation — local code",
+                    ["HIV-1 positive", "HIV-2 positive", "Both positive",
+                     "Negative", "Indeterminate"], "virology"),
+        analyte("20447-9", "HIV 1 RNA [#/volume] in Blood by Probe (viral load)",
+                "copies/mL", bench="virology"),
+        analyte("42595-9", "Hepatitis B virus DNA [#/volume] in Serum or Plasma (viral load)",
+                "IU/mL", bench="virology"),
+        # Depth pass — SEROLOGY / IMMUNOLOGY bench (qualitative).
+        qualitative("SER-HBSAG", "Hepatitis B surface antigen — local code",
+                    ["Reactive", "Nonreactive"], "serology"),
+        qualitative("SER-HCVAB", "Hepatitis C antibody — local code",
+                    ["Reactive", "Nonreactive"], "serology"),
+        qualitative("SER-RPR", "Syphilis screen (RPR) — local code",
+                    ["Reactive", "Nonreactive"], "serology"),
+        qualitative("SER-HAVIGM", "Hepatitis A IgM antibody — local code",
+                    ["Reactive", "Nonreactive"], "serology"),
+        # Depth pass — TOXICOLOGY bench: a qualitative urine drug
+        # screen panel + numeric ethanol, all local codes.
+        qualitative("TOX-COC", "Cocaine metabolite [Presence] in Urine — local code",
+                    ["Positive", "Negative"], "toxicology"),
+        qualitative("TOX-OPI", "Opiates [Presence] in Urine — local code",
+                    ["Positive", "Negative"], "toxicology"),
+        qualitative("TOX-THC", "Cannabinoids [Presence] in Urine — local code",
+                    ["Positive", "Negative"], "toxicology"),
+        qualitative("TOX-AMP", "Amphetamines [Presence] in Urine — local code",
+                    ["Positive", "Negative"], "toxicology"),
+        qualitative("TOX-BZO", "Benzodiazepines [Presence] in Urine — local code",
+                    ["Positive", "Negative"], "toxicology"),
+        {"code": "UDS-LOCAL",
+         "display": "Urine drug screen panel — local grouping code",
+         "active": True, "panel": True, "bench": "toxicology",
+         "components": ["TOX-COC", "TOX-OPI", "TOX-THC", "TOX-AMP",
+                        "TOX-BZO"]},
+        analyte("TOX-ETOH", "Ethanol [Mass/volume] in Blood — local code",
+                "mg/dL", bench="toxicology"),
+        # Depth pass — CYTOLOGY on the pathology bench: the
+        # `cytology` flag routes reporting to the published cytology
+        # form (app.lab_benches) instead of the surgical synoptic.
+        {"code": "10524-7", "display": "Cytology study of Cervix (Pap test)",
+         "active": True, "bench": "pathology", "cytology": True},
+        {"code": "CYTO-NONGYN",
+         "display": "Non-gynaecologic cytology — local code",
+         "active": True, "bench": "pathology", "cytology": True},
+        # Depth pass — SEND-OUT tests: performed by a reference
+        # laboratory; routing rides the published `sendout-labs`
+        # terminology config, the bench workflow is the standard
+        # spine + the send-out lifecycle in app.lab_benches.
+        analyte("SO-METANEPH", "Plasma free metanephrines — local code (send-out)",
+                "pg/mL", bench="sendout"),
+        analyte("SO-VLCFA", "Very long-chain fatty acids — local code (send-out)",
+                "umol/L", bench="sendout"),
     ]
+    # Lab Depth D1 (compendium & directory): per-test DIRECTORY
+    # attributes ride ON each concept as governed Studio data —
+    # performing section/site, method, specimen requirements,
+    # availability and per-priority TAT targets (each with a DECLARED
+    # clock: "order-to-result" or "receipt-to-result", minutes) —
+    # plus age/sex-partitioned reference ranges where a credible
+    # partition exists. Shape (validated in
+    # app.configstore.validate_terminology):
+    #   directory: {performingSection, performingSite, method,
+    #     specimen: {container, specimenType, minimumVolumeMl,
+    #                fastingRequired},
+    #     availability: {mode: "24-7"} |
+    #                   {mode: "batched", batchSchedule:
+    #                     {days: [mon..sun], times: ["HH:MM"]}} |
+    #                   {mode: "send-out", referenceLab},
+    #     tatTargets: [{priority, clock, targetMinutes}]}
+    #   referenceRangePartitions: [{label, sex, ageMinYears,
+    #     ageMaxYears, low, high, criticalLow, criticalHigh}]
+    # Attributes a site cannot state credibly stay UNSET — an unset
+    # specimen requirement never blocks ordering (only SET ones are
+    # enforced at order placement, see _enforce_directory_requirements).
+    def _tat(*entries):
+        return [{"priority": p, "clock": c, "targetMinutes": m}
+                for p, c, m in entries]
+
+    def _std_tat():
+        return _tat(("stat", "order-to-result", 60),
+                    ("routine", "order-to-result", 240),
+                    ("routine", "receipt-to-result", 180))
+
+    def _dir(section, method, container=None, specimen_type=None,
+             volume=None, fasting=None, availability=None, tat=None):
+        specimen = {}
+        if container is not None:
+            specimen["container"] = container
+        if specimen_type is not None:
+            specimen["specimenType"] = specimen_type
+        if volume is not None:
+            specimen["minimumVolumeMl"] = volume
+        if fasting is not None:
+            specimen["fastingRequired"] = fasting
+        entry = {"performingSection": section,
+                 "performingSite": "Central laboratory",
+                 "method": method,
+                 "availability": availability or {"mode": "24-7"}}
+        if specimen:
+            entry["specimen"] = specimen
+        if tat:
+            entry["tatTargets"] = tat
+        return entry
+
+    _SST = ("Serum separator tube", "Serum", 3.5)
+    _EDTA_WB = ("EDTA tube (lavender top)", "Whole blood", 2.0)
+    _URINE = ("Sterile urine container", "Urine", 10.0)
+    _BATCH_WEEKDAY = {"mode": "batched", "batchSchedule": {
+        "days": ["mon", "tue", "wed", "thu", "fri"], "times": ["08:00"]}}
+    directory_seed = {
+        # Chemistry
+        "2345-7": _dir("Chemistry", "Hexokinase (enzymatic)", *_SST,
+                       tat=_std_tat()),
+        "3094-0": _dir("Chemistry", "Urease (enzymatic)", *_SST,
+                       tat=_std_tat()),
+        "2160-0": _dir("Chemistry", "Enzymatic (creatininase)", *_SST,
+                       tat=_std_tat()),
+        "2951-2": _dir("Chemistry", "Ion-selective electrode (indirect)",
+                       *_SST, tat=_std_tat()),
+        "2823-3": _dir("Chemistry", "Ion-selective electrode (indirect)",
+                       *_SST, tat=_std_tat()),
+        "51990-0": _dir("Chemistry", "Automated chemistry analyser panel",
+                        *_SST, tat=_std_tat()),
+        "4548-4": _dir("Chemistry", "HPLC (cation-exchange)", *_EDTA_WB,
+                       availability={"mode": "batched", "batchSchedule": {
+                           "days": ["mon", "tue", "wed", "thu", "fri", "sat"],
+                           "times": ["07:00"]}},
+                       tat=_tat(("routine", "order-to-result", 1440))),
+        "3016-3": _dir("Chemistry", "Chemiluminescent immunoassay", *_SST,
+                       tat=_tat(("routine", "order-to-result", 360))),
+        "3024-7": _dir("Chemistry", "Chemiluminescent immunoassay", *_SST,
+                       tat=_tat(("routine", "order-to-result", 360))),
+        # Haematology
+        "718-7": _dir("Haematology",
+                      "Automated haematology analyser (SLS photometry)",
+                      *_EDTA_WB, tat=_std_tat()),
+        "4544-3": _dir("Haematology",
+                       "Automated haematology analyser (impedance)",
+                       *_EDTA_WB, tat=_std_tat()),
+        "6690-2": _dir("Haematology", "Automated haematology analyser",
+                       *_EDTA_WB, tat=_std_tat()),
+        "777-3": _dir("Haematology", "Automated haematology analyser",
+                      *_EDTA_WB, tat=_std_tat()),
+        "58410-2": _dir("Haematology", "Automated haematology analyser panel",
+                        *_EDTA_WB, tat=_std_tat()),
+        # Coagulation
+        "5902-2": _dir("Coagulation", "Photo-optical clot detection",
+                       "3.2% sodium citrate tube", "Plasma", 2.7,
+                       tat=_std_tat()),
+        "6301-6": _dir("Coagulation",
+                       "Derived from PT (photo-optical clot detection)",
+                       "3.2% sodium citrate tube", "Plasma", 2.7,
+                       tat=_std_tat()),
+        "3173-2": _dir("Coagulation", "Photo-optical clot detection",
+                       "3.2% sodium citrate tube", "Plasma", 2.7,
+                       tat=_std_tat()),
+        "COAG-PANEL": _dir("Coagulation", "Photo-optical clot detection",
+                           "3.2% sodium citrate tube", "Plasma", 2.7,
+                           tat=_std_tat()),
+        # Urinalysis (dipstick components + pH + specific gravity)
+        "24356-8": _dir("Urinalysis",
+                        "Automated urine analyser (reflectance photometry)",
+                        *_URINE, tat=_tat(("routine", "order-to-result", 120))),
+        # Microbiology
+        "87040-1": _dir("Microbiology",
+                        "Automated continuous-monitoring blood culture system",
+                        "Blood culture bottle set (aerobic + anaerobic)",
+                        "Blood", 20.0,
+                        tat=_tat(("routine", "order-to-result", 4320))),
+        "87086-6": _dir("Microbiology", "Culture on solid media",
+                        "Sterile urine container", "Urine", 1.0,
+                        tat=_tat(("routine", "order-to-result", 2880))),
+        "87070-0": _dir("Microbiology", "Culture on solid media",
+                        "Sterile transport swab", "Wound swab",
+                        tat=_tat(("routine", "order-to-result", 2880))),
+        # Blood bank
+        "883-9": _dir("Blood bank", "Column agglutination",
+                      "EDTA tube (blood bank)", "Whole blood", 3.0,
+                      tat=_std_tat()),
+        "890-4": _dir("Blood bank", "Column agglutination",
+                      "EDTA tube (blood bank)", "Whole blood", 3.0,
+                      tat=_std_tat()),
+        "BB-TS": _dir("Blood bank", "Column agglutination",
+                      "EDTA tube (blood bank)", "Whole blood", 3.0,
+                      tat=_std_tat()),
+        "BB-XM": _dir("Blood bank", "Column agglutination",
+                      "EDTA tube (blood bank)", "Whole blood", 3.0,
+                      tat=_std_tat()),
+        # Pathology / cytology
+        "11529-5": _dir("Pathology", "Histopathology (H&E)",
+                        "Formalin container (10% neutral buffered formalin)",
+                        "Tissue", availability=_BATCH_WEEKDAY,
+                        tat=_tat(("routine", "order-to-result", 4320))),
+        "10524-7": _dir("Pathology", "Cytopathology (liquid-based)",
+                        "Liquid-based cytology vial", "Cervical sample",
+                        availability=_BATCH_WEEKDAY,
+                        tat=_tat(("routine", "order-to-result", 7200))),
+        "CYTO-NONGYN": _dir("Pathology", "Cytopathology (liquid-based)",
+                            "Liquid-based cytology vial", "Cytology sample",
+                            availability=_BATCH_WEEKDAY,
+                            tat=_tat(("routine", "order-to-result", 7200))),
+        # Virology
+        "94500-6": _dir("Virology", "Real-time PCR (NAAT)",
+                        "Viral transport medium tube", "Nasopharyngeal swab",
+                        tat=_tat(("stat", "order-to-result", 120),
+                                 ("routine", "order-to-result", 360))),
+        "VIR-INFA": _dir("Virology", "Real-time PCR (NAAT)",
+                         "Viral transport medium tube",
+                         "Nasopharyngeal swab",
+                         tat=_tat(("stat", "order-to-result", 120),
+                                  ("routine", "order-to-result", 360))),
+        "VIR-INFB": _dir("Virology", "Real-time PCR (NAAT)",
+                         "Viral transport medium tube",
+                         "Nasopharyngeal swab",
+                         tat=_tat(("stat", "order-to-result", 120),
+                                  ("routine", "order-to-result", 360))),
+        "VIR-RSV": _dir("Virology", "Real-time PCR (NAAT)",
+                        "Viral transport medium tube",
+                        "Nasopharyngeal swab",
+                        tat=_tat(("stat", "order-to-result", 120),
+                                 ("routine", "order-to-result", 360))),
+        "RVP-LOCAL": _dir("Virology", "Real-time PCR (multiplex NAAT)",
+                          "Viral transport medium tube",
+                          "Nasopharyngeal swab",
+                          tat=_tat(("stat", "order-to-result", 120),
+                                   ("routine", "order-to-result", 360))),
+        "HIV-AGAB": _dir("Virology", "Chemiluminescent immunoassay", *_SST,
+                         tat=_tat(("routine", "order-to-result", 360))),
+        "HIV-DIFF": _dir("Virology",
+                         "Immunochromatographic differentiation assay",
+                         *_SST, availability=_BATCH_WEEKDAY,
+                         tat=_tat(("routine", "order-to-result", 2880))),
+        "20447-9": _dir("Virology", "Real-time PCR",
+                        "EDTA tube", "Plasma", 4.0,
+                        availability={"mode": "batched", "batchSchedule": {
+                            "days": ["mon", "wed", "fri"],
+                            "times": ["08:00"]}},
+                        tat=_tat(("routine", "order-to-result", 4320))),
+        "42595-9": _dir("Virology", "Real-time PCR",
+                        "EDTA tube", "Plasma", 4.0,
+                        availability={"mode": "batched", "batchSchedule": {
+                            "days": ["mon", "wed", "fri"],
+                            "times": ["08:00"]}},
+                        tat=_tat(("routine", "order-to-result", 4320))),
+        # Serology / immunology
+        "SER-HBSAG": _dir("Serology", "Chemiluminescent immunoassay", *_SST,
+                          tat=_tat(("routine", "order-to-result", 360))),
+        "SER-HCVAB": _dir("Serology", "Chemiluminescent immunoassay", *_SST,
+                          tat=_tat(("routine", "order-to-result", 360))),
+        "SER-RPR": _dir("Serology", "Flocculation (non-treponemal)", *_SST,
+                        availability=_BATCH_WEEKDAY,
+                        tat=_tat(("routine", "order-to-result", 1440))),
+        "SER-HAVIGM": _dir("Serology", "Chemiluminescent immunoassay",
+                           *_SST, availability=_BATCH_WEEKDAY,
+                           tat=_tat(("routine", "order-to-result", 1440))),
+        # Toxicology
+        "TOX-COC": _dir("Toxicology", "Enzyme immunoassay",
+                        "Sterile urine container", "Urine", 5.0,
+                        tat=_tat(("stat", "order-to-result", 120),
+                                 ("routine", "order-to-result", 240))),
+        "TOX-OPI": _dir("Toxicology", "Enzyme immunoassay",
+                        "Sterile urine container", "Urine", 5.0,
+                        tat=_tat(("stat", "order-to-result", 120),
+                                 ("routine", "order-to-result", 240))),
+        "TOX-THC": _dir("Toxicology", "Enzyme immunoassay",
+                        "Sterile urine container", "Urine", 5.0,
+                        tat=_tat(("stat", "order-to-result", 120),
+                                 ("routine", "order-to-result", 240))),
+        "TOX-AMP": _dir("Toxicology", "Enzyme immunoassay",
+                        "Sterile urine container", "Urine", 5.0,
+                        tat=_tat(("stat", "order-to-result", 120),
+                                 ("routine", "order-to-result", 240))),
+        "TOX-BZO": _dir("Toxicology", "Enzyme immunoassay",
+                        "Sterile urine container", "Urine", 5.0,
+                        tat=_tat(("stat", "order-to-result", 120),
+                                 ("routine", "order-to-result", 240))),
+        "UDS-LOCAL": _dir("Toxicology", "Enzyme immunoassay panel",
+                          "Sterile urine container", "Urine", 5.0,
+                          tat=_tat(("stat", "order-to-result", 120),
+                                   ("routine", "order-to-result", 240))),
+        "TOX-ETOH": _dir("Toxicology",
+                         "Enzymatic (alcohol dehydrogenase)",
+                         "Sodium fluoride / potassium oxalate tube",
+                         "Whole blood", 2.0,
+                         tat=_tat(("stat", "order-to-result", 60),
+                                  ("routine", "order-to-result", 240))),
+        # Send-out (performed by a reference laboratory)
+        "SO-METANEPH": _dir("Send-out", "LC-MS/MS (reference laboratory)",
+                            "EDTA tube", "Plasma", 2.0,
+                            availability={"mode": "send-out",
+                                          "referenceLab":
+                                          "Regional reference laboratory"},
+                            tat=_tat(("routine", "order-to-result", 7200))),
+        "SO-VLCFA": _dir("Send-out", "GC-MS (reference laboratory)",
+                         "Serum separator tube", "Serum", 3.5,
+                         availability={"mode": "send-out",
+                                       "referenceLab":
+                                       "National specialty reference laboratory"},
+                         tat=_tat(("routine", "order-to-result", 10080))),
+    }
+    for code in ("5792-7", "5804-0", "5797-6", "5794-3", "5799-2",
+                 "5802-4", "5770-3", "5803-2", "5811-5"):
+        directory_seed[code] = _dir(
+            "Urinalysis",
+            "Automated urine analyser (reflectance photometry)",
+            *_URINE, tat=_tat(("routine", "order-to-result", 120)))
+    # Age/sex-partitioned reference ranges (adult partitions; the
+    # default range stays the fallback for patients whose age/sex is
+    # unknown or outside every partition).
+    partitions_seed = {
+        "718-7": [  # Haemoglobin: adult male / adult female
+            {"label": "Adult male", "sex": "male", "ageMinYears": 18,
+             "ageMaxYears": None, "low": 13.0, "high": 17.0,
+             "criticalLow": 7.0, "criticalHigh": 20.0},
+            {"label": "Adult female", "sex": "female", "ageMinYears": 18,
+             "ageMaxYears": None, "low": 12.0, "high": 15.5,
+             "criticalLow": 7.0, "criticalHigh": 20.0},
+        ],
+        "4544-3": [  # Haematocrit: adult male / adult female
+            {"label": "Adult male", "sex": "male", "ageMinYears": 18,
+             "ageMaxYears": None, "low": 40.0, "high": 50.0,
+             "criticalLow": 20.0, "criticalHigh": 60.0},
+            {"label": "Adult female", "sex": "female", "ageMinYears": 18,
+             "ageMaxYears": None, "low": 36.0, "high": 46.0,
+             "criticalLow": 20.0, "criticalHigh": 60.0},
+        ],
+        "2160-0": [  # Creatinine: adult male / adult female
+            {"label": "Adult male", "sex": "male", "ageMinYears": 18,
+             "ageMaxYears": None, "low": 0.7, "high": 1.3},
+            {"label": "Adult female", "sex": "female", "ageMinYears": 18,
+             "ageMaxYears": None, "low": 0.5, "high": 1.1},
+        ],
+    }
+    for concept in concepts:
+        entry = directory_seed.get(concept.get("code"))
+        if entry is not None:
+            concept["directory"] = entry
+        parts = partitions_seed.get(concept.get("code"))
+        if parts is not None:
+            concept["referenceRangePartitions"] = parts
     return {"name": "OpenCare laboratory catalog (LOINC)",
             "system": LOINC, "concepts": concepts,
             # QC gating policy (read by qc_blockers): the defaults below
@@ -346,7 +757,8 @@ def default_lab_catalog_payload() -> dict:
                             "level": "L1", "mean": 90.0, "sd": 3.0},
                        ],
                        "rules": {"warn1_2s": True, "reject1_3s": True,
-                                 "reject2_2s": True}}},
+                                 "reject2_2s": True, "rejectR_4s": True,
+                                 "reject4_1s": True, "reject10x": True}}},
             # Specimen rejection criteria (Phase 6B): a rejection may
             # name one of these codes (validated when supplied); the
             # free-text reason remains available alongside.
@@ -372,6 +784,14 @@ def default_lab_catalog_payload() -> dict:
                 {"id": "tsh-low-add-ft4", "triggerCode": "3016-3",
                  "when": "below-low", "addCode": "3024-7",
                  "note": "Low TSH reflexes a free-T4 order"},
+                # Depth pass: qualitative reflex — a Reactive HIV
+                # screen reflexes the confirmatory differentiation
+                # assay (the standard screen -> confirm algorithm).
+                {"id": "hiv-reactive-add-diff", "triggerCode": "HIV-AGAB",
+                 "when": "qualitative-match", "matchValue": "Reactive",
+                 "addCode": "HIV-DIFF",
+                 "note": "Reactive HIV screen reflexes the HIV-1/2 "
+                         "differentiation assay"},
             ],
             # Auto-verification (Phase 6B): OFF by default — seeded
             # behaviour is unchanged (every draft awaits a human verify).
@@ -381,6 +801,14 @@ def default_lab_catalog_payload() -> dict:
             # it, not critical, not QC-blocked, and within its delta
             # bounds when configured. It NEVER auto-releases.
             "autoVerify": {"enabled": False},
+            # Stewardship / utilisation (Depth pass): placing an
+            # order for the same patient + analyte while another
+            # order for it exists inside the window returns a
+            # duplicate-order WARNING alongside the created order —
+            # it never blocks (the Phase 5 CPOE pattern). Sites tune
+            # the window or disable the check by republishing.
+            "stewardship": {"duplicateCheckEnabled": True,
+                            "duplicateWindowHours": 24},
             # Blood-bank product types (Phase 6B): unit inventory
             # validates product_type against this list; blood groups
             # validate against the ABO concept's `values` above.
@@ -389,7 +817,11 @@ def default_lab_catalog_payload() -> dict:
                 {"code": "plasma", "display": "Fresh frozen plasma"},
                 {"code": "platelets", "display": "Platelets"},
                 {"code": "cryoprecipitate", "display": "Cryoprecipitate"},
-            ]}
+            ],
+            # Wave A (LAB-B1): blood-bank issue-gate parameters — see
+            # default_blood_bank_gate(). Existing published catalogs
+            # gain this section through _extend_blood_bank_gate.
+            "bloodBankGate": default_blood_bank_gate()}
 
 
 def default_lab_workflow_payload() -> dict:
@@ -449,7 +881,13 @@ def default_pathology_workflow_payload() -> dict:
 
 def default_organisms_payload() -> dict:
     def org(code, display):
-        return {"code": code, "display": display, "active": True}
+        # LAB-D12: `mdro` / `reportable` are the governed MDRO flags
+        # app.lab_micro's finalisation alert reads. Seeded False for
+        # every organism (OFF): flagging an organism as an MDRO /
+        # reportable alert trigger is the laboratory's governed
+        # go-live decision, made by republishing this terminology.
+        return {"code": code, "display": display, "active": True,
+                "mdro": False, "reportable": False}
     return {"name": "OpenCare microbiology organisms (local codes)",
             "concepts": [
                 org("no-growth", "No growth"),
@@ -509,6 +947,129 @@ def default_synoptic_form_payload() -> dict:
     }
 
 
+def default_cytology_form_payload() -> dict:
+    """Cytology report form (Depth pass) — a published Studio FORM
+    completed through the Phase 5 documentation machinery, the
+    cytology counterpart of the surgical synoptic form. One form
+    serves gyn (Pap) and non-gyn cytology; the specimen type item
+    carries which."""
+    def item(link_id, text, type_, required=False, options=None):
+        out = {"linkId": link_id, "text": text, "type": type_,
+               "required": required}
+        if options:
+            out["answerOption"] = [
+                {"valueCoding": {"code": o, "display": o}} for o in options]
+        return out
+    return {
+        "resourceType": "Questionnaire",
+        "title": "Cytology report",
+        "item": [
+            item("specimenType", "Specimen type / source", "string", True),
+            item("adequacy", "Specimen adequacy", "choice", True,
+                 ["Satisfactory", "Satisfactory but limited",
+                  "Unsatisfactory"]),
+            item("category", "General category", "choice", True,
+                 ["Negative", "Atypical", "Suspicious",
+                  "Positive for malignancy", "Non-diagnostic"]),
+            item("interpretation", "Interpretation / diagnosis", "string", True),
+            item("comment", "Cytopathologist comment", "string"),
+        ],
+    }
+
+
+def default_sendout_labs_payload() -> dict:
+    """Send-out reference laboratories (Depth pass) — published
+    terminology config. A catalog test is a send-out test when a
+    laboratory's `tests` list names its code; `tatHours` is the
+    laboratory's contracted turnaround the send-out TAT view measures
+    against. Sites replace these synthetic laboratories with their
+    real reference-lab contracts by republishing."""
+    return {"name": "OpenCare send-out reference laboratories",
+            # The laboratories also ride as `concepts` so the document
+            # stays a valid, republishable terminology config through
+            # the governed API (the Phase 14 devices pattern); `labs`
+            # is the operative routing list the module reads.
+            "concepts": [
+                {"code": "ref-regional",
+                 "display": "Regional reference laboratory",
+                 "active": True},
+                {"code": "ref-specialty",
+                 "display": "National specialty reference laboratory",
+                 "active": True},
+            ],
+            "labs": [
+                {"code": "ref-regional",
+                 "display": "Regional reference laboratory",
+                 "tests": ["SO-METANEPH"], "tatHours": 120,
+                 # LAB-D5 (catalog-as-contract): the performing
+                 # laboratory's identity, stamped onto received
+                 # reports, and the per-test contract enforced at
+                 # manifest packing by app.lab_preanalytical.
+                 "performingLab": {
+                     "code": "ref-regional",
+                     "name": "Regional Reference Laboratory (synthetic)",
+                     "cliaNumber": "00D0000000"},
+                 "contracts": {
+                     "SO-METANEPH": {
+                         "stability": {"hours": 72, "condition": "refrigerated"},
+                         "shippingTemperature": "refrigerated",
+                         "splitBeforeTransport": (
+                             "Separate plasma within 4 hours of collection "
+                             "and ship the labelled aliquot; freeze if "
+                             "transit will exceed 24 hours"),
+                         "requiredAttachments": ["requisition-form",
+                                                 "clinical-history"],
+                         "reportWindowHours": 120,
+                         "classification": "FDA-cleared"}}},
+                {"code": "ref-specialty",
+                 "display": "National specialty reference laboratory",
+                 "tests": ["SO-VLCFA"], "tatHours": 240,
+                 "performingLab": {
+                     "code": "ref-specialty",
+                     "name": "National Specialty Reference Laboratory (synthetic)",
+                     "cliaNumber": "00D0000001"},
+                 "contracts": {
+                     "SO-VLCFA": {
+                         "stability": {"hours": 168, "condition": "frozen"},
+                         "shippingTemperature": "frozen",
+                         "splitBeforeTransport": (
+                             "Separate serum before transport and ship "
+                             "frozen on dry ice in the labelled aliquot"),
+                         "requiredAttachments": ["requisition-form",
+                                                 "consent-form"],
+                         "reportWindowHours": 240,
+                         "classification": "LDT"}}},
+            ]}
+
+
+def default_poct_programme_payload() -> dict:
+    """POCT programme (Depth pass) — published terminology config
+    governing point-of-care testing quality: which Phase 14 registry
+    device types are POCT devices, the control levels run daily, the
+    operator-competency validity window (CLIA competency model), and
+    the enforcement switches. Enforcement ships OFF (the auto-verify
+    precedent): the programme TRACKS QC + competency from day one; a
+    site turns a block on by republishing once its operators are
+    enrolled, and the flip is test-proven both ways."""
+    return {"name": "OpenCare POCT programme",
+            # The QC levels ride as `concepts` so the document stays
+            # a valid, republishable terminology config through the
+            # governed API (the Phase 14 devices pattern); `qcLevels`
+            # is the operative list the module reads.
+            "concepts": [
+                {"code": "L1", "display": "Control level 1 (low)",
+                 "active": True},
+                {"code": "L2", "display": "Control level 2 (high)",
+                 "active": True},
+            ],
+            "poctDeviceTypes": ["poct-analyser"],
+            "qcLevels": ["L1", "L2"],
+            "competencyValidityMonths": 12,
+            "competencyExpiringWindowDays": 30,
+            "enforcement": {"blockUncompetentOperator": False,
+                            "blockMissingDailyQc": False}}
+
+
 def _seed_published(session: Session, kind: str, key: str, payload: dict) -> None:
     existing = session.scalars(
         select(StudioConfig).where(StudioConfig.kind == kind,
@@ -527,6 +1088,40 @@ def _seed_published(session: Session, kind: str, key: str, payload: dict) -> Non
                               "seeded_default": True})
 
 
+def _extend_blood_bank_gate(session: Session) -> None:
+    """Wave A (LAB-B1): add the `bloodBankGate` section to a PUBLISHED
+    lab catalog that predates it, as a new governed version — the
+    inpatient._extend_note_types pattern. The existing payload
+    (including any site customisation) is preserved verbatim; only
+    the missing section is added, by the system actor, audited.
+    Idempotent: a catalog already carrying the section is untouched."""
+    cfg = published_config(session, "terminology", LAB_CATALOG_KEY)
+    if cfg is None:
+        return
+    if isinstance((cfg.payload or {}).get("bloodBankGate"), dict):
+        return
+    payload = dict(cfg.payload or {})
+    payload["bloodBankGate"] = default_blood_bank_gate()
+    cfg.status = ConfigStatus.superseded
+    session.flush()
+    versions = session.scalars(
+        select(StudioConfig).where(StudioConfig.kind == "terminology",
+                                   StudioConfig.key == LAB_CATALOG_KEY)
+        .order_by(StudioConfig.version.asc())).all()
+    row = StudioConfig(kind="terminology", key=LAB_CATALOG_KEY,
+                       version=(versions[-1].version + 1) if versions else 1,
+                       status=ConfigStatus.published, payload=payload,
+                       created_by="system", updated_by="system")
+    session.add(row)
+    session.flush()
+    for action in ("studio.config.create", "studio.config.publish"):
+        append_audit(session, actor="system", action=action,
+                     entity=f"config:terminology/{LAB_CATALOG_KEY}@v{row.version}",
+                     payload={"kind": "terminology", "key": LAB_CATALOG_KEY,
+                              "version": row.version,
+                              "wave_a_extension": ["bloodBankGate"]})
+
+
 def ensure_lab_defaults(session: Session) -> None:
     """Seed the lab catalog + lab workflow as published Studio config v1
     (idempotent), exactly like the ADT workflow seed in studio_config.
@@ -534,6 +1129,7 @@ def ensure_lab_defaults(session: Session) -> None:
     pathology synoptic form, seeded the same way."""
     _seed_published(session, "terminology", LAB_CATALOG_KEY,
                     default_lab_catalog_payload())
+    _extend_blood_bank_gate(session)
     _seed_published(session, "workflow", LAB_WORKFLOW_KEY,
                     default_lab_workflow_payload())
     _seed_published(session, "workflow", MICRO_WORKFLOW_KEY,
@@ -546,6 +1142,14 @@ def ensure_lab_defaults(session: Session) -> None:
                     default_antibiotics_payload())
     _seed_published(session, "form", SYNOPTIC_FORM_KEY,
                     default_synoptic_form_payload())
+    # Depth pass: cytology form + send-out laboratories + POCT
+    # programme, seeded the same governed way.
+    _seed_published(session, "form", CYTOLOGY_FORM_KEY,
+                    default_cytology_form_payload())
+    _seed_published(session, "terminology", SENDOUT_LABS_KEY,
+                    default_sendout_labs_payload())
+    _seed_published(session, "terminology", POCT_PROGRAMME_KEY,
+                    default_poct_programme_payload())
     session.commit()
 
 
@@ -570,6 +1174,24 @@ def _concept(session: Session, code: str) -> dict | None:
     return None
 
 
+def blood_bank_gate_config(session: Session) -> dict:
+    """The effective blood-bank issue-gate parameters (Wave A,
+    LAB-B1): the published catalog's `bloodBankGate` section merged
+    over the seeded defaults, so a site-published section that omits
+    a key still yields a complete, safe configuration."""
+    gate = default_blood_bank_gate()
+    published = _catalog(session).get("bloodBankGate")
+    if isinstance(published, dict):
+        for key, value in published.items():
+            if key == "electronicCrossmatch" and isinstance(value, dict):
+                merged = dict(gate["electronicCrossmatch"])
+                merged.update(value)
+                gate["electronicCrossmatch"] = merged
+            else:
+                gate[key] = value
+    return gate
+
+
 def _is_poct(order_row: FhirResource | None) -> bool:
     """True when the order carries the POCT extension (placed with
     `poct: true` — an office point-of-care test)."""
@@ -580,6 +1202,112 @@ def _is_poct(order_row: FhirResource | None) -> bool:
                 and ext.get("valueBoolean") is True:
             return True
     return False
+
+
+def _poct_programme(session: Session) -> dict:
+    """The published POCT programme config (empty dict when a site
+    has unpublished it — tracking endpoints then report the programme
+    as unconfigured and enforcement stays off)."""
+    cfg = published_config(session, "terminology", POCT_PROGRAMME_KEY)
+    return (cfg.payload or {}) if cfg is not None else {}
+
+
+def _poct_deployment_profile(session: Session) -> dict:
+    """The published POCT deployment profile (Lab Depth W9,
+    LAB-D15; the payload default lives in app.lab_poct_qms). Empty
+    dict when unpublished — the profile then enforces nothing and
+    legacy programme behaviour is preserved exactly."""
+    cfg = published_config(session, "terminology", POCT_PROFILE_KEY)
+    return (cfg.payload or {}) if cfg is not None else {}
+
+
+def _poct_effective_enforcement(session: Session,
+                                programme: dict) -> dict:
+    """Effective POCT enforcement at result entry (LAB-D15): the
+    programme's own published switches, OR — when the deployment
+    profile publishes profileMode "enforce" — the profile's block
+    flags. The profile can only ADD a block, never remove a
+    programme-published one; in "track-only" mode (the seeded
+    default) the programme switches govern alone, exactly as
+    before W9."""
+    enforcement = dict(programme.get("enforcement") or {})
+    profile = _poct_deployment_profile(session)
+    if profile.get("profileMode") == "enforce":
+        if profile.get("blockUncompetentOperator") is True:
+            enforcement["blockUncompetentOperator"] = True
+        if profile.get("blockMissingDailyQc") is True:
+            enforcement["blockMissingDailyQc"] = True
+    return enforcement
+
+
+def _add_months(d: date, months: int) -> date:
+    month = d.month - 1 + months
+    year = d.year + month // 12
+    month = month % 12 + 1
+    day = min(d.day, monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def _competency_status(programme: dict,
+                       assessed_on: str) -> tuple[str, str | None]:
+    """(status, expires_on) for one competency assessment: current
+    while today is within the published validity window of the
+    assessment date. An unparseable date is 'unknown', never current."""
+    try:
+        assessed = date.fromisoformat(assessed_on)
+    except (TypeError, ValueError):
+        return "unknown", None
+    months = programme.get("competencyValidityMonths")
+    if not isinstance(months, int) or isinstance(months, bool) or months <= 0:
+        months = 12
+    expires = _add_months(assessed, months)
+    return ("current" if date.today() <= expires else "expired"), \
+        expires.isoformat()
+
+
+def _competency_current(session: Session, programme: dict,
+                        operator_ids: set[str], test_code: str) -> bool:
+    """True when any of the operator's identities holds a CURRENT
+    competency record for the test. Identities: the staff-directory
+    id on the operator's Front Door account, plus their username."""
+    if not operator_ids:
+        return False
+    rows = session.scalars(
+        select(PoctCompetencyRecord).where(
+            PoctCompetencyRecord.staff_id.in_(sorted(operator_ids)),
+            PoctCompetencyRecord.test_code == test_code)).all()
+    return any(_competency_status(programme, row.assessed_on)[0] == "current"
+               for row in rows)
+
+
+def _operator_ids(session: Session, user: User) -> set[str]:
+    ids = {user.username}
+    account = session.scalars(
+        select(UserAccount).where(UserAccount.username == user.username)).first()
+    if account is not None and account.staff_id:
+        ids.add(account.staff_id)
+    return ids
+
+
+def _poct_qc_current(session: Session, programme: dict,
+                     device_key: str) -> bool:
+    """True when the device's LATEST QC run today passed at every
+    level the programme requires. A later failure supersedes an
+    earlier pass (the latest run is the device's state)."""
+    levels = [lvl for lvl in (programme.get("qcLevels") or [])
+              if isinstance(lvl, str)]
+    if not levels:
+        return True
+    today = datetime.now(timezone.utc).date()
+    rows = session.scalars(
+        select(PoctQcRecord).where(PoctQcRecord.device_key == device_key)
+        .order_by(PoctQcRecord.id.desc())).all()
+    latest: dict[str, str] = {}
+    for row in rows:
+        if row.created_at is not None and row.created_at.date() == today \
+                and row.level not in latest:
+            latest[row.level] = row.result
+    return all(latest.get(level) == "pass" for level in levels)
 
 
 def _order_bench(session: Session,
@@ -731,11 +1459,86 @@ _INTERPRETATION_TEXT = {
 }
 
 
-def interpret_value(value: float, concept: dict) -> str | None:
+def patient_demographics(session: Session,
+                         subject_ref: str | None) -> dict:
+    """{age_years, sex} for a Patient reference, for partitioned
+    reference-range selection (Lab Depth D1). Age is whole years at
+    today (UTC — the server's "today" rule); sex is the FHIR
+    Patient.gender lower-cased. Anything unknown stays None, which
+    makes range selection fall back to the default range."""
+    out: dict = {"age_years": None, "sex": None}
+    if not subject_ref or not subject_ref.startswith("Patient/"):
+        return out
+    try:
+        row = fhir._get_row("Patient", subject_ref.split("/", 1)[1], session)
+    except HTTPException:
+        return out
+    body = row.body or {}
+    gender = body.get("gender")
+    if isinstance(gender, str) and gender.strip():
+        out["sex"] = gender.strip().lower()
+    birth = body.get("birthDate")
+    if isinstance(birth, str) and birth.strip():
+        try:
+            born = date.fromisoformat(birth.strip()[:10])
+        except ValueError:
+            born = None
+        if born is not None:
+            today = datetime.now(timezone.utc).date()
+            out["age_years"] = today.year - born.year - (
+                (today.month, today.day) < (born.month, born.day))
+    return out
+
+
+def _demographics_for_order(session: Session,
+                            order: FhirResource) -> dict:
+    return patient_demographics(
+        session, ((order.body or {}).get("subject") or {}).get("reference"))
+
+
+def select_reference_range(concept: dict,
+                           patient: dict | None = None) -> dict:
+    """The effective reference range for a result (Lab Depth D1):
+    when the concept carries `referenceRangePartitions` and the
+    patient's age/sex match a partition, that partition's bounds
+    override the default range's (fields the partition omits —
+    e.g. critical thresholds — inherit from the default). First
+    matching partition in published order wins. No partitions, no
+    demographics, or no match -> the default range, unchanged."""
+    rng = dict(concept.get("referenceRange") or {})
+    partitions = concept.get("referenceRangePartitions")
+    if not isinstance(partitions, list) or not patient:
+        return rng
+    age, sex = patient.get("age_years"), patient.get("sex")
+    for part in partitions:
+        if not isinstance(part, dict):
+            continue
+        p_sex = part.get("sex")
+        if p_sex in ("male", "female") and sex != p_sex:
+            continue
+        age_min, age_max = part.get("ageMinYears"), part.get("ageMaxYears")
+        if age_min is not None and (age is None or age < age_min):
+            continue
+        if age_max is not None and (age is None or age > age_max):
+            continue
+        for bound in ("low", "high", "criticalLow", "criticalHigh", "unit"):
+            if part.get(bound) is not None:
+                rng[bound] = part[bound]
+        rng["partition"] = part.get("label")
+        return rng
+    return rng
+
+
+def interpret_value(value: float, concept: dict,
+                    patient: dict | None = None) -> str | None:
     """HL7 v3 ObservationInterpretation code for a numeric result against
     the analyte's configured range. Critical thresholds win over the
-    reference range; returns None when the analyte has no range data."""
-    rng = concept.get("referenceRange") or {}
+    reference range; returns None when the analyte has no range data.
+    When `patient` demographics are supplied and the concept carries
+    age/sex-partitioned ranges, the matching partition governs
+    (Lab Depth D1); otherwise the default range — the pre-D1
+    behaviour, byte-identical for concepts without partitions."""
+    rng = select_reference_range(concept, patient)
     low, high = rng.get("low"), rng.get("high")
     crit_low, crit_high = rng.get("criticalLow"), rng.get("criticalHigh")
     if crit_low is None and crit_high is None and low is None and high is None:
@@ -771,6 +1574,13 @@ def _qc_out(run: LabQcRun) -> dict:
         # + z-score, computed at creation from the programme config.
         "level": run.level, "flags": list(run.flags or []),
         "z_score": run.z_score,
+        # Lab Depth W4 (LAB-D8/D9): the run's instrument + reagent
+        # lot + shift keys and its control-lot identity (None on
+        # pre-W4 rows, which carry none of them).
+        "instrument_id": getattr(run, "instrument_id", None),
+        "reagent_lot_key": getattr(run, "reagent_lot_key", None),
+        "control_lot_id": getattr(run, "control_lot_id", None),
+        "shift": getattr(run, "shift", None),
     }
 
 
@@ -785,18 +1595,36 @@ def _qc_programme(session: Session) -> dict:
 
 
 def _westgard_flags(session: Session, analyte_code: str, material: str,
-                    level: str | None, measured: float) -> tuple[list[str], float | None, str | None]:
-    """Westgard-style rule evaluation (Phase 6B) for one new QC run.
+                    level: str | None, measured: float,
+                    instrument_id: str | None = None,
+                    reagent_lot_key: str | None = None) -> tuple[list[str], float | None, str | None]:
+    """Westgard rule evaluation for one new QC run (Phase 6B, full
+    set completed by Lab Depth W4 / LAB-D8).
 
     Looks the (material, analyte) up in the published programme config
     for its established mean/SD; computes z = (measured - mean) / sd
-    and flags: |z| > 2 -> "1-2s" (warning), |z| > 3 -> "1-3s"
-    (rejection), and a previous run of the same analyte + material +
-    level also beyond 2 SD on the SAME side -> "2-2s" (rejection).
-    Rules are switches in the same config. Returns (flags, z, level) —
-    the level falls back to the material's configured level. No
-    programme entry for the material: no flags, no z (the run still
-    records, and `passed` still comes from the expected range)."""
+    and evaluates the FULL Westgard set against the run series keyed
+    to analyte + material + level (+ instrument + reagent lot when
+    the new run carries those keys — LAB-D8 keying):
+
+    - "1-2s" (warning): |z| > 2.
+    - "1-3s" (rejection): |z| > 3.
+    - "2-2s" (rejection): the previous run in the series also beyond
+      2 SD on the SAME side.
+    - "R-4s" (rejection): the previous run in the series is beyond
+      2 SD on the OPPOSITE side (the pair's range exceeds 4 SD).
+    - "4-1s" (rejection): this run and the previous 3 in the series
+      all beyond 1 SD on the same side.
+    - "10x" (rejection): this run and the previous 9 in the series
+      all on the same side of the mean.
+
+    Every flag NAMES the rule that fired (the rule trace). Rules are
+    switches in the same programme config (`warn1_2s`, `reject1_3s`,
+    `reject2_2s`, `rejectR_4s`, `reject4_1s`, `reject10x`; absent =
+    on). Returns (flags, z, level) — the level falls back to the
+    material's configured level. No programme entry for the material:
+    no flags, no z (the run still records, and `passed` still comes
+    from the expected range)."""
     programme = _qc_programme(session)
     entry = None
     for candidate in programme.get("materials") or []:
@@ -819,23 +1647,64 @@ def _westgard_flags(session: Session, analyte_code: str, material: str,
     if rules.get("reject1_3s", True) and abs(z) > 3:
         flags.append("1-3s")
     effective_level = level or entry.get("level")
-    if rules.get("reject2_2s", True) and abs(z) > 2:
-        previous = session.scalars(
-            select(LabQcRun).where(LabQcRun.analyte_code == analyte_code,
-                                   LabQcRun.control_material == material)
-            .order_by(LabQcRun.id.desc())).first()
-        if previous is not None and previous.z_score is not None \
-                and (previous.level or entry.get("level")) == effective_level \
-                and abs(previous.z_score) > 2 \
-                and (previous.z_score > 0) == (z > 0):
-            flags.append("2-2s")
+    # The keyed series: previous runs of the same analyte + material
+    # + level, narrowed to the same instrument / reagent lot when
+    # the new run is keyed to them (pre-W4 runs carry no keys and
+    # join only unkeyed series). Newest first, capped at the 9
+    # predecessors the longest rule (10x) can look back over.
+    stmt = select(LabQcRun).where(LabQcRun.analyte_code == analyte_code,
+                                  LabQcRun.control_material == material)
+    if instrument_id is not None:
+        stmt = stmt.where(LabQcRun.instrument_id == instrument_id)
+    if reagent_lot_key is not None:
+        stmt = stmt.where(LabQcRun.reagent_lot_key == reagent_lot_key)
+    series = [r for r in session.scalars(
+        stmt.order_by(LabQcRun.id.desc()).limit(10)).all()
+        if r.z_score is not None
+        and (r.level or entry.get("level")) == effective_level]
+    previous_z = [float(r.z_score) for r in series]
+
+    def _same_side(values: list[float]) -> bool:
+        return all(v > 0 for v in values) or all(v < 0 for v in values)
+
+    if rules.get("reject2_2s", True) and abs(z) > 2 and previous_z \
+            and abs(previous_z[0]) > 2 \
+            and (previous_z[0] > 0) == (z > 0):
+        flags.append("2-2s")
+    if rules.get("rejectR_4s", True) and previous_z \
+            and abs(z) > 2 and abs(previous_z[0]) > 2 \
+            and (previous_z[0] > 0) != (z > 0) \
+            and abs(z - previous_z[0]) > 4:
+        flags.append("R-4s")
+    if rules.get("reject4_1s", True) and len(previous_z) >= 3:
+        window = [z] + previous_z[:3]
+        if all(abs(v) > 1 for v in window) and _same_side(window):
+            flags.append("4-1s")
+    if rules.get("reject10x", True) and len(previous_z) >= 9:
+        window = [z] + previous_z[:9]
+        if all(v != 0 for v in window) and _same_side(window):
+            flags.append("10x")
     return flags, z, effective_level
 
 
 def _latest_qc(session: Session, analyte_code: str) -> LabQcRun | None:
-    return session.scalars(
+    """The latest QC run that may decide the report-level gate for an
+    analyte. Lab Depth W4: establishment runs stamped to a control
+    lot that is not yet LIVE (or from before it went live) never
+    decide the gate — see app.lab_reagents.qc_run_counts_for_gating.
+    Runs with no control-lot stamp (every pre-W4 run) count exactly
+    as before, so the Wave A gate is unchanged for them."""
+    rows = session.scalars(
         select(LabQcRun).where(LabQcRun.analyte_code == analyte_code)
-        .order_by(LabQcRun.id.desc())).first()
+        .order_by(LabQcRun.id.desc()).limit(50)).all()
+    if not any(r.control_lot_id is not None for r in rows):
+        return rows[0] if rows else None
+    from . import lab_reagents  # lazy: lab_reagents imports lab lazily too
+    for run in rows:
+        lot = lab_reagents.control_lot_by_id(session, run.control_lot_id)
+        if lab_reagents.qc_run_counts_for_gating(run, lot):
+            return run
+    return None
 
 
 def _qc_policy(session: Session) -> dict:
@@ -932,6 +1801,146 @@ def _extract_order_code(body: dict) -> str | None:
     return None
 
 
+def _duplicate_orders(session: Session, patient_ref: str, code: str,
+                      exclude_id: str | None = None) -> list[dict]:
+    """Other lab orders for the same patient + catalog code inside
+    the stewardship window whose work is not finished (not cancelled
+    / rejected) — the duplicate-order signal. Window + switch are the
+    published catalog's `stewardship` config; with the check disabled
+    or no window configured this returns nothing."""
+    stewardship = _catalog(session).get("stewardship") or {}
+    if stewardship.get("duplicateCheckEnabled") is not True:
+        return []
+    window = stewardship.get("duplicateWindowHours")
+    if not isinstance(window, (int, float)) or isinstance(window, bool) \
+            or window <= 0:
+        return []
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=float(window))
+    rows = session.scalars(
+        select(FhirResource).where(
+            FhirResource.resource_type == "ServiceRequest",
+            FhirResource.patient_ref == patient_ref)
+        .order_by(FhirResource.created_at.asc())).all()
+    duplicates = []
+    for row in rows:
+        if row.resource_id == exclude_id:
+            continue
+        if _code_of(row.body or {}) != code:
+            continue
+        status = (row.body or {}).get("status")
+        if status in ("cancelled", "rejected"):
+            continue
+        created = row.created_at
+        if created is not None:
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            if created < cutoff:
+                continue
+        duplicates.append({"order_id": row.resource_id, "status": status,
+                           "authored_on": (row.body or {}).get("authoredOn")})
+    return duplicates
+
+
+def _directory_violations(concept: dict, declared: dict) -> list[str]:
+    """Named specimen-requirement violations for ONE concept (Lab
+    Depth D1). Only SET requirements in the concept's published
+    `directory.specimen` enforce, and only against specimen
+    attributes the order DECLARES (body.specimen: container,
+    specimenType / specimen_type, volumeMl / volume_ml, fasting):
+    a declared value that contradicts a set requirement is a
+    violation; an undeclared attribute is not judged here (the
+    collection/specimen surfaces own it downstream)."""
+    directory = concept.get("directory") or {}
+    required = directory.get("specimen") or {}
+    if not isinstance(required, dict) or not required:
+        return []
+    label = f"{concept.get('code')} ({concept.get('display')})"
+    violations = []
+    req_container = required.get("container")
+    got_container = declared.get("container")
+    if isinstance(req_container, str) and req_container.strip() \
+            and isinstance(got_container, str) and got_container.strip() \
+            and got_container.strip().lower() != req_container.strip().lower():
+        violations.append(
+            f"specimen container: {label} requires "
+            f"'{req_container}' but the order declares '{got_container}'")
+    req_type = required.get("specimenType")
+    got_type = declared.get("specimenType") or declared.get("specimen_type")
+    if isinstance(req_type, str) and req_type.strip() \
+            and isinstance(got_type, str) and got_type.strip() \
+            and got_type.strip().lower() != req_type.strip().lower():
+        violations.append(
+            f"specimen type: {label} requires '{req_type}' but the "
+            f"order declares '{got_type}'")
+    req_volume = required.get("minimumVolumeMl")
+    got_volume = declared.get("volumeMl")
+    if got_volume is None:
+        got_volume = declared.get("volume_ml")
+    if isinstance(req_volume, (int, float)) \
+            and not isinstance(req_volume, bool) \
+            and isinstance(got_volume, (int, float)) \
+            and not isinstance(got_volume, bool) \
+            and float(got_volume) < float(req_volume):
+        violations.append(
+            f"specimen volume: {label} requires a minimum of "
+            f"{req_volume} mL but the order declares {got_volume} mL")
+    if required.get("fastingRequired") is True \
+            and declared.get("fasting") is False:
+        violations.append(
+            f"fasting: {label} requires a fasting specimen but the "
+            "order declares fasting=false")
+    return violations
+
+
+def _enforce_directory_requirements(session: Session, concept: dict,
+                                    body: dict) -> None:
+    """Order-placement enforcement of the published directory's
+    specimen requirements (Lab Depth D1): the ordered concept AND,
+    for a panel, every component concept. Any violation refuses the
+    order whole (422, every violation named) BEFORE any resource is
+    written — the refusal discipline of the rest of this module."""
+    declared = body.get("specimen")
+    if not isinstance(declared, dict) or not declared:
+        return
+    concepts = [concept]
+    if concept.get("panel"):
+        for component_code in concept.get("components") or []:
+            component = _concept(session, component_code)
+            if component is not None:
+                concepts.append(component)
+    violations: list[str] = []
+    for candidate in concepts:
+        violations.extend(_directory_violations(candidate, declared))
+    if violations:
+        raise HTTPException(
+            status_code=422,
+            detail=("Order refused — published lab directory specimen "
+                    "requirements not met: " + "; ".join(violations)))
+
+
+def _order_warnings(session: Session, patient_ref: str, code: str,
+                    new_order_id: str) -> list[dict]:
+    """Stewardship warnings for a just-placed order (Depth pass).
+    A warning NEVER blocks placement — the Phase 5 CPOE pattern."""
+    concept = _concept(session, code) or {}
+    warnings = []
+    for dup in _duplicate_orders(session, patient_ref, code,
+                                 exclude_id=new_order_id):
+        warnings.append({
+            "type": "duplicate-order",
+            "code": code,
+            "message": (f"Possible duplicate: another "
+                        f"{concept.get('display') or code} order "
+                        f"({dup['order_id']}) for this patient is "
+                        f"'{dup['status']}' inside the stewardship "
+                        "window. Review before collecting a second "
+                        "specimen."),
+            "existing_order_id": dup["order_id"],
+            "existing_status": dup["status"],
+        })
+    return warnings
+
+
 @router.post("/orders", status_code=201)
 async def place_order(request: Request, session: Session = Depends(get_db),
                       user: User = Depends(require_capability("lab.order"))):
@@ -966,6 +1975,10 @@ async def place_order(request: Request, session: Session = Depends(get_db),
                             detail="Lab order subject must reference a Patient")
     patient_id = subject_ref.split("/", 1)[1]
     fhir._get_row("Patient", patient_id, session)  # 404 if the patient is unknown
+    # Lab Depth D1: the published directory's specimen requirements
+    # are enforced here, before the order exists — a violating order
+    # refuses whole and writes nothing.
+    _enforce_directory_requirements(session, concept, body)
 
     order_body = {
         "resourceType": "ServiceRequest",
@@ -991,12 +2004,20 @@ async def place_order(request: Request, session: Session = Depends(get_db),
         # Office point-of-care test: the order runs on the alternate
         # POCT workflow (single-step result release) when published.
         order_body["extension"] = [{"url": POCT_EXTENSION, "valueBoolean": True}]
-    return fhir.create_resource("ServiceRequest", order_body, session, user)
+    rendered = fhir.create_resource("ServiceRequest", order_body, session, user)
+    # Stewardship (Depth pass): a duplicate inside the published
+    # window rides back as a warning on the created order — the
+    # order stands; the human decides.
+    warnings = _order_warnings(session, subject_ref, code, rendered["id"])
+    if warnings:
+        rendered = {**rendered, "warnings": warnings}
+    return rendered
 
 
 @router.get("/orders")
 def list_orders(status: str | None = Query(default=None),
                 patient: str | None = Query(default=None),
+                bench: str | None = Query(default=None),
                 session: Session = Depends(get_db),
                 user: User = Depends(require_capability("lab.read"))):
     stmt = select(FhirResource).where(FhirResource.resource_type == "ServiceRequest")
@@ -1006,6 +2027,12 @@ def list_orders(status: str | None = Query(default=None),
         stmt = stmt.where(FhirResource.patient_ref == fhir._normalize_patient_ref(patient))
     rows = session.scalars(stmt.order_by(FhirResource.created_at.asc(),
                                          FhirResource.id.asc())).all()
+    if bench:
+        # Bench worklists (Depth pass): the core benches share the
+        # standard spine, so their worklist is this same queue
+        # filtered by the catalog bench of each order's code.
+        rows = [row for row in rows
+                if _order_bench(session, row) == bench]
     return fhir._bundle(rows)
 
 
@@ -1031,6 +2058,323 @@ def order_detail(order_id: str, session: Session = Depends(get_db),
             # has not happened. The rejection history (when any) rides
             # on the order body itself as `rejectionHistory`.
             "custody": _custody(order, specimen)}
+
+
+# ---------------------------------------------------------------------------
+# Test detail (UX pass, WS3a): one composed drill-down for a single
+# order — step timeline, specimen, aliquot lineage, result detail,
+# report + acknowledgement trail, custody. Composed from existing
+# stores only (FHIR rows, the plate tables, the specimen lineage
+# tables, the notification record and the audit chain); nothing is
+# invented — a step that has not happened is null / pending, a
+# lineage that does not exist is an empty list.
+# ---------------------------------------------------------------------------
+
+def _audit_latest(session: Session, entity: str, action: str,
+                  ) -> AuditLog | None:
+    return session.scalars(
+        select(AuditLog).where(AuditLog.entity == entity,
+                               AuditLog.action == action)
+        .order_by(AuditLog.id.desc())).first()
+
+
+def _audit_transition(session: Session, order_id: str, to_status: str,
+                      ) -> AuditLog | None:
+    rows = session.scalars(
+        select(AuditLog).where(
+            AuditLog.entity == f"ServiceRequest/{order_id}",
+            AuditLog.action == "lab.order.transition")
+        .order_by(AuditLog.id.desc())).all()
+    for row in rows:
+        if (row.payload or {}).get("to_status") == to_status:
+            return row
+    return None
+
+
+def _delta_flag_excluding(session: Session, patient_ref: str | None,
+                          concept: dict, current_value: float,
+                          exclude_ids: set[str]) -> dict | None:
+    """_delta_flag recomputed for the test-detail view, excluding the
+    report's OWN observations from the baseline scan. The persisted
+    Observation body carries no delta flag (result entry computes it
+    transiently for the verification queue), so the detail view
+    recomputes it — and once the report under view has been
+    RELEASED, its own observations are final + untagged and would
+    otherwise become their own baseline (change 0, never a flag)."""
+    delta_cfg = concept.get("delta")
+    if not isinstance(delta_cfg, dict) or not patient_ref:
+        return None
+    previous, previous_at = None, None
+    rows = session.scalars(
+        select(FhirResource).where(
+            FhirResource.resource_type == "Observation",
+            FhirResource.patient_ref == patient_ref,
+            FhirResource.status == "final")
+        .order_by(FhirResource.id.desc())).all()
+    for row in rows:
+        if row.resource_id in exclude_ids:
+            continue
+        if fhir.has_unreleased_tag(row.body):
+            continue
+        if _code_of(row.body or {}) != concept["code"]:
+            continue
+        value = (row.body or {}).get("valueQuantity", {}).get("value")
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            previous = float(value)
+            previous_at = _parse_ts((row.body or {}).get("effectiveDateTime"))
+            break
+    if previous is None:
+        return None
+    window = delta_cfg.get("windowHours")
+    if isinstance(window, (int, float)) and not isinstance(window, bool) \
+            and previous_at is not None:
+        age_hours = (datetime.now(timezone.utc)
+                     - previous_at).total_seconds() / 3600.0
+        if age_hours > float(window):
+            return None
+    change = current_value - previous
+    change_pct = (abs(change) / abs(previous) * 100.0) if previous else None
+    exceeded = False
+    if isinstance(delta_cfg.get("absolute"), (int, float)) \
+            and abs(change) > delta_cfg["absolute"]:
+        exceeded = True
+    if isinstance(delta_cfg.get("pct"), (int, float)) \
+            and change_pct is not None and change_pct > delta_cfg["pct"]:
+        exceeded = True
+    if not exceeded:
+        return None
+    return {"code": concept["code"], "previous_value": previous,
+            "current_value": current_value, "change": change,
+            "change_pct": change_pct,
+            "previous_at": previous_at.isoformat() if previous_at else None,
+            "window_hours": delta_cfg.get("windowHours")}
+
+
+@router.get("/orders/{order_id}/test-detail")
+def test_detail(order_id: str, session: Session = Depends(get_db),
+                user: User = Depends(require_capability("lab.read"))):
+    """The per-test drill-down: where this test is in its journey
+    (steps), what specimen / aliquots it ran on, its results with
+    ranges + interpretation + delta + critical flags, the report's
+    verification / release summary, and the critical-notification
+    acknowledgement trail."""
+    order = _order_row(session, order_id)
+    order_body = order.body or {}
+    specimen = _specimen_row(session, order)
+    custody = _custody(order, specimen)
+    order_status = order_body.get("status")
+
+    # The order's reports (the order_detail basedOn scan); the
+    # detail view reads the LATEST one.
+    report_rows = session.scalars(
+        select(FhirResource).where(
+            FhirResource.resource_type == "DiagnosticReport")
+        .order_by(FhirResource.created_at.asc(), FhirResource.id.asc())).all()
+    report = None
+    for candidate in report_rows:
+        refs = [(ref or {}).get("reference")
+                for ref in (candidate.body or {}).get("basedOn") or []]
+        if f"ServiceRequest/{order_id}" in refs:
+            report = candidate
+
+    # Plate assignment (virtual plates, app.lab_plates) — the
+    # 'plated' step exists ONLY when an assignment exists.
+    plate_well = None
+    if specimen is not None:
+        from .lab_plates import plate_assignment
+        plate_well = plate_assignment(session, specimen.resource_id)
+
+    # Audit-derived actors / times for the governed steps.
+    collected_audit = _audit_transition(session, order_id, "collected")
+    received_audit = _audit_transition(session, order_id, "received")
+    in_process_audit = _audit_transition(session, order_id, "in-process")
+    results_audit = verify_audit = release_audit = None
+    if report is not None:
+        entity = f"DiagnosticReport/{report.resource_id}"
+        results_audit = _audit_latest(session, entity, "lab.results.create")
+        verify_audit = _audit_latest(session, entity, "lab.report.verify")
+        release_audit = _audit_latest(session, entity, "lab.report.release")
+
+    def _at(audit_row):
+        return audit_row.created_at.isoformat() \
+            if audit_row is not None and audit_row.created_at else None
+
+    # Step states: 'done' from real timestamps / statuses; the first
+    # not-done step is 'current'; later steps are 'pending'. The
+    # final 'resulted' step is the RELEASED result (report issued) —
+    # it follows verification in the journey, per the contract order.
+    raw_steps = [
+        ("ordered", "Ordered", True, order_body.get("authoredOn"),
+         (order_body.get("requester") or {}).get("display"), {}),
+        ("collected", "Collected", custody["collected_at"] is not None,
+         custody["collected_at"],
+         collected_audit.actor if collected_audit else None, {}),
+        ("received", "Received", custody["received_at"] is not None,
+         custody["received_at"],
+         received_audit.actor if received_audit else None, {}),
+    ]
+    if plate_well is not None:
+        raw_steps.append((
+            "plated", "Plated", True,
+            plate_well.assigned_at.isoformat()
+            if plate_well.assigned_at else None,
+            plate_well.assigned_by, {"plate_id": plate_well.plate_id}))
+    analysed = report is not None
+    raw_steps += [
+        ("in_analysis", "In analysis",
+         custody["in_analysis_at"] is not None
+         or order_status in ("in-process", "resulted", "verified",
+                             "released"),
+         custody["in_analysis_at"],
+         in_process_audit.actor if in_process_audit else None, {}),
+        ("analysed", "Analysed", analysed,
+         (report.body or {}).get("effectiveDateTime") if report else None,
+         results_audit.actor if results_audit else None, {}),
+        ("verified", "Verified",
+         order_status in ("verified", "released")
+         or verify_audit is not None,
+         _at(verify_audit),
+         verify_audit.actor if verify_audit else None, {}),
+        ("resulted", "Resulted", order_status == "released",
+         (report.body or {}).get("issued") if report else None,
+         release_audit.actor if release_audit else None, {}),
+    ]
+    steps = []
+    seen_open = False
+    for key, label, done, at, by, extra in raw_steps:
+        if done:
+            state = "done"
+        elif not seen_open:
+            state = "current"
+            seen_open = True
+        else:
+            state = "pending"
+        if not done and state == "current":
+            seen_open = True
+        step = {"key": key, "label": label, "state": state,
+                "at": at if done else None, "by": by if done else None}
+        step.update(extra)
+        steps.append(step)
+
+    # Specimen summary + aliquot lineage (app.lab_specimens nodes;
+    # empty honestly when this specimen has no lineage rows).
+    specimen_out = None
+    aliquots: list[dict] = []
+    if specimen is not None:
+        sbody = specimen.body or {}
+        specimen_out = {
+            "id": specimen.resource_id, "status": sbody.get("status"),
+            "accession": (sbody.get("accessionIdentifier") or {}).get("value"),
+            "type": (sbody.get("type") or {}).get("text"),
+            "subject_ref": (sbody.get("subject") or {}).get("reference"),
+            "collected_at": custody["collected_at"],
+            "received_at": custody["received_at"],
+            "in_analysis_at": custody["in_analysis_at"],
+        }
+        from .lab_specimens import LabSpecimenNode, _node_out
+        node = session.scalars(
+            select(LabSpecimenNode).where(
+                LabSpecimenNode.fhir_specimen_id == specimen.resource_id)
+        ).first()
+        if node is not None:
+            members = session.scalars(
+                select(LabSpecimenNode).where(
+                    LabSpecimenNode.root_key == node.root_key,
+                    LabSpecimenNode.derivation_type != "primary")
+                .order_by(LabSpecimenNode.id.asc())).all()
+            aliquots = [_node_out(session, m) for m in members]
+
+    # Results detail from the report's observations.
+    results_out: list[dict] = []
+    report_out = None
+    acknowledgements: list[dict] = []
+    if report is not None:
+        observations = _result_observations(session, report)
+        obs_ids = {o.resource_id for o in observations}
+        patient_ref = (report.body or {}).get("subject", {}).get("reference")
+        for obs in observations:
+            body = obs.body or {}
+            code = _code_of(body)
+            concept = _concept(session, code) if code else None
+            quantity = body.get("valueQuantity") or {}
+            value = quantity.get("value")
+            if value is None:
+                value = body.get("valueString")
+            interp = (((body.get("interpretation") or [{}])[0]
+                       .get("coding") or [{}])[0].get("code"))
+            rr_list = body.get("referenceRange") or []
+            rr0 = rr_list[0] if rr_list and isinstance(rr_list[0], dict) \
+                else {}
+            ref_range = None
+            if rr0:
+                ref_range = {
+                    "low": (rr0.get("low") or {}).get("value"),
+                    "high": (rr0.get("high") or {}).get("value"),
+                    "unit": quantity.get("unit")
+                    or (rr0.get("low") or {}).get("unit")
+                    or (rr0.get("high") or {}).get("unit")}
+            elif concept is not None:
+                rng = concept.get("referenceRange") or {}
+                if rng.get("low") is not None or rng.get("high") is not None:
+                    ref_range = {"low": rng.get("low"),
+                                 "high": rng.get("high"),
+                                 "unit": rng.get("unit")
+                                 or concept.get("unit")}
+            delta = None
+            if isinstance(value, (int, float)) \
+                    and not isinstance(value, bool) and concept is not None:
+                delta = _delta_flag_excluding(
+                    session, patient_ref, concept, float(value), obs_ids)
+            results_out.append({
+                "analyte": code, "code": code,
+                "display": (body.get("code") or {}).get("text"),
+                "observation_id": obs.resource_id,
+                "value": value, "unit": quantity.get("unit"),
+                "reference_range": ref_range,
+                "interpretation": interp,
+                "interpretation_text": ((body.get("interpretation")
+                                         or [{}])[0].get("text")),
+                "delta": delta, "critical": _is_critical(interp),
+                "status": body.get("status"),
+            })
+        report_out = {
+            "report_id": report.resource_id,
+            "status": (report.body or {}).get("status"),
+            "verified_by": verify_audit.actor if verify_audit else None,
+            "verified_at": _at(verify_audit),
+            "released_by": release_audit.actor if release_audit else None,
+            "released_at": (report.body or {}).get("issued")
+            or _at(release_audit),
+            "effective_at": (report.body or {}).get("effectiveDateTime"),
+            "critical": _report_is_critical(session, report),
+        }
+        record = _notification_record(session, report.resource_id)
+        if record is not None:
+            acknowledgements.append({
+                "report_id": report.resource_id,
+                **_notification_out(session, report,
+                                    _report_is_critical(session, report)),
+            })
+
+    code = _code_of(order_body)
+    return {
+        "order": {
+            "id": order.resource_id, "status": order_status,
+            "code": code,
+            "display": (order_body.get("code") or {}).get("text"),
+            "patient_ref": (order_body.get("subject") or {}).get("reference"),
+            "authored_on": order_body.get("authoredOn"),
+            "requester": (order_body.get("requester") or {}).get("display"),
+            "priority": order_body.get("priority"),
+        },
+        "steps": steps,
+        "specimen": specimen_out,
+        "aliquots": aliquots,
+        "results": results_out,
+        "report": report_out,
+        "acknowledgements": acknowledgements,
+        "custody": custody,
+    }
 
 
 @router.post("/orders/{order_id}/transition")
@@ -1371,7 +2715,13 @@ def _validate_results(session: Session, order: FhirResource,
     Phase 6B: a concept flagged `qualitative` in the catalog takes a
     coded STRING value (validated against the concept's `values` list
     when one is published) and never a number; every other concept
-    keeps the original numeric-only rule, byte for byte."""
+    keeps the original numeric-only rule, byte for byte.
+
+    Lab Depth D6: a result item may carry analyser `flags` (a list of
+    flag-code strings — OBX-8 on HL7, the CSV flags column, or a
+    direct-entry list). Flags are first-class data: preserved on the
+    checked entry, stamped onto the Observation, and consumed by
+    autoverification (D7) and the rerun queue (app.lab_analyser)."""
     if not isinstance(results, list) or not results:
         raise HTTPException(status_code=422,
                             detail="'results' must be a non-empty list")
@@ -1405,6 +2755,19 @@ def _validate_results(session: Session, order: FhirResource,
                                 detail=f"results[{i}].code '{code}' is not one of "
                                        f"the {order_label} for this order")
         value = item.get("value")
+        # Lab Depth D6: analyser flags ride the checked entry (a list
+        # of flag-code strings; anything else is a 422, never coerced).
+        raw_flags = item.get("flags")
+        if raw_flags is None:
+            flags: list[str] = []
+        elif isinstance(raw_flags, list) and all(
+                isinstance(f, str) and f.strip() for f in raw_flags):
+            flags = [f.strip() for f in raw_flags]
+        else:
+            raise HTTPException(
+                status_code=422,
+                detail=f"results[{i}].flags must be a list of flag-code "
+                       "strings (analyser flags, e.g. OBX-8)")
         if analyte.get("qualitative"):
             if not isinstance(value, str) or not value.strip():
                 raise HTTPException(
@@ -1420,7 +2783,8 @@ def _validate_results(session: Session, order: FhirResource,
                             f"value for '{code}' (allowed: "
                             f"{', '.join(allowed_values)})"))
             checked.append({"concept": analyte, "value": value.strip(),
-                            "unit": None, "qualitative": True})
+                            "unit": None, "qualitative": True,
+                            "flags": flags})
             continue
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise HTTPException(status_code=422,
@@ -1428,7 +2792,8 @@ def _validate_results(session: Session, order: FhirResource,
         unit = item.get("unit") or analyte.get("unit") or \
             (analyte.get("referenceRange") or {}).get("unit")
         checked.append({"concept": analyte, "value": float(value),
-                        "unit": unit, "qualitative": False})
+                        "unit": unit, "qualitative": False,
+                        "flags": flags})
     return checked
 
 
@@ -1436,13 +2801,25 @@ def _validate_results(session: Session, order: FhirResource,
 # Post-analytical (Phase 6B): delta checks, reflex rules, auto-verification
 # ---------------------------------------------------------------------------
 
-def _previous_released_value(session: Session, patient_ref: str | None,
-                             code: str) -> float | None:
-    """The patient's most recent RELEASED (final, untagged) numeric
-    value for an analyte — the delta-check baseline. Drafts never
-    count: they are preliminary + visibility-tagged by construction."""
-    if not patient_ref:
+def _parse_ts(raw) -> datetime | None:
+    if not isinstance(raw, str):
         return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else \
+        parsed.replace(tzinfo=timezone.utc)
+
+
+def _previous_released(session: Session, patient_ref: str | None,
+                       code: str) -> tuple[float | None, datetime | None]:
+    """(value, effective time) of the patient's most recent RELEASED
+    (final, untagged) numeric result for an analyte — the delta-check
+    baseline. Drafts never count: they are preliminary +
+    visibility-tagged by construction."""
+    if not patient_ref:
+        return None, None
     rows = session.scalars(
         select(FhirResource).where(FhirResource.resource_type == "Observation",
                                    FhirResource.patient_ref == patient_ref,
@@ -1455,8 +2832,15 @@ def _previous_released_value(session: Session, patient_ref: str | None,
             continue
         value = (row.body or {}).get("valueQuantity", {}).get("value")
         if isinstance(value, (int, float)) and not isinstance(value, bool):
-            return float(value)
-    return None
+            return float(value), _parse_ts(
+                (row.body or {}).get("effectiveDateTime"))
+    return None, None
+
+
+def _previous_released_value(session: Session, patient_ref: str | None,
+                             code: str) -> float | None:
+    value, _at = _previous_released(session, patient_ref, code)
+    return value
 
 
 def _delta_flag(session: Session, patient_ref: str | None,
@@ -1464,13 +2848,28 @@ def _delta_flag(session: Session, patient_ref: str | None,
     """A delta-check flag for one numeric result, or None. Thresholds
     are the analyte's catalog `delta` config ({absolute} or {pct});
     analytes without delta config never flag. A flag is information
-    for the verifying clinician — it never blocks anything."""
+    for the verifying clinician — it never blocks anything.
+
+    Depth pass: the config may also carry `windowHours` — the
+    comparison window real delta-check programmes run with (a
+    creatinine is compared against the last 72 hours, not last
+    year's). A baseline older than the window is no baseline: no
+    flag. Without `windowHours` the most recent released value is
+    the baseline however old (prior behaviour, unchanged)."""
     delta_cfg = concept.get("delta")
     if not isinstance(delta_cfg, dict):
         return None
-    previous = _previous_released_value(session, patient_ref, concept["code"])
+    previous, previous_at = _previous_released(session, patient_ref,
+                                               concept["code"])
     if previous is None:
         return None
+    window = delta_cfg.get("windowHours")
+    if isinstance(window, (int, float)) and not isinstance(window, bool) \
+            and previous_at is not None:
+        age_hours = (datetime.now(timezone.utc)
+                     - previous_at).total_seconds() / 3600.0
+        if age_hours > float(window):
+            return None
     change = current_value - previous
     change_pct = (abs(change) / abs(previous) * 100.0) if previous else None
     exceeded = False
@@ -1484,7 +2883,9 @@ def _delta_flag(session: Session, patient_ref: str | None,
         return None
     return {"code": concept["code"], "previous_value": previous,
             "current_value": current_value, "change": change,
-            "change_pct": change_pct}
+            "change_pct": change_pct,
+            "previous_at": previous_at.isoformat() if previous_at else None,
+            "window_hours": delta_cfg.get("windowHours")}
 
 
 def _reflex_order_exists(session: Session, patient_ref: str | None,
@@ -1503,78 +2904,17 @@ def _reflex_order_exists(session: Session, patient_ref: str | None,
 
 def _fire_reflex_rules(session: Session, user: User, order: FhirResource,
                        report_id: str, checked: list[dict]) -> list[str]:
-    """Reflex testing (Phase 6B): for each created result matching a
-    published reflex rule, create a DRAFT (status `ordered`) order for
-    the rule's add-on analyte, flagged with the reflex extension + the
-    rule id and linked to the source report. Deduped per (report,
-    rule): re-entry never double-creates."""
-    rules = _catalog(session).get("reflexRules") or []
-    if not rules:
-        return []
-    subject_ref = (order.body or {}).get("subject", {}).get("reference")
-    created: list[str] = []
-    fired_rules: set[str] = set()
-    for entry in checked:
-        if entry["qualitative"]:
-            continue
-        analyte, value = entry["concept"], entry["value"]
-        rng = analyte.get("referenceRange") or {}
-        interp = interpret_value(value, analyte)
-        for rule in rules:
-            if not isinstance(rule, dict) \
-                    or rule.get("triggerCode") != analyte["code"] \
-                    or rule.get("id") in fired_rules:
-                continue
-            when = rule.get("when")
-            fired = (
-                (when == "below-low" and rng.get("low") is not None
-                 and value < rng["low"])
-                or (when == "above-high" and rng.get("high") is not None
-                    and value > rng["high"])
-                or (when == "critical" and _is_critical(interp)))
-            if not fired:
-                continue
-            add_code = rule.get("addCode")
-            target = _concept(session, add_code) if add_code else None
-            if target is None or target.get("active") is False \
-                    or target.get("panel"):
-                continue
-            if _reflex_order_exists(session, subject_ref, report_id,
-                                    rule.get("id")):
-                fired_rules.add(rule.get("id"))
-                continue
-            rendered = fhir.create_resource("ServiceRequest", {
-                "resourceType": "ServiceRequest",
-                "id": str(uuid.uuid4()),
-                "status": "ordered", "intent": "order",
-                "reflex": True,
-                "category": [{"coding": [{
-                    "system": "http://snomed.info/sct", "code": "108252007",
-                    "display": "Laboratory procedure"}]}],
-                "code": {"coding": [{"system": LOINC, "code": add_code,
-                                     "display": target.get("display")}],
-                         "text": target.get("display")},
-                "subject": {"reference": subject_ref},
-                "authoredOn": _now_iso(),
-                "requester": {"display": f"system:reflex ({rule.get('id')})"},
-                "extension": [
-                    {"url": REFLEX_EXTENSION, "valueString": rule.get("id")},
-                    {"url": REFLEX_SOURCE_EXTENSION,
-                     "valueReference": {"reference": f"DiagnosticReport/{report_id}"}},
-                ],
-            }, session, user)
-            append_audit(session, actor="system:reflex",
-                         action="lab.reflex.create",
-                         entity=f"ServiceRequest/{rendered['id']}",
-                         payload={"rule_id": rule.get("id"),
-                                  "trigger_code": analyte["code"],
-                                  "trigger_value": value,
-                                  "source_report_id": report_id,
-                                  "source_order_id": order.resource_id})
-            session.commit()
-            fired_rules.add(rule.get("id"))
-            created.append(rendered["id"])
-    return created
+    """Reflex testing (Phase 6B; depth LAB-D11): for each created
+    result matching a published reflex rule, the add-on runs against
+    the source order's EXISTING specimen — the implementation lives
+    in app.lab_tat.fire_reflex_same_specimen (same-specimen volume
+    check + consumption through app.lab_specimens, named refusals,
+    cascade evidence, reflex-billing flag). Deduped per (report,
+    rule): re-entry never double-creates. Returns the created
+    add-on order ids, as before."""
+    from . import lab_tat
+    return lab_tat.fire_reflex_same_specimen(session, user, order,
+                                              report_id, checked)
 
 
 def _auto_verify_decision(session: Session, order: FhirResource,
@@ -1588,6 +2928,7 @@ def _auto_verify_decision(session: Session, order: FhirResource,
     if settings.get("enabled") is not True:
         return False, []
     subject_ref = (order.body or {}).get("subject", {}).get("reference")
+    demographics = _demographics_for_order(session, order)
     rule_ids: list[str] = []
     for entry in checked:
         if entry["qualitative"]:
@@ -1600,7 +2941,8 @@ def _auto_verify_decision(session: Session, order: FhirResource,
             return False, []
         if isinstance(rule.get("high"), (int, float)) and value > rule["high"]:
             return False, []
-        if _is_critical(interpret_value(value, entry["concept"])):
+        if _is_critical(interpret_value(value, entry["concept"],
+                                        demographics)):
             return False, []
         if _delta_flag(session, subject_ref, entry["concept"], value) is not None:
             return False, []
@@ -1633,11 +2975,24 @@ def _auto_verify(session: Session, report: FhirResource, order: FhirResource,
 
 
 def _create_results(session: Session, user: User, order: FhirResource,
-                      results, source: str) -> dict:
+                      results, source: str,
+                      device_key: str | None = None,
+                      reagent_lot: dict | None = None,
+                      instrument_id: str | None = None) -> dict:
     """Create preliminary, unreleased-tagged Observations + DiagnosticReport
     for an order in received/in-process state, and move order + specimen to
     resulted. Used identically by manual entry and analyser ingest: ingest
-    results are drafts in exactly the same way (no auto-release)."""
+    results are drafts in exactly the same way (no auto-release).
+
+    Lab Depth W4 (LAB-D8/D9): when the entry names a reagent lot
+    and/or an instrument, two further gates run BEFORE any write
+    (a refusal leaves zero writes): the reagent-lot stage/expiry/
+    verification lockout (app.lab_reagents.enforce_reagent_lot — no
+    emergency bypass) and the instrument-path lock (app.lab_qc.
+    enforce_instrument_path — failed latest QC or overdue/failed
+    calibration for that instrument). Created Observations (and the
+    report) are then STAMPED with the reagent lot + instrument so a
+    lot's results can be enumerated (lot -> result traceability)."""
     current = (order.body or {}).get("status")
     if current not in ("received", "in-process"):
         raise HTTPException(
@@ -1656,6 +3011,49 @@ def _create_results(session: Session, user: User, order: FhirResource,
                     "(/lab/micro/* or /lab/pathology/*), not numeric "
                     "result entry"))
     checked = _validate_results(session, order, results)
+    # Lab Depth W4 gates (LAB-D8/D9), before ANY write: reagent-lot
+    # lockout + instrument-path lock. Lazy imports: app.lab_reagents
+    # and app.lab_qc import app.lab lazily for the same cycle reason
+    # as app.lab_plates below.
+    effective_instrument = instrument_id or device_key
+    if reagent_lot is not None:
+        from . import lab_reagents
+        lab_reagents.enforce_reagent_lot(session, reagent_lot)
+    if effective_instrument is not None:
+        from . import lab_qc
+        lab_qc.enforce_instrument_path(
+            session, effective_instrument,
+            [c["concept"]["code"] for c in checked])
+    # Lab Depth D6(a) / LAB-m2 gate, before ANY write, on EVERY path
+    # that reaches this core (manual/direct entry, HL7 + CSV ingest,
+    # the MLLP listener via ingest_hl7_groups, send-outs, plates,
+    # rerun submission): an instrument whose EFFECTIVE registry
+    # status (app.lab_analyser's reconciliation across the lab and
+    # device registries) is in-maintenance or out-of-service has its
+    # batch QUARANTINED by name and refused 409 — zero results are
+    # written. The quarantine row is committed by the gate itself so
+    # the refusal record survives this refusal.
+    if effective_instrument is not None:
+        lab_analyser.enforce_ingest_gate(
+            session, effective_instrument, source_format=source,
+            actor=user.username,
+            payload={"kind": "results", "order_id": order.resource_id,
+                     "patient_ref": (order.body or {}).get(
+                         "subject", {}).get("reference"),
+                     "results": results if isinstance(results, list)
+                     else []})
+    # Lab Depth W9 (LAB-D16b) competency gate, before ANY write,
+    # composed with the W4 lockouts above and never weakening them:
+    # for catalogue tests MAPPED in the published competency gating
+    # map (terminology/lab-competency-gating), the entering actor
+    # must hold a CURRENT CLIA six-element competency for the
+    # required test system — expired / incomplete / absent refuses
+    # 409 BY NAME. Unmapped tests are ungated (the seeded map is
+    # empty; the QMS gating surface lists every test's state).
+    from . import lab_poct_qms as _lab_qms
+    _lab_qms.enforce_competency_gate(
+        session, user, [c["concept"]["code"] for c in checked],
+        stage="result entry")
     # POCT single-step mode applies only when the order is flagged
     # poct AND the deployment has published the POCT workflow (a
     # profile pack does that at enable time). A flagged order without
@@ -1672,8 +3070,49 @@ def _create_results(session: Session, user: User, order: FhirResource,
         if blockers:
             raise HTTPException(status_code=409,
                                 detail=_qc_block_message(blockers))
+        # POCT programme enforcement (Depth pass): the published
+        # `terminology/poct-programme` switches, BOTH seeded off.
+        # When a site publishes one on, entry refuses here — before
+        # any write — until the operator holds a current competency
+        # for the ordered test and/or the named device has passing
+        # QC at every required level today. Lab Depth W9 (LAB-D15):
+        # the governed deployment profile (terminology/
+        # poct-deployment-profile) is ORed over the programme
+        # switches by _poct_effective_enforcement — in the profile's
+        # "enforce" mode its block flags enforce even while the
+        # programme's own switches remain off; in "track-only" mode
+        # this block behaves exactly as before W9.
+        programme = _poct_programme(session)
+        enforcement = _poct_effective_enforcement(session, programme)
+        if enforcement.get("blockUncompetentOperator") is True \
+                and not _competency_current(
+                    session, programme, _operator_ids(session, user),
+                    order_concept_pre["code"]):
+            raise HTTPException(
+                status_code=409,
+                detail=(f"POCT programme: operator '{user.username}' holds "
+                        f"no current competency record for "
+                        f"'{order_concept_pre['code']}' "
+                        f"({order_concept_pre.get('display')}); record the "
+                        "assessment in the POCT programme before entering "
+                        "results"))
+        if enforcement.get("blockMissingDailyQc") is True:
+            if not device_key:
+                raise HTTPException(
+                    status_code=422,
+                    detail=("POCT programme: 'device_key' is required — "
+                            "daily-QC enforcement is on, so the result "
+                            "must name the device that produced it"))
+            if not _poct_qc_current(session, programme, device_key):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(f"POCT programme: device '{device_key}' has no "
+                            "passing QC at every required level today; run "
+                            "the controls and record them in the POCT "
+                            "programme before entering results"))
     order_concept = _order_code(session, order)
     subject_ref = (order.body or {}).get("subject", {}).get("reference")
+    demographics = _demographics_for_order(session, order)
     specimen = _specimen_row(session, order)
     now = _now_iso()
 
@@ -1701,7 +3140,7 @@ def _create_results(session: Session, user: User, order: FhirResource,
             # numeric interpretation or reference range applies.
             obs_body["valueString"] = value
         else:
-            interp_code = interpret_value(value, analyte)
+            interp_code = interpret_value(value, analyte, demographics)
             if _is_critical(interp_code):
                 any_critical = True
             obs_body["valueQuantity"] = {"value": value, "unit": unit}
@@ -1710,7 +3149,10 @@ def _create_results(session: Session, user: User, order: FhirResource,
                     "coding": [{"system": INTERPRETATION_SYSTEM, "code": interp_code,
                                 "display": _INTERPRETATION_TEXT[interp_code]}],
                     "text": _INTERPRETATION_TEXT[interp_code]}]
-            rng = analyte.get("referenceRange") or {}
+            # The range recorded on the observation is the EFFECTIVE
+            # range (Lab Depth D1): the age/sex partition that governed
+            # interpretation when one matched, else the default.
+            rng = select_reference_range(analyte, demographics)
             if rng.get("low") is not None or rng.get("high") is not None:
                 ref_range = {}
                 if rng.get("low") is not None:
@@ -1722,6 +3164,30 @@ def _create_results(session: Session, user: User, order: FhirResource,
             obs_body["specimen"] = {"reference": f"Specimen/{specimen.resource_id}"}
         if (order.body or {}).get("encounter"):
             obs_body["encounter"] = order.body["encounter"]
+        # Lab Depth W4 (LAB-D9): lot -> result traceability stamp —
+        # the reagent lot + instrument that produced this result,
+        # as Observation extensions (the enumeration surface is
+        # GET /lab/reagent-lots/results in app.lab_reagents).
+        obs_extensions = []
+        if reagent_lot is not None:
+            from . import lab_reagents as _lr
+            obs_extensions.append({
+                "url": _lr.REAGENT_LOT_EXTENSION,
+                "valueString": _lr.lot_key_for(
+                    str(reagent_lot.get("sku", "")).strip(),
+                    str(reagent_lot.get("location_code", "")).strip(),
+                    str(reagent_lot.get("lot_number", "")).strip())})
+        if effective_instrument is not None:
+            obs_extensions.append({"url": INSTRUMENT_EXTENSION,
+                                   "valueString": effective_instrument})
+        # Lab Depth D6(b): analyser flags are first-class data on the
+        # result — one extension per flag, read by D7 autoverification
+        # traces (via the checked entries) and by staff on the result.
+        for flag in entry.get("flags") or []:
+            obs_extensions.append({"url": lab_analyser.FLAG_EXTENSION,
+                                   "valueString": flag})
+        if obs_extensions:
+            obs_body["extension"] = obs_extensions
         observations.append(fhir.create_resource("Observation", obs_body, session, user))
 
     report_body = {
@@ -1747,6 +3213,27 @@ def _create_results(session: Session, user: User, order: FhirResource,
     if any_critical:
         report_body["extension"] = [{"url": CRITICAL_EXTENSION_URL,
                                      "valueBoolean": True}]
+    if device_key or instrument_id or reagent_lot is not None:
+        # The device/instrument that produced the results (POCT
+        # programme + LAB-D8 keying): the same instrument extension
+        # the analyser-ingest path writes. LAB-D9 adds the reagent
+        # lot stamp at report level too (observations carry it as
+        # the per-result record).
+        exts = list(report_body.get("extension") or [])
+        if effective_instrument is not None and not any(
+                e.get("url") == INSTRUMENT_EXTENSION for e in exts
+                if isinstance(e, dict)):
+            exts.append({"url": INSTRUMENT_EXTENSION,
+                         "valueString": effective_instrument})
+        if reagent_lot is not None:
+            from . import lab_reagents as _lr
+            exts.append({
+                "url": _lr.REAGENT_LOT_EXTENSION,
+                "valueString": _lr.lot_key_for(
+                    str(reagent_lot.get("sku", "")).strip(),
+                    str(reagent_lot.get("location_code", "")).strip(),
+                    str(reagent_lot.get("lot_number", "")).strip())})
+        report_body["extension"] = exts
     report = fhir.create_resource("DiagnosticReport", report_body, session, user)
 
     _set_status(order, "resulted")
@@ -1757,7 +3244,10 @@ def _create_results(session: Session, user: User, order: FhirResource,
                  entity=f"DiagnosticReport/{report['id']}",
                  payload={"order_id": order.resource_id, "source": source,
                           "result_count": len(observations),
-                          "critical": any_critical})
+                          "critical": any_critical,
+                          # LAB-D8/D9 stamps (traceability audit trail).
+                          "reagent_lot": reagent_lot,
+                          "instrument_id": effective_instrument})
     if poct:
         # POCT single-step (deployment-profile workflow): entry IS the
         # verify + release — the POCT workflow has no verify state.
@@ -1774,18 +3264,66 @@ def _create_results(session: Session, user: User, order: FhirResource,
     # may verify (never release) a draft that passes every rule.
     reflex_orders = _fire_reflex_rules(session, user, order, report["id"],
                                        checked)
+    # Lab Depth D6(c): results carrying a governed rerun flag route to
+    # the rerun queue (app.lab_analyser) — their rerun output will
+    # re-enter THIS core, never a side door.
+    rerun_items = lab_analyser.register_rerun_items(
+        session, order_id=order.resource_id, report_id=report["id"],
+        checked=checked, instrument_id=effective_instrument,
+        actor=user.username)
+    if rerun_items:
+        session.commit()
     auto_verified = False
+    auto_released = False
+    autoverify_evaluation = None
     if not poct:
-        applies, rule_ids = _auto_verify_decision(session, order, checked)
-        if applies:
-            report_row = fhir._get_row("DiagnosticReport", report["id"], session)
-            auto_verified = _auto_verify(session, report_row, order,
-                                         checked, rule_ids)
-            if auto_verified:
-                report = fhir._render(report_row)
+        # Lab Depth D7: when the order's bench has a PUBLISHED, enabled
+        # autoverification rule set (terminology/lab-autoverify), the
+        # ONE evaluation function in app.lab_autoverify judges the
+        # set: a full pass auto-RELEASES (verify + release, traced);
+        # any hold is recorded with its rule trace and the draft stays
+        # for the manual path. Benches without a live set fall through
+        # to the Phase 6B verify-only path below, unchanged.
+        evaluation = lab_autoverify.evaluate_autoverification(
+            session, order, checked, instrument_id=effective_instrument)
+        if evaluation["applicable"]:
+            autoverify_evaluation = {
+                "bench": evaluation["bench"],
+                "rule_set_version": evaluation["rule_set_version"],
+                "decision": evaluation["decision"],
+                "trace": evaluation["trace"],
+                "hold_reasons": evaluation["hold_reasons"]}
+            report_row = fhir._get_row("DiagnosticReport", report["id"],
+                                       session)
+            if evaluation["decision"] == "release":
+                auto_released = lab_autoverify.release_and_record(
+                    session, report_row, order, evaluation,
+                    instrument_id=effective_instrument)
+                auto_verified = auto_released
+                if auto_released:
+                    report = fhir._render(report_row)
+                    observations = [
+                        fhir._render(fhir._get_row(
+                            "Observation", o["id"], session))
+                        for o in observations]
+            else:
+                lab_autoverify.record_hold(
+                    session, report_row, order, evaluation,
+                    instrument_id=effective_instrument)
+        else:
+            applies, rule_ids = _auto_verify_decision(session, order, checked)
+            if applies:
+                report_row = fhir._get_row("DiagnosticReport", report["id"], session)
+                auto_verified = _auto_verify(session, report_row, order,
+                                             checked, rule_ids)
+                if auto_verified:
+                    report = fhir._render(report_row)
     return {"report": report, "observations": observations,
             "critical": any_critical, "reflex_orders": reflex_orders,
-            "auto_verified": auto_verified}
+            "rerun_items": rerun_items,
+            "auto_verified": auto_verified,
+            "auto_released": auto_released,
+            "autoverify": autoverify_evaluation}
 
 
 @router.post("/orders/{order_id}/results", status_code=201)
@@ -1794,13 +3332,65 @@ async def enter_results(order_id: str, request: Request,
                         user: User = Depends(require_capability("lab.work"))):
     payload = await _json_body(request)
     order = _order_row(session, order_id)
+    # Virtual-plate QC gate (UX pass, app.lab_plates): when this
+    # order's specimen sits on an OPEN plate whose controls have not
+    # all passed, direct result entry is refused — the plate's gate
+    # governs every entry path for that specimen. Non-plated orders
+    # and completed plates are unaffected. The check runs before any
+    # result is written. (Lazy import: app.lab_plates imports
+    # app.lab for the shared result path.)
+    specimen = _specimen_row(session, order)
+    if specimen is not None:
+        from .lab_plates import plate_gate_blocker
+        blocker_plate = plate_gate_blocker(session, specimen.resource_id)
+        if blocker_plate is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(f"Specimen {specimen.resource_id} is assigned to "
+                        f"plate {blocker_plate}, whose QC gate is closed: "
+                        "plate QC gate: controls not yet passed"))
     return _create_results(session, user, order, payload.get("results"),
-                            source="manual")
+                            source="manual",
+                            device_key=payload.get("device_key"),
+                            # LAB-D8/D9: the reagent lot + instrument
+                            # the entry names (either may be absent —
+                            # unstamped legacy entry is unchanged).
+                            reagent_lot=payload.get("reagent_lot"),
+                            instrument_id=payload.get("instrument_id"))
 
 
 # ---------------------------------------------------------------------------
 # Analyser ingest: HL7 v2 ORU^R01 and CSV
 # ---------------------------------------------------------------------------
+
+def parse_hl7_oru(content: str) -> tuple[str, str | None, list[dict]]:
+    """The HL7 ORU reader for the ingest paths (Lab Depth D6): the
+    shared app.hl7 reader, PLUS the OBX-8 abnormal/analyser flags,
+    which land on each result dict as `flags` — first-class data for
+    autoverification (D7) and the rerun queue. Callers that imported
+    lab.parse_hl7_oru before D6 (app.interop, app.devices,
+    app.pipelines) get the enriched groups transparently; the tuple
+    shape and every parse error are the base reader's, unchanged."""
+    order_id, patient_id, results = _parse_hl7_oru_base(content)
+    lines = [ln.strip() for ln in
+             content.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+             if ln.strip()]
+    if not lines or not lines[0].startswith("MSH"):
+        return order_id, patient_id, results
+    sep = lines[0][3] if len(lines[0]) > 3 else "|"
+    obx_flags: list[list[str]] = []
+    for line in lines:
+        parts = line.split(sep)
+        if parts[0] == "OBX":
+            raw = _hl7_field(parts, 8)
+            obx_flags.append([f for f in
+                              raw.replace("^", " ").replace(",", " ").split()
+                              if f])
+    for result, flags in zip(results, obx_flags):
+        if flags:
+            result["flags"] = flags
+    return order_id, patient_id, results
+
 
 def ingest_hl7_groups(session: Session, user: User,
                       groups: list[tuple[str, str | None, list[dict]]],
@@ -1814,7 +3404,21 @@ def ingest_hl7_groups(session: Session, user: User,
     state, same audit). `groups` is [(order_id, patient_id, results)]
     as produced by app.hl7.parse_hl7_oru / parse_csv_results. Raises
     HTTPException(422) on any mismatch — nothing is ingested partially
-    per group."""
+    per group.
+
+    Lab Depth D6(a) / LAB-m2: the batch is gated ONCE here, before
+    any group is created — a batch from an in-maintenance or
+    out-of-service instrument (effective status across both
+    registries, app.lab_analyser) is quarantined whole under its
+    full group payload (so disposition reprocessing can replay it)
+    and refused 409; the per-result gate inside _create_results is
+    the second, identical check for paths that bypass this core."""
+    if instrument_id is not None:
+        lab_analyser.enforce_ingest_gate(
+            session, instrument_id, source_format=source_format,
+            actor=user.username,
+            payload={"kind": "groups",
+                     "groups": [[oid, pid, res] for oid, pid, res in groups]})
     created = []
     for order_id, patient_id, results in groups:
         try:
@@ -1829,8 +3433,13 @@ def ingest_hl7_groups(session: Session, user: User,
                 status_code=422,
                 detail=(f"Ingest patient '{patient_id}' does not match order "
                         f"{order_id}'s patient ({subject_ref})"))
+        # LAB-D8: ingest runs through the same instrument-path lock
+        # as manual entry (inside _create_results) — a QC-failed or
+        # calibration-locked instrument's results are refused here
+        # before any write, not merely gated at report release.
         outcome = _create_results(session, user, order, results,
-                                  source=f"ingest-{source_format}")
+                                  source=f"ingest-{source_format}",
+                                  instrument_id=instrument_id)
         if instrument_id is not None:
             report_row = fhir._get_row("DiagnosticReport",
                                        outcome["report"]["id"], session)
@@ -1853,8 +3462,11 @@ def ingest_hl7_groups(session: Session, user: User,
 
 def parse_csv_results(content: str) -> list[tuple[str, str | None, list[dict]]]:
     """CSV fallback analyser format: one row per result with headers
-    order_id, code, value and optional patient_id, unit. Rows are grouped
-    by order. Returns [(order_id, patient_id, [results])]."""
+    order_id, code, value and optional patient_id, unit, flags. The
+    optional `flags` cell carries analyser flag codes separated by
+    ';' (Lab Depth D6 — first-class flag data, like OBX-8 on HL7).
+    Rows are grouped by order. Returns [(order_id, patient_id,
+    [results])]."""
     reader = csv.DictReader(io.StringIO(content))
     fields = {(f or "").strip().lower() for f in (reader.fieldnames or [])}
     missing = {"order_id", "code", "value"} - fields
@@ -1879,9 +3491,14 @@ def parse_csv_results(content: str) -> list[tuple[str, str | None, list[dict]]]:
         if order_id not in grouped:
             grouped[order_id] = ((row.get("patient_id") or "").strip() or None, [])
             order_sequence.append(order_id)
-        grouped[order_id][1].append(
-            {"code": code, "value": value,
-             "unit": (row.get("unit") or "").strip() or None})
+        result_row = {"code": code, "value": value,
+                      "unit": (row.get("unit") or "").strip() or None}
+        flags = [f.strip() for f in
+                 (row.get("flags") or "").replace(",", ";").split(";")
+                 if f.strip()]
+        if flags:
+            result_row["flags"] = flags
+        grouped[order_id][1].append(result_row)
     if not order_sequence:
         raise HTTPException(status_code=422, detail="CSV ingest contains no result rows")
     return [(oid, grouped[oid][0], grouped[oid][1]) for oid in order_sequence]
@@ -1901,15 +3518,15 @@ async def ingest(request: Request, session: Session = Depends(get_db),
         raise HTTPException(status_code=422, detail="Ingest requires 'content'")
     # Instrument metadata (Phase 6B): an ingest may name the analyser
     # that produced the results; it must be a REGISTERED instrument
-    # (app.lab_benches registry) and is recorded as metadata on each
-    # created report — it changes nothing about the results.
+    # and is recorded as metadata on each created report. Lab Depth
+    # D6: "registered" reads the reconciled registry view
+    # (app.lab_analyser) — an instrument known to EITHER the lab
+    # registry or the Phase 14 device registry is registered; its
+    # effective status then gates the batch in ingest_hl7_groups
+    # (LAB-m2 quarantine on in-maintenance / out-of-service).
     instrument_id = payload.get("instrument_id")
     if instrument_id is not None:
-        from .models import LabInstrument
-        known = session.scalars(
-            select(LabInstrument).where(
-                LabInstrument.instrument_id == str(instrument_id))).first()
-        if known is None:
+        if not lab_analyser.instrument_known(session, str(instrument_id)):
             raise HTTPException(
                 status_code=422,
                 detail=(f"Ingest names instrument '{instrument_id}', which "
@@ -2093,6 +3710,16 @@ def verify_report(report_id: str, session: Session = Depends(get_db),
                     f"(report status '{(report.body or {}).get('status')}', "
                     f"order status '{(order.body or {}).get('status')}')"))
     _enforce_qc(session, report)
+    # Lab Depth W9 (LAB-D16b): the competency gate at VERIFICATION —
+    # the verifying actor must hold current CLIA competency for
+    # every mapped test system on this report (same governed map as
+    # result entry; unmapped tests ungated). Composes with the QC
+    # gate above; refuses 409 BY NAME before any state change.
+    from . import lab_poct_qms as _lab_qms
+    _lab_qms.enforce_competency_gate(
+        session, user,
+        [_code_of(o.body or {}) for o in _result_observations(session, report)],
+        stage="verification")
     _set_status(report, "final")
     _set_status(order, "verified")
     specimen = _specimen_row(session, order)
@@ -2149,6 +3776,21 @@ def _release_now(session: Session, user: User, report: FhirResource,
     # load). With no enabled endpoint configured this queues nothing.
     from .interop import enqueue_released_report
     enqueue_released_report(session, report, order)
+    # Phase 10 (Track B): the release is also a rules-engine event. The
+    # seeded critical-value-notification rule re-expresses the critical
+    # escalation through the engine: on a critical release it OPENS the
+    # notification record (pending) — the worklist item the notify /
+    # acknowledge workflow above then completes. Lazy import for the
+    # same cycle reason (app.rules imports app.fhir/models only, but
+    # the hook keeps the one-way pattern obvious).
+    from .rules import evaluate_rules
+    evaluate_rules(session, "lab.report.released",
+                   {"critical": _report_is_critical(session, report),
+                    "report_id": report.resource_id,
+                    "order_id": order.resource_id,
+                    "patient_ref": (report.body or {}).get("subject", {})
+                    .get("reference")},
+                   actor=user.username)
 
 
 @router.post("/reports/{report_id}/release")
@@ -2225,6 +3867,7 @@ async def amend_report(report_id: str, request: Request,
     if payload.get("results") is not None:
         checked = _validate_results(session, order, payload.get("results"))
     subject_ref = (order.body or {}).get("subject", {}).get("reference")
+    demographics = _demographics_for_order(session, order)
     specimen = _specimen_row(session, order)
     now = _now_iso()
     corrected_codes = {c["concept"]["code"] for c in checked}
@@ -2258,7 +3901,7 @@ async def amend_report(report_id: str, request: Request,
             obs_body["valueString"] = value
         else:
             obs_body["valueQuantity"] = {"value": value, "unit": entry["unit"]}
-            interp_code = interpret_value(value, analyte)
+            interp_code = interpret_value(value, analyte, demographics)
             if _is_critical(interp_code):
                 any_critical = True
             if interp_code:
@@ -2473,11 +4116,39 @@ async def create_qc_run(request: Request, session: Session = Depends(get_db),
     level = payload.get("level")
     if level is not None and not isinstance(level, str):
         raise HTTPException(status_code=422, detail="QC 'level' must be a string")
-    # Westgard-style programme evaluation (Phase 6B): flags + z-score
-    # are computed here from the published programme config and stored
-    # on the run; `passed` below keeps its original range meaning.
+    # Lab Depth W4 (LAB-D8/D9) keying: a run may name its instrument
+    # and reagent lot, and a control material that is a registered
+    # control LOT must be LIVE to be used as a patient-QC material
+    # (named refusal, before any write). The shift is DERIVED from
+    # the governed shift windows at the run's UTC timestamp — never
+    # caller-asserted. Lazy imports (cycle: lab_reagents/lab_qc
+    # import lab lazily).
+    from . import lab_qc as _lab_qc
+    from . import lab_reagents as _lab_reagents
+    instrument_id = payload.get("instrument_id")
+    if instrument_id is not None:
+        instrument_id = _lab_qc._require_instrument(session, instrument_id)
+    reagent_lot_key = None
+    if isinstance(payload.get("reagent_lot_key"), str) \
+            and payload["reagent_lot_key"].strip():
+        reagent_lot_key = payload["reagent_lot_key"].strip()
+    elif isinstance(payload.get("reagent_lot"), dict):
+        _rl = payload["reagent_lot"]
+        reagent_lot_key = _lab_reagents.lot_key_for(
+            str(_rl.get("sku", "")).strip(),
+            str(_rl.get("location_code", "")).strip(),
+            str(_rl.get("lot_number", "")).strip())
+    control_blocker = _lab_reagents.control_lot_use_blocker(session, material)
+    if control_blocker:
+        raise HTTPException(status_code=409, detail=control_blocker)
+    control_lot = _lab_reagents.control_lot_for(session, material)
+    # Westgard programme evaluation (Phase 6B; full rule set LAB-D8):
+    # flags + z-score are computed here from the published programme
+    # config over the instrument/lot-keyed series and stored on the
+    # run; `passed` below keeps its original range meaning.
     flags, z_score, effective_level = _westgard_flags(
-        session, str(code), material, level, numbers["measured_value"])
+        session, str(code), material, level, numbers["measured_value"],
+        instrument_id=instrument_id, reagent_lot_key=reagent_lot_key)
     run = LabQcRun(
         analyte_code=str(code), control_material=material,
         expected_low=numbers["expected_low"], expected_high=numbers["expected_high"],
@@ -2485,7 +4156,12 @@ async def create_qc_run(request: Request, session: Session = Depends(get_db),
         unit=payload.get("unit") if isinstance(payload.get("unit"), str) else None,
         passed=numbers["expected_low"] <= numbers["measured_value"] <= numbers["expected_high"],
         performed_by=user.username,
-        level=effective_level, flags=flags, z_score=z_score)
+        level=effective_level, flags=flags, z_score=z_score,
+        instrument_id=instrument_id, reagent_lot_key=reagent_lot_key,
+        control_lot_id=control_lot.id if control_lot is not None else None,
+        shift=_lab_qc.shift_for_timestamp(
+            _lab_qc.reagent_qc_config(session),
+            datetime.now(timezone.utc)))
     session.add(run)
     session.flush()
     append_audit(session, actor=user.username, action="lab.qc.run",
@@ -2495,7 +4171,11 @@ async def create_qc_run(request: Request, session: Session = Depends(get_db),
                           "measured_value": run.measured_value,
                           "passed": run.passed,
                           "level": run.level, "flags": run.flags,
-                          "z_score": run.z_score})
+                          "z_score": run.z_score,
+                          "instrument_id": run.instrument_id,
+                          "reagent_lot_key": run.reagent_lot_key,
+                          "control_lot_id": run.control_lot_id,
+                          "shift": run.shift})
     session.commit()
     return _qc_out(run)
 
@@ -2578,3 +4258,165 @@ def lab_catalog(session: Session = Depends(get_db),
         "pathology_workflow_version":
             pathology_cfg.version if pathology_cfg else None,
     }
+
+
+# ---------------------------------------------------------------------------
+# Depth pass: post-analytical governance, result trends, stewardship
+# ---------------------------------------------------------------------------
+
+@router.get("/governance")
+def lab_governance(session: Session = Depends(get_db),
+                   user: User = Depends(require_capability("lab.read"))):
+    """The post-analytical governance surface: the state of the
+    published rules a laboratorian is accountable for — auto-verify
+    (seeded OFF; the off state is reported as data, never implied),
+    the per-analyte auto-verify ranges, the reflex rules, the delta
+    checks, and the stewardship duplicate window. Editing stays in
+    Studio (the config key + published version ride along); this is
+    the operational read the lab manages by. Recent auto-verification
+    activity is read back from the audit chain."""
+    catalog_cfg = published_config(session, "terminology", LAB_CATALOG_KEY)
+    if catalog_cfg is None:
+        raise HTTPException(
+            status_code=503,
+            detail=(f"No published lab catalog (terminology/{LAB_CATALOG_KEY}); "
+                    "publish one in Studio before using the lab"))
+    catalog = catalog_cfg.payload or {}
+    concepts = [c for c in (catalog.get("concepts") or [])
+                if isinstance(c, dict)]
+    auto = catalog.get("autoVerify") or {}
+    auto_rules = [{"code": c["code"], "display": c.get("display"),
+                   "low": (c.get("autoVerify") or {}).get("low"),
+                   "high": (c.get("autoVerify") or {}).get("high")}
+                  for c in concepts
+                  if isinstance(c.get("autoVerify"), dict)]
+    recent = []
+    audit_rows = session.scalars(
+        select(AuditLog).where(AuditLog.action == "lab.report.verify")
+        .order_by(AuditLog.id.desc()).limit(100)).all()
+    for row in audit_rows:
+        payload = row.payload or {}
+        if payload.get("auto_verified") is True:
+            recent.append({"report_id": row.entity.split("/", 1)[-1],
+                           "order_id": payload.get("order_id"),
+                           "rule_ids": payload.get("rule_ids") or [],
+                           "at": row.created_at.isoformat()
+                           if row.created_at else None})
+        if len(recent) >= 10:
+            break
+    return {
+        "config": {"kind": "terminology", "key": LAB_CATALOG_KEY,
+                   "version": catalog_cfg.version,
+                   "edit_in": "System Studio -> Terminology -> lab-catalog"},
+        "auto_verify": {
+            "enabled": auto.get("enabled") is True,
+            "state_label": ("ENABLED — qualifying drafts verify "
+                            "automatically (never release)"
+                            if auto.get("enabled") is True else
+                            "DISABLED — every draft awaits a human verify "
+                            "(the seeded, recommended default)"),
+            "rules": auto_rules,
+            "recent_auto_verified": recent,
+        },
+        "reflex_rules": catalog.get("reflexRules") or [],
+        "delta_checks": [{"code": c["code"], "display": c.get("display"),
+                          "config": c.get("delta")}
+                         for c in concepts
+                         if isinstance(c.get("delta"), dict)],
+        "stewardship": catalog.get("stewardship") or {},
+    }
+
+
+@router.get("/trends")
+def lab_trends(patient_id: str = Query(...), code: str = Query(...),
+               session: Session = Depends(get_db),
+               user: User = Depends(require_capability("lab.read"))):
+    """A patient's RELEASED result series for one analyte, oldest
+    first — the viral-load trend view (virology) and the general
+    trend surface behind it. Drafts never appear: only final,
+    untagged observations count, exactly the delta-check baseline
+    rule. log10 rides along for viral loads (value > 0)."""
+    concept = _concept(session, code)
+    if concept is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown lab code '{code}': not in the published "
+                   "lab catalog")
+    fhir._get_row("Patient", patient_id, session)  # 404 if unknown
+    patient_ref = f"Patient/{patient_id}"
+    rows = session.scalars(
+        select(FhirResource).where(
+            FhirResource.resource_type == "Observation",
+            FhirResource.patient_ref == patient_ref,
+            FhirResource.status == "final")
+        .order_by(FhirResource.id.asc())).all()
+    points = []
+    for row in rows:
+        body = row.body or {}
+        if fhir.has_unreleased_tag(body):
+            continue
+        if _code_of(body) != code:
+            continue
+        value = (body.get("valueQuantity") or {}).get("value")
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            continue
+        points.append({
+            "observation_id": row.resource_id,
+            "value": float(value),
+            "unit": (body.get("valueQuantity") or {}).get("unit"),
+            "effective": body.get("effectiveDateTime"),
+            "log10": (round(math.log10(value), 3) if value > 0 else None),
+        })
+    points.sort(key=lambda p: p["effective"] or "")
+    return {"patient": patient_ref, "code": code,
+            "display": concept.get("display"),
+            "bench": concept.get("bench"),
+            "points": points, "count": len(points)}
+
+
+@router.get("/stewardship/duplicates")
+def stewardship_duplicates(session: Session = Depends(get_db),
+                           user: User = Depends(require_capability("lab.read"))):
+    """The stewardship worklist: patient + analyte pairs with more
+    than one unfinished order inside the published duplicate
+    window — the utilisation view behind the order-time warning."""
+    catalog = _catalog(session)
+    stewardship = catalog.get("stewardship") or {}
+    window = stewardship.get("duplicateWindowHours")
+    groups: dict[tuple[str, str], dict] = {}
+    if stewardship.get("duplicateCheckEnabled") is True \
+            and isinstance(window, (int, float)) \
+            and not isinstance(window, bool) and window > 0:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=float(window))
+        rows = session.scalars(
+            select(FhirResource).where(
+                FhirResource.resource_type == "ServiceRequest")
+            .order_by(FhirResource.created_at.asc())).all()
+        for row in rows:
+            body = row.body or {}
+            if body.get("status") in ("cancelled", "rejected"):
+                continue
+            created = row.created_at
+            if created is not None:
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                if created < cutoff:
+                    continue
+            patient_ref = (body.get("subject") or {}).get("reference")
+            code = _code_of(body)
+            if not patient_ref or not code:
+                continue
+            concept = _concept(session, code) or {}
+            if concept.get("bench") in ("microbiology", "pathology"):
+                continue  # bench orders are worked in their benches
+            group = groups.setdefault(
+                (patient_ref, code),
+                {"patient": patient_ref, "code": code,
+                 "display": concept.get("display"), "orders": []})
+            group["orders"].append({"order_id": row.resource_id,
+                                    "status": body.get("status"),
+                                    "authored_on": body.get("authoredOn")})
+    duplicates = [g for g in groups.values() if len(g["orders"]) > 1]
+    return {"window_hours": window,
+            "enabled": stewardship.get("duplicateCheckEnabled") is True,
+            "groups": duplicates, "total": len(duplicates)}

@@ -62,7 +62,19 @@ SUPPORTED = ("Patient", "Encounter", "Observation", "Condition", "Procedure",
              "Location",
              # Phase 9: secure patient <-> care-team messaging — the
              # governed thread/reply/read workflow is app.engagement.
-             "Communication")
+             "Communication",
+             # Phase 15 (BD-33): immunisation records — the governed
+             # capture + VXU queueing workflow is app.platform_depth
+             # (/immunisations); the generic surface carries the
+             # FHIR Immunization resources it writes.
+             "Immunization",
+             # Phase 16 (BD-49, WS-A1): directory resources —
+             # Practitioner materialised from people.StaffMember and
+             # Organization from published terminology/locations by
+             # app.directories (/directories/sync); Consent is the
+             # plain FHIR consent record the federation layer (BD-36)
+             # reads — no consent workflow lives in this module.
+             "Practitioner", "Organization", "Consent")
 
 # Lab result visibility (Phase 2): results created by the lab module carry
 # this meta.tag until they are RELEASED through the lab verification flow.
@@ -202,6 +214,23 @@ def _validate(resource_type: str, body: dict) -> None:
                      for p in payload),
                  "Communication requires at least one 'payload' entry "
                  "with 'contentString'")
+    elif resource_type == "Immunization":
+        _require(bool(body.get("status")), "Immunization requires 'status'")
+        _require(bool(body.get("vaccineCode")),
+                 "Immunization requires 'vaccineCode'")
+        patient = body.get("patient") or {}
+        _require(isinstance(patient, dict) and bool(patient.get("reference")),
+                 "Immunization requires 'patient.reference'")
+    elif resource_type == "Practitioner":
+        _require(bool(body.get("name")), "Practitioner requires 'name'")
+    elif resource_type == "Organization":
+        _require(bool(body.get("name")), "Organization requires 'name'")
+    elif resource_type == "Consent":
+        _require(bool(body.get("status")), "Consent requires 'status'")
+        _require(bool(body.get("scope")), "Consent requires 'scope'")
+        patient = body.get("patient") or {}
+        _require(isinstance(patient, dict) and bool(patient.get("reference")),
+                 "Consent requires 'patient.reference'")
 
 
 def _participant_ref(body: dict, prefix: str) -> str | None:
@@ -217,9 +246,10 @@ def _participant_ref(body: dict, prefix: str) -> str | None:
 def _patient_ref(resource_type: str, body: dict, resource_id: str) -> str | None:
     if resource_type == "Patient":
         return f"Patient/{resource_id}"
-    if resource_type in ("Claim", "AllergyIntolerance"):
-        # FHIR Claim and AllergyIntolerance name the patient in
-        # `patient`, not `subject`.
+    if resource_type in ("Claim", "AllergyIntolerance", "Immunization",
+                         "Consent"):
+        # FHIR Claim, AllergyIntolerance, Immunization and Consent name
+        # the patient in `patient`, not `subject`.
         patient = body.get("patient") or {}
         ref = patient.get("reference") if isinstance(patient, dict) else None
         return ref if ref and ref.startswith("Patient/") else None
@@ -311,6 +341,75 @@ def create_resource(resource_type: str, request_body: dict, session: Session, us
     append_audit(session, actor=user.username, action="fhir.create",
                  entity=f"{resource_type}/{resource_id}",
                  payload={"resource_type": resource_type, "version": row.version})
+    session.commit()
+    return _render(row)
+
+
+def _validate_patient_update(body: dict) -> None:
+    """Typed checks for a Patient replacement, beyond the generic
+    must-support validation: a birthDate must be a REAL calendar
+    date (2026-02-30 is refused) and gender must be in the FHIR
+    administrative-gender value set."""
+    from datetime import date as _date
+    birth = body.get("birthDate")
+    if birth is not None:
+        if not isinstance(birth, str):
+            raise HTTPException(status_code=422,
+                                detail="'birthDate' must be a date string (YYYY-MM-DD)")
+        try:
+            _date.fromisoformat(birth)
+        except ValueError:
+            raise HTTPException(
+                status_code=422,
+                detail=f"'birthDate' must be a real calendar date "
+                       f"(YYYY-MM-DD); '{birth}' is not one")
+    gender = body.get("gender")
+    if gender is not None and gender not in ("male", "female", "other", "unknown"):
+        raise HTTPException(
+            status_code=422,
+            detail="'gender' must be one of male, female, other, unknown")
+
+
+def update_resource(resource_type: str, resource_id: str, request_body: dict,
+                    session: Session, user: User) -> dict:
+    """Full-resource replace (PUT semantics) for one stored resource.
+
+    Concurrency model — stated plainly: the store versions every
+    resource (meta.versionId increments on each write) but offers no
+    If-Match / version precondition, so concurrent updates are
+    LAST-WRITE-WINS. What makes that safe to operate is the audit:
+    every update writes a hash-chained `fhir.update` entry carrying
+    the names of the top-level fields that changed (never the field
+    VALUES — no PHI in the audit payload), so a lost update is
+    reconstructible from the chain. Unknown id -> 404; a body whose
+    id disagrees with the path -> 422."""
+    _validate(resource_type, request_body)
+    if resource_type == "Patient":
+        _validate_patient_update(request_body)
+    body_id = request_body.get("id")
+    if body_id is not None and str(body_id) != resource_id:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Body id '{body_id}' does not match the path id '{resource_id}'")
+    row = _get_row(resource_type, resource_id, session)
+    if user.role == Role.patient and row.patient_ref != user.patient_ref:
+        # Non-disclosure, same as reads: another patient's record is
+        # indistinguishable from a missing one.
+        raise HTTPException(status_code=404,
+                            detail=f"{resource_type}/{resource_id} not found")
+    prior = row.body or {}
+    changed = sorted(
+        key for key in set(prior) | set(request_body)
+        if key != "meta" and prior.get(key) != request_body.get(key))
+    row.body = request_body
+    row.version += 1
+    _apply_projections(row, resource_type, request_body, resource_id)
+    session.flush()
+    append_audit(session, actor=user.username, action="fhir.update",
+                 entity=f"{resource_type}/{resource_id}",
+                 payload={"resource_type": resource_type,
+                          "version": row.version,
+                          "changed_fields": changed})
     session.commit()
     return _render(row)
 
@@ -446,6 +545,19 @@ def _make_routes(resource_type: str):
 
 for _t in SUPPORTED:
     _make_routes(_t)
+
+
+# Update (PUT) routes are registered PER RESOURCE TYPE, deliberately:
+# this pass enables Patient only (registration-desk edits + the
+# entered-in-error action ride on it). Other resource types keep
+# their governed module endpoints as the write path; enabling a
+# generic PUT for them is a separate, reviewed decision.
+@router.put("/Patient/{resource_id}")
+async def update_patient(resource_id: str, request: Request,
+                         session: Session = Depends(get_db),
+                         user: User = Depends(require_capability("fhir.write"))):
+    return update_resource("Patient", resource_id, await request.json(),
+                           session, user)
 
 
 @router.post("/Appointment/{resource_id}/transition")

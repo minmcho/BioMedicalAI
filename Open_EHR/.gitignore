@@ -8,3 +8,6 @@ openehr.db
 dist/
 build/
 *.egg-info/
+warehouse/dbt/target/
+warehouse/dbt/logs/
+services/rust/target/

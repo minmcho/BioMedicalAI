@@ -641,15 +641,42 @@ def process_inbound(session: Session, raw_text: str, peer: str = "") -> str:
         pid3 = hl7.patient_id_of(segments)
         try:
             if message_type == "ORU^R01":
-                group = lab.parse_hl7_oru(text)
-                user = _interface_user(session)
-                created = lab.ingest_hl7_groups(session, user, [group],
-                                                source_format="hl7")
-                patient_ref = f"Patient/{group[1]}"
-                ack_code, status = "AA", "accepted"
-                detail = (f"Ingested as DRAFT lab report "
-                          f"{created[0]['report_id']} "
-                          f"({created[0]['result_count']} results, unreleased)")
+                # Phase 14 (Track H): the device gate runs BEFORE
+                # ingest. The sending application (MSH-3) resolves to
+                # a registered device via the published sender map;
+                # unknown devices are dead-lettered (AR, raw payload
+                # retained in the lake), overdue/blocked devices are
+                # refused or held in quarantine per the published
+                # gate policy. With the gate disabled (or no device
+                # config), behaviour is exactly the Phase 8 legacy
+                # path. The gate records the raw-zone entry in every
+                # case — the lake gets everything as-received.
+                from . import devices as device_mod
+                gate = device_mod.evaluate_oru_gate(session, segments, text)
+                if gate["action"] == "dead-letter":
+                    ack_code, status = "AR", "dead-letter"
+                    detail = gate["detail"]
+                elif gate["action"] == "block":
+                    ack_code, status = "AR", "rejected"
+                    detail = gate["detail"]
+                elif gate["action"] == "quarantine":
+                    hold = device_mod.hold_oru_quarantine(session, gate, text)
+                    ack_code, status = "AA", "quarantined"
+                    detail = (gate["detail"] +
+                              f" (quarantine #{hold.id})")
+                else:
+                    group = lab.parse_hl7_oru(text)
+                    user = _interface_user(session)
+                    device = gate.get("device")
+                    created = lab.ingest_hl7_groups(
+                        session, user, [group], source_format="hl7",
+                        instrument_id=device.device_key if device else None)
+                    device_mod.link_oru_ingest(session, gate, created)
+                    patient_ref = f"Patient/{group[1]}"
+                    ack_code, status = "AA", "accepted"
+                    detail = (f"Ingested as DRAFT lab report "
+                              f"{created[0]['report_id']} "
+                              f"({created[0]['result_count']} results, unreleased)")
             elif message_type in _ADT_TYPES:
                 patient = _resolve_patient(session, pid3)
                 if patient is None:
@@ -683,6 +710,16 @@ def process_inbound(session: Session, raw_text: str, peer: str = "") -> str:
             ack_code = "AE"
             status = "rejected"
             detail = f"Internal error processing message: {type(exc).__name__}"
+    if msh is not None and message_type != "ORU^R01":
+        # Phase 14: every inbound payload lands in the raw zone,
+        # as-received (ORU messages record theirs inside the device
+        # gate, which also decides their disposition).
+        from . import lake as lake_mod
+        lake_mod.record_raw(
+            session, payload_type="hl7", payload_text=text, source="mllp",
+            source_label="simulated", interface="mllp",
+            patient_ref=patient_ref,
+            disposition="received" if status == "accepted" else "rejected")
     session.add(Hl7InboundMessage(
         message_type=message_type, control_id=control_id,
         patient_ref=patient_ref, peer=peer, raw=text, status=status,

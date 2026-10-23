@@ -42,7 +42,18 @@ entry against a published form; GET /flowsheets/{form_key}?patient=
 returns the time-series (form items x entry columns) the chart grid
 renders. Values are normalised out of the FHIR answer shapes into
 plain scalars at read time.
+
+Rich text (Home & Module UX pass, app.richtext): template items of
+type ``text`` are prose and are seeded with ``"rich": true``.
+QuestionnaireResponse answers for rich/text items, plus the note
+``text``/``sections`` prose, are sanitized on WRITE
+(:func:`app.richtext.sanitize_html`); reads return the stored
+sanitized HTML. The DocumentReference also carries a FHIR Narrative
+(``text.div``) rendered from the note prose with
+:func:`app.richtext.html_to_text` — FHIR/print surfaces never carry
+author markup — and decorated responses expose it as ``plainText``.
 """
+import html as _html
 import json
 import uuid
 from datetime import datetime, timezone
@@ -51,7 +62,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import fhir
+from . import fhir, richtext
 from .audit import append_audit
 from .configstore import published_config
 from .models import ConfigStatus, FhirResource, StudioConfig, User
@@ -95,7 +106,14 @@ def _form(title: str, items: list[dict]) -> dict:
 
 
 def _item(link_id, text, type_, required=False):
-    return {"linkId": link_id, "text": text, "type": type_, "required": required}
+    item = {"linkId": link_id, "text": text, "type": type_,
+            "required": required}
+    if type_ == "text":
+        # Prose item: the web FormRenderer shows the rich-text
+        # editor for items marked rich, and the server sanitizes
+        # these answers on write (app.richtext).
+        item["rich"] = True
+    return item
 
 
 def _choice(link_id, text, options, required=False):
@@ -228,15 +246,142 @@ def _patient_ref_of(session: Session, payload: dict) -> str:
     return patient_ref
 
 
+def _rich_link_ids(session: Session, form_key: str) -> set:
+    """linkIds of a published form's prose items: those marked
+    ``"rich": true`` in the template, plus every ``text``-type item
+    (FHIR's long-prose type — covers governed forms seeded by other
+    modules, e.g. continuum's discharge forms, whose templates do
+    not carry the rich flag). Group children are walked too."""
+    form = published_config(session, "form", form_key)
+    if form is None:
+        return set()
+    ids: set = set()
+
+    def walk(items) -> None:
+        for item in items or []:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "group":
+                walk(item.get("item"))
+            elif item.get("rich") is True or item.get("type") == "text":
+                if item.get("linkId"):
+                    ids.add(item["linkId"])
+
+    walk((form.payload or {}).get("item"))
+    return ids
+
+
+def _sanitize_answers(session: Session, form_key: str, answers):
+    """Sanitize the valueString answers of prose (rich/text) items
+    on write. All other answer shapes pass through untouched."""
+    if not isinstance(answers, list):
+        return answers
+    rich_ids = _rich_link_ids(session, form_key)
+    if not rich_ids:
+        return answers
+    out = []
+    for item in answers:
+        if not isinstance(item, dict) or item.get("linkId") not in rich_ids:
+            out.append(item)
+            continue
+        new_item = dict(item)
+        new_answers = []
+        for answer in item.get("answer") or []:
+            if isinstance(answer, dict) \
+                    and isinstance(answer.get("valueString"), str):
+                answer = dict(answer)
+                answer["valueString"] = richtext.sanitize_html(
+                    answer["valueString"])
+            new_answers.append(answer)
+        new_item["answer"] = new_answers
+        out.append(new_item)
+    return out
+
+
+def _sanitize_prose_value(value):
+    """Recursively sanitize every string inside a prose structure
+    (note ``sections``): strings -> sanitize_html, lists/dicts are
+    walked, scalars pass through. Shape is preserved."""
+    if isinstance(value, str):
+        return richtext.sanitize_html(value)
+    if isinstance(value, list):
+        return [_sanitize_prose_value(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _sanitize_prose_value(v) for k, v in value.items()}
+    return value
+
+
+def _prose_strings(value) -> list:
+    """Every string inside a prose structure, in document order."""
+    found: list = []
+    if isinstance(value, str):
+        found.append(value)
+    elif isinstance(value, list):
+        for entry in value:
+            found.extend(_prose_strings(entry))
+    elif isinstance(value, dict):
+        for entry in value.values():
+            found.extend(_prose_strings(entry))
+    return found
+
+
+def _content_plain_text(content: dict, answer_texts=()) -> str:
+    """The note's plain-text rendering (app.richtext.html_to_text):
+    template answers first, then sections, then the free text."""
+    parts = [richtext.html_to_text(t) for t in answer_texts]
+    parts += [richtext.html_to_text(s)
+              for s in _prose_strings((content or {}).get("sections"))]
+    if isinstance((content or {}).get("text"), str):
+        parts.append(richtext.html_to_text(content["text"]))
+    return "\n\n".join(p.strip() for p in parts if p and p.strip())
+
+
+def _note_fhir_plain_text(session: Session, content: dict) -> str:
+    """Plain text for the FHIR Narrative: the stored (sanitized)
+    QuestionnaireResponse prose answers + the note's own prose."""
+    answer_texts: list = []
+    response_id = (content or {}).get("questionnaireResponseId")
+    if response_id:
+        try:
+            row = fhir._get_row("QuestionnaireResponse",
+                                str(response_id), session)
+        except HTTPException:
+            row = None
+        if row is not None:
+            for item in (row.body or {}).get("item") or []:
+                if not isinstance(item, dict):
+                    continue
+                for answer in item.get("answer") or []:
+                    if isinstance(answer, dict) \
+                            and isinstance(answer.get("valueString"), str):
+                        answer_texts.append(answer["valueString"])
+    return _content_plain_text(content, answer_texts)
+
+
+def _narrative(plain_text: str) -> dict | None:
+    """A FHIR Narrative whose div carries ONLY the plain-text
+    rendering (escaped, paragraph-wrapped) — no author markup."""
+    if not plain_text:
+        return None
+    inner = "".join(
+        "<p>" + _html.escape(paragraph, quote=False).replace(
+            "\n", "<br/>") + "</p>"
+        for paragraph in plain_text.split("\n\n"))
+    return {"status": "generated",
+            "div": f'<div xmlns="http://www.w3.org/1999/xhtml">{inner}</div>'}
+
+
 def _store_response(session: Session, user: User, form_key: str,
                     patient_ref: str, answers,
                     encounter_ref: str | None = None) -> dict:
     """Validate + store a QuestionnaireResponse against a PUBLISHED
     form (the generic surface's validator: unpublished form -> 422,
-    missing required answers -> 422)."""
+    missing required answers -> 422). Prose (rich/text) answers are
+    sanitized on write before storage."""
     if not isinstance(answers, list):
         raise HTTPException(status_code=422,
                             detail="'answers' must be a list of QuestionnaireResponse items")
+    answers = _sanitize_answers(session, form_key, answers)
     body = {
         "resourceType": "QuestionnaireResponse",
         "id": str(uuid.uuid4()),
@@ -269,7 +414,17 @@ def _decorate_note(row: FhirResource) -> dict:
     body = row.body or {}
     coding = ((body.get("type") or {}).get("coding") or [{}])[0]
     out["noteType"] = coding.get("code")
-    out["noteContent"] = _note_content_of(body)
+    content = _note_content_of(body)
+    out["noteContent"] = content
+    # Plain-text rendering for FHIR/print consumers: from the stored
+    # Narrative when present (it was rendered from the full note,
+    # answers included), else from the note's own prose.
+    narrative_div = ((body.get("text") or {}).get("div")
+                     if isinstance(body.get("text"), dict) else None)
+    if narrative_div:
+        out["plainText"] = richtext.html_to_text(narrative_div)
+    else:
+        out["plainText"] = _content_plain_text(content)
     return out
 
 
@@ -324,8 +479,10 @@ async def create_note(request: Request, session: Session = Depends(get_db),
     content = {
         "templateForm": form_key,
         "questionnaireResponseId": response_id,
-        "sections": payload.get("sections") if isinstance(payload.get("sections"), list) else [],
-        "text": payload.get("text") if isinstance(payload.get("text"), str) else None,
+        "sections": (_sanitize_prose_value(payload.get("sections"))
+                     if isinstance(payload.get("sections"), list) else []),
+        "text": (richtext.sanitize_html(payload.get("text"))
+                 if isinstance(payload.get("text"), str) else None),
     }
     body = {
         "resourceType": "DocumentReference",
@@ -343,6 +500,9 @@ async def create_note(request: Request, session: Session = Depends(get_db),
         "extension": [{"url": NOTE_CONTENT_EXTENSION,
                        "valueString": json.dumps(content)}],
     }
+    narrative = _narrative(_note_fhir_plain_text(session, content))
+    if narrative is not None:
+        body["text"] = narrative
     if encounter_ref:
         body["context"] = {"encounter": [{"reference": encounter_ref}]}
     rendered = fhir.create_resource("DocumentReference", body, session, user)
@@ -449,11 +609,15 @@ async def amend_note(note_id: str, request: Request,
     content = {
         "templateForm": form_key,
         "questionnaireResponseId": response_id,
-        "sections": (payload.get("sections")
+        "sections": (_sanitize_prose_value(payload.get("sections"))
                      if isinstance(payload.get("sections"), list)
-                     else old_content.get("sections") or []),
-        "text": (payload.get("text") if isinstance(payload.get("text"), str)
-                 else old_content.get("text")),
+                     else _sanitize_prose_value(
+                         old_content.get("sections") or [])),
+        "text": (richtext.sanitize_html(payload.get("text"))
+                 if isinstance(payload.get("text"), str)
+                 else (richtext.sanitize_html(old_content["text"])
+                       if isinstance(old_content.get("text"), str)
+                       else None)),
     }
     body = {
         "resourceType": "DocumentReference",
@@ -471,6 +635,9 @@ async def amend_note(note_id: str, request: Request,
         "extension": [{"url": NOTE_CONTENT_EXTENSION,
                        "valueString": json.dumps(content)}],
     }
+    narrative = _narrative(_note_fhir_plain_text(session, content))
+    if narrative is not None:
+        body["text"] = narrative
     if original_body.get("context"):
         body["context"] = original_body["context"]
     if original_body.get("authenticator"):
@@ -584,7 +751,8 @@ def flowsheet_view(form_key: str, patient: str = Query(...),
         "form": {"title": (form.payload or {}).get("title"),
                  "items": [{"linkId": i.get("linkId"), "text": i.get("text"),
                             "type": i.get("type"),
-                            "required": bool(i.get("required"))}
+                            "required": bool(i.get("required")),
+                            "rich": i.get("rich") is True}
                            for i in items]},
         "entries": entries,
         "total": len(entries),

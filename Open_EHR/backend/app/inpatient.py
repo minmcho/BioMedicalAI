@@ -40,7 +40,9 @@ Transfers release the old bed to `cleaning`; discharge closes the
 encounter through the published inpatient-flow machine and releases
 the bed to `cleaning`; housekeeping flips cleaning -> available.
 """
+import copy
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -50,10 +52,12 @@ from sqlalchemy.orm import Session
 
 from . import boards, documentation, fhir
 from .audit import append_audit
-from .configstore import (list_config_versions, load_workflow_machine,
-                          published_config, transition_role_allowed)
-from .models import (AdtEvent, AuditLog, ConfigStatus, FhirResource,
-                     StudioConfig, User)
+from .configstore import (ConfigPayloadError, get_config_version,
+                          list_config_versions, load_workflow_machine,
+                          published_config, transition_role_allowed,
+                          validate_terminology)
+from .models import (AdtEvent, AuditLog, ConfigStatus, EvsTask, FhirResource,
+                     StaffMember, StudioConfig, User)
 from .orders import PERFORMER_ROLE_EXTENSION
 from .security import get_db, require_capability
 
@@ -71,6 +75,11 @@ LOCATION_TYPE_SYSTEM = ("http://terminology.hl7.org/"
 
 BED_STATUS_EXTENSION = "urn:opencare:extension/bed-status"
 BED_OCCUPANT_EXTENSION = "urn:opencare:extension/bed-occupant"
+# Front Door pass: the encounter's attending of record — a
+# staff-directory id (valueString). Set at admit (optional) and
+# changeable through POST /inpatient/encounters/{id}/attending; it
+# is what app.people's My Patients list reads.
+ATTENDING_EXTENSION = "urn:opencare:extension/attending"
 DISCHARGE_PLAN_EXTENSION = "urn:opencare:extension/discharge-plan"
 DISCHARGE_DISPOSITION_EXTENSION = "urn:opencare:extension/discharge-disposition"
 PREOP_EXTENSION = "urn:opencare:extension/preop-checklist"
@@ -134,13 +143,35 @@ async def _json_body(request: Request) -> dict:
 # ---------------------------------------------------------------------------
 
 def default_locations_payload() -> dict:
+    # Organisation & Registration Placement pass: the demo org is a
+    # four-level hierarchy — region -> facility (the LOCATION level)
+    # -> department -> unit -> bed. The unit/bed census is unchanged
+    # (12 med-surg + 6 ICU beds); `ed` and `clinic` are bed-less unit
+    # concepts that already existed in the published workforce config
+    # (app.people) and now exist here too, so a placement can name
+    # them. The mapping is recorded in
+    # docs/sqa/ORG_PLACEMENT_SQA_REPORT.md.
     concepts: list[dict] = [
+        {"code": "region-main", "display": "OpenCare Region",
+         "type": "region", "active": True},
         {"code": "facility-main", "display": "OpenCare Hospital",
-         "type": "facility", "active": True},
+         "type": "facility", "parent": "region-main", "active": True},
+        {"code": "dept-medicine", "display": "Medicine",
+         "type": "department", "parent": "facility-main", "active": True},
+        {"code": "dept-critical-care", "display": "Critical Care",
+         "type": "department", "parent": "facility-main", "active": True},
+        {"code": "dept-emergency", "display": "Emergency Medicine",
+         "type": "department", "parent": "facility-main", "active": True},
+        {"code": "dept-ambulatory", "display": "Ambulatory Care",
+         "type": "department", "parent": "facility-main", "active": True},
         {"code": "unit-medsurg", "display": "Medical-Surgical Unit",
-         "type": "unit", "parent": "facility-main", "active": True},
+         "type": "unit", "parent": "dept-medicine", "active": True},
         {"code": "unit-icu", "display": "Intensive Care Unit",
-         "type": "unit", "parent": "facility-main", "active": True},
+         "type": "unit", "parent": "dept-critical-care", "active": True},
+        {"code": "ed", "display": "Emergency Department",
+         "type": "unit", "parent": "dept-emergency", "active": True},
+        {"code": "clinic", "display": "Outpatient Clinic",
+         "type": "unit", "parent": "dept-ambulatory", "active": True},
     ]
     for room in range(101, 107):
         for bed in ("A", "B"):
@@ -390,10 +421,15 @@ def _concept(session: Session, key: str, label: str, code: str) -> dict | None:
 
 def _location_concepts(session: Session) -> tuple[list[dict], list[dict]]:
     """(units, beds) from the published locations config, in payload
-    order. Facility concepts are structure only (not board sections)."""
+    order. Facility concepts are structure only (not board sections).
+    Retired concepts (active: false — the Units & Beds manager's
+    retire op, Front Door pass) are excluded: a retired bed leaves
+    the census/board, though its Location resource and history stay."""
     concepts = _concepts(session, LOCATIONS_KEY, "locations")
-    units = [c for c in concepts if c.get("type") == "unit"]
-    beds = [c for c in concepts if c.get("type") == "bed"]
+    units = [c for c in concepts if c.get("type") == "unit"
+             and c.get("active") is not False]
+    beds = [c for c in concepts if c.get("type") == "bed"
+            and c.get("active") is not False]
     return units, beds
 
 
@@ -533,6 +569,29 @@ def _set_bed_status(session: Session, user: User | None, row: FhirResource,
                  entity=f"Location/{row.resource_id}",
                  payload={"status": status, "occupant": occupant_ref,
                           "reason": reason, "version": row.version})
+    # Phase 12 (Track D): EVS bed-turnaround tasks ride this single
+    # status path — a flip to `cleaning` (discharge / transfer) opens
+    # the turnaround task; a flip back to `available` closes the open
+    # one, so turnaround time is measured from the bed events
+    # themselves. Lazy import: app.continuum builds on this module.
+    if status == "cleaning":
+        open_task = session.scalars(
+            select(EvsTask).where(EvsTask.bed_code == row.resource_id,
+                                  EvsTask.status != "completed")).first()
+        if open_task is None:
+            session.add(EvsTask(task_id=str(uuid.uuid4()),
+                                bed_code=row.resource_id))
+            session.flush()
+    elif status == "available":
+        open_task = session.scalars(
+            select(EvsTask).where(EvsTask.bed_code == row.resource_id,
+                                  EvsTask.status != "completed")).first()
+        if open_task is not None:
+            from datetime import timezone as _tz
+            open_task.status = "completed"
+            open_task.completed_at = datetime.now(_tz.utc)
+            open_task.completed_by = user.username if user else "system"
+            session.flush()
 
 
 # ---------------------------------------------------------------------------
@@ -565,6 +624,32 @@ def _record_event(session: Session, user: User, event_type: str,
     # obvious. No enabled endpoint configured -> queues nothing.
     from .interop import enqueue_adt_event
     enqueue_adt_event(session, row)
+    # Phase 10 (Track B): every ADT event is also a census event for the
+    # rules engine — occupancy is recomputed from live bed state (the
+    # same helpers the census endpoint renders from) and published
+    # rules (seeded: census-threshold-alert) evaluate against it in
+    # this transaction.
+    from .rules import evaluate_rules
+    _units, _bed_concepts = _location_concepts(session)
+    _now_dt = _now()
+    _occupied = sum(1 for c in _bed_concepts
+                    if _bed_entry(session, c, _now_dt)["status"] == "occupied")
+    _total = len(_bed_concepts)
+    evaluate_rules(session, "inpatient.census.changed",
+                   {"event_type": event_type,
+                    "occupied": _occupied,
+                    "total_beds": _total,
+                    "occupancy_pct": (round(100.0 * _occupied / _total, 1)
+                                      if _total else 0.0),
+                    "patient_ref": patient_ref},
+                   actor=user.username)
+    # Phase 12 (Track D): ADT movement also moves the boarding state
+    # (admissions awaiting a bed) — publish it to the same engine;
+    # the seeded ed-boarding-escalation rule turns a threshold
+    # breach into a bed-management Task. Lazy import: app.continuum
+    # builds on this module.
+    from .continuum import emit_boarding_event
+    emit_boarding_event(session, actor=user.username)
     return row
 
 
@@ -788,13 +873,93 @@ def _admission_detail(session: Session, row: FhirResource,
         concept = _concept(session, LOCATIONS_KEY, "locations", bed_code)
         if concept is not None:
             bed = _bed_entry(session, concept, now)
+    attending = _get_extension(row.body or {}, ATTENDING_EXTENSION)
     return {
         "encounter": fhir._render(row),
         "bed_code": bed_code,
         "bed": bed,
+        "attending_staff_id": attending.get("valueString") if attending else None,
         **_los(row, now),
         "discharge_plan": _plan_of(row.body or {}),
     }
+
+
+def _check_attending(session: Session, staff_id) -> str:
+    """An attending must be a real staff-directory entry (Front Door
+    pass) — a name typed into a form is not an attending of record."""
+    if not isinstance(staff_id, str) or not staff_id.strip():
+        raise HTTPException(status_code=422,
+                            detail="'attending_staff_id' must be a "
+                                   "staff-directory id")
+    staff = session.scalars(select(StaffMember).where(
+        StaffMember.staff_id == staff_id)).first()
+    if staff is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown attending '{staff_id}': no such "
+                   "staff-directory entry")
+    return staff_id
+
+
+def _check_attending_privileges(session: Session, user: User,
+                                staff_id: str, bed_code: str | None) -> None:
+    """Workforce, Teams & Panels pass: the privileging gate on the
+    attending of record. The directory check above proves the person
+    exists; this proves they may serve. The clinician must hold the
+    privileges the published privileging config requires for the
+    admission's service line (attending-of-record, plus e.g.
+    icu-practice for critical care) as ACTIVE grants, and every
+    credential those privileges require must be on file and
+    unexpired (app.privileging.check_privileges). A refusal is
+    hash-chain audited (inpatient.attending.refused, committed before
+    the raise so the record survives the refused request) and raised
+    as a 409 naming every problem."""
+    from . import privileging
+    from .configstore import published_config
+    staff = session.scalars(select(StaffMember).where(
+        StaffMember.staff_id == staff_id)).first()
+    if staff is None:
+        return  # _check_attending has already refused
+    service_line = None
+    if bed_code:
+        _units, beds = _location_concepts(session)
+        unit_code = next((c.get("parent") for c in beds
+                          if isinstance(c, dict)
+                          and c.get("code") == bed_code), None)
+        if unit_code:
+            cfg = published_config(session, "terminology", "workforce")
+            payload = (cfg.payload or {}) if cfg is not None else {}
+            service_line = next(
+                (u.get("serviceLine") for u in payload.get("units") or []
+                 if isinstance(u, dict) and u.get("code") == unit_code),
+                None)
+    codes = privileging.attending_privilege_codes(session, service_line)
+    problems = privileging.check_privileges(session, staff, codes,
+                                            service_line)
+    if problems:
+        append_audit(session, actor=user.username,
+                     action="inpatient.attending.refused",
+                     entity=f"staff:{staff_id}",
+                     payload={"problems": problems,
+                              "service_line": service_line,
+                              "bed": bed_code})
+        session.commit()
+        raise HTTPException(
+            status_code=409,
+            detail=f"Attending assignment refused for '{staff_id}': "
+                   + "; ".join(problems))
+
+
+def _set_attending(session: Session, user: User, row: FhirResource,
+                   staff_id: str | None) -> None:
+    body = dict(row.body or {})
+    if staff_id is None:
+        _drop_extension(body, ATTENDING_EXTENSION)
+    else:
+        _set_extension(body, ATTENDING_EXTENSION, valueString=staff_id)
+    row.body = body
+    row.version += 1
+    session.flush()
 
 
 # ---------------------------------------------------------------------------
@@ -826,6 +991,279 @@ def list_locations(session: Session = Depends(get_db),
         items.append(item)
     return {"locations": items, "version": cfg.version if cfg else None,
             "bed_statuses": list(_bed_statuses(session))}
+
+
+# ---------------------------------------------------------------------------
+# Units & Beds manager (Front Door pass): compose the NEXT locations
+# version as a governed Studio draft. NOTHING here changes live
+# state — the census keeps reading the published version until a
+# human publishes the draft in System Studio.
+# ---------------------------------------------------------------------------
+
+_CODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9\-]*$")
+
+
+@router.get("/locations/draft-status")
+def locations_draft_status(session: Session = Depends(get_db),
+                           user: User = Depends(require_capability("inpatient.read"))):
+    """Is a locations draft pending publish, and which version is
+    live? The Bed Board banner and the manager both read this."""
+    published = published_config(session, "terminology", LOCATIONS_KEY)
+    draft = next((v for v in list_config_versions(session, "terminology",
+                                                  LOCATIONS_KEY)
+                  if v.status == ConfigStatus.draft), None)
+    return {"published_version": published.version if published else None,
+            "draft": ({"version": draft.version,
+                       "created_by": draft.created_by,
+                       "updated_by": draft.updated_by}
+                      if draft is not None else None)}
+
+
+def _draft_op_str(op: dict, field: str) -> str:
+    value = op.get(field)
+    if not isinstance(value, str) or not value.strip():
+        raise HTTPException(
+            status_code=422,
+            detail=f"Operation '{op.get('op')}' requires a non-empty "
+                   f"'{field}'")
+    return value.strip()
+
+
+def _apply_location_op(session: Session, concepts: list[dict],
+                       op, index: int) -> None:
+    if not isinstance(op, dict) or not op.get("op"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"'operations[{index}]' must be an object with an 'op'")
+    kind = op["op"]
+    by_code = {c.get("code"): c for c in concepts
+               if isinstance(c, dict) and c.get("code")}
+
+    def _new_concept(code_field: str = "code") -> tuple[str, str]:
+        code = _draft_op_str(op, code_field)
+        display = _draft_op_str(op, "display")
+        if not _CODE_RE.match(code):
+            raise HTTPException(
+                status_code=422,
+                detail=f"Code '{code}' must be letters, digits and "
+                       "dashes, starting with a letter or digit")
+        if code in by_code:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Location code '{code}' already exists")
+        return code, display
+
+    if kind == "add-region":
+        # Organisation & Registration Placement pass: the hierarchy's
+        # top level enters through the same governed draft as every
+        # other locations change.
+        code, display = _new_concept()
+        concepts.append({"code": code, "display": display,
+                         "type": "region", "active": True})
+    elif kind == "add-department":
+        code, display = _new_concept()
+        location_code = op.get("location") or op.get("parent")
+        if not isinstance(location_code, str) or not location_code:
+            raise HTTPException(
+                status_code=422,
+                detail="Operation 'add-department' requires a "
+                       "'location' (the facility the department "
+                       "belongs to)")
+        facility = by_code.get(location_code)
+        if facility is None or facility.get("type") != "facility":
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unknown location '{location_code}': a "
+                       "department's location must be an existing "
+                       "facility in the locations config")
+        concepts.append({"code": code, "display": display,
+                         "type": "department", "parent": location_code,
+                         "active": True})
+    elif kind == "add-unit":
+        code = _draft_op_str(op, "code")
+        display = _draft_op_str(op, "display")
+        if not _CODE_RE.match(code):
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unit code '{code}' must be letters, digits and "
+                       "dashes, starting with a letter or digit")
+        if code in by_code:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Location code '{code}' already exists")
+        # Placement pass: a unit belongs to a DEPARTMENT. The op may
+        # name one ('department'); without it the unit keeps the
+        # legacy behaviour of parenting to the first facility (the
+        # hierarchy migration / a later draft can reparent it).
+        department = op.get("department")
+        if department is not None:
+            dept = by_code.get(department) \
+                if isinstance(department, str) else None
+            if dept is None or dept.get("type") != "department":
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Unknown department '{department}': a "
+                           "unit's department must be an existing "
+                           "department in the locations config")
+            parent = department
+        else:
+            parent = next((c["code"] for c in concepts
+                           if isinstance(c, dict)
+                           and c.get("type") == "facility"),
+                          "facility-main")
+        concepts.append({"code": code, "display": display, "type": "unit",
+                         "parent": parent, "active": True})
+    elif kind == "add-bed":
+        code = _draft_op_str(op, "code")
+        display = _draft_op_str(op, "display")
+        unit_code = _draft_op_str(op, "unit")
+        if not _CODE_RE.match(code):
+            raise HTTPException(
+                status_code=422,
+                detail=f"Bed code '{code}' must be letters, digits and "
+                       "dashes, starting with a letter or digit")
+        if code in by_code:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Location code '{code}' already exists")
+        unit = by_code.get(unit_code)
+        if unit is None or unit.get("type") != "unit":
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unknown unit '{unit_code}': a bed's unit must be "
+                       "an existing unit in the locations config")
+        room = op.get("room")
+        bed = op.get("bed")
+        for field, value in (("room", room), ("bed", bed)):
+            if value is not None and not isinstance(value, str):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"'{field}' must be a string")
+        concepts.append({"code": code, "display": display, "type": "bed",
+                         "parent": unit_code, "room": room or "",
+                         "bed": bed or "", "active": True})
+    elif kind == "rename":
+        code = _draft_op_str(op, "code")
+        display = _draft_op_str(op, "display")
+        concept = by_code.get(code)
+        if concept is None:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unknown location code '{code}'")
+        concept["display"] = display
+    elif kind == "retire":
+        code = _draft_op_str(op, "code")
+        concept = by_code.get(code)
+        if concept is None:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unknown location code '{code}'")
+        if concept.get("active") is False:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Location '{code}' is already retired")
+        if concept.get("type") == "bed":
+            entry = _bed_entry(session, concept, _now())
+            if entry["status"] == "occupied":
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Bed {code} is occupied; discharge or "
+                           "transfer the patient before retiring it")
+        # Placement pass: the children guard applies to EVERY level
+        # of the hierarchy, not just units — a region with facilities,
+        # a facility with departments, a department with units and a
+        # unit with beds all refuse retirement until emptied.
+        children = [c for c in concepts
+                    if isinstance(c, dict)
+                    and c.get("parent") == code
+                    and c.get("active") is not False]
+        if children:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Location '{code}' still has active children "
+                       f"({', '.join(c['code'] for c in children)}); "
+                       "retire or move them first")
+        concept["active"] = False
+    else:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown operation '{kind}': expected add-region, "
+                   "add-department, add-unit, add-bed, rename or retire")
+
+
+@router.post("/locations/draft", status_code=201)
+async def compose_locations_draft(request: Request,
+                                  session: Session = Depends(get_db),
+                                  user: User = Depends(require_capability("inpatient.work"))):
+    """Compose location edits into the governed draft of
+    terminology/locations: the draft starts from the PUBLISHED
+    payload (or the existing draft, which this call then extends —
+    the Studio one-draft rule is preserved) and the operations are
+    applied + validated in order. The response says plainly that
+    nothing is live until the draft is published in System Studio."""
+    payload = await _json_body(request)
+    operations = payload.get("operations")
+    if not isinstance(operations, list) or not operations:
+        raise HTTPException(
+            status_code=422,
+            detail="'operations' must be a non-empty list of "
+                   "{op, ...} objects")
+    versions = list_config_versions(session, "terminology", LOCATIONS_KEY)
+    if not versions:
+        raise HTTPException(
+            status_code=503,
+            detail="No locations config exists to draft from")
+    draft = next((v for v in versions if v.status == ConfigStatus.draft),
+                 None)
+    base_row = draft if draft is not None else versions[-1]
+    composed = copy.deepcopy(base_row.payload or {})
+    concepts = composed.get("concepts")
+    if not isinstance(concepts, list):
+        raise HTTPException(status_code=503,
+                            detail="The locations config has no concepts list")
+    for index, op in enumerate(operations):
+        _apply_location_op(session, concepts, op, index)
+    try:
+        validate_terminology(composed)
+    except ConfigPayloadError as err:
+        raise HTTPException(status_code=err.status_code, detail=err.detail)
+    if draft is not None:
+        draft.payload = composed
+        draft.updated_by = user.username
+        session.flush()
+        append_audit(session, actor=user.username,
+                     action="studio.config.update",
+                     entity=f"config:terminology/{LOCATIONS_KEY}@v{draft.version}",
+                     payload={"kind": "terminology", "key": LOCATIONS_KEY,
+                              "version": draft.version,
+                              "via": "units-and-beds-manager"})
+        version = draft.version
+    else:
+        row = StudioConfig(kind="terminology", key=LOCATIONS_KEY,
+                           version=versions[-1].version + 1,
+                           status=ConfigStatus.draft, payload=composed,
+                           created_by=user.username,
+                           updated_by=user.username)
+        session.add(row)
+        session.flush()
+        append_audit(session, actor=user.username,
+                     action="studio.config.create",
+                     entity=f"config:terminology/{LOCATIONS_KEY}@v{row.version}",
+                     payload={"kind": "terminology", "key": LOCATIONS_KEY,
+                              "version": row.version,
+                              "via": "units-and-beds-manager"})
+        version = row.version
+    append_audit(session, actor=user.username,
+                 action="inpatient.locations.compose",
+                 entity=f"config:terminology/{LOCATIONS_KEY}@v{version}",
+                 payload={"operations": [op.get("op")
+                                          for op in operations
+                                          if isinstance(op, dict)]})
+    session.commit()
+    return {"version": version, "status": "draft",
+            "operations_applied": len(operations),
+            "note": "Draft only — nothing changes live until this "
+                    "version is published in System Studio."}
 
 
 @router.get("/census")
@@ -964,6 +1402,10 @@ async def admit(request: Request, session: Session = Depends(get_db),
                     f"admission (Encounter/{existing.resource_id}); {hint}"))
     concept, bed_row = _require_available_bed(session, payload.get("bed"))
     bed_code = concept["code"]
+    attending = payload.get("attending_staff_id")
+    if attending is not None:
+        _check_attending(session, attending)
+        _check_attending_privileges(session, user, attending, bed_code)
     now_iso = _now_iso()
     body = {
         "resourceType": "Encounter",
@@ -977,6 +1419,8 @@ async def admit(request: Request, session: Session = Depends(get_db),
                       "status": "active",
                       "period": {"start": now_iso}}],
     }
+    if attending is not None:
+        _set_extension(body, ATTENDING_EXTENSION, valueString=attending)
     reason = payload.get("reason") or payload.get("diagnosis")
     if isinstance(reason, str) and reason.strip():
         body["reasonCode"] = [{"text": reason}]
@@ -985,12 +1429,52 @@ async def admit(request: Request, session: Session = Depends(get_db),
     event = _record_event(session, user, "A01", encounter["id"], patient_ref,
                           to_location=bed_code,
                           detail={"bed": bed_code,
-                                  "unit": concept.get("parent")})
+                                  "unit": concept.get("parent"),
+                                  "attending": attending})
     session.commit()
     row = _inpatient_row(session, encounter["id"])
     return {"encounter": fhir._render(row),
             "bed": _bed_entry(session, concept, _now()),
             "event": _event_out(session, event)}
+
+
+@router.post("/encounters/{encounter_id}/attending")
+async def set_attending(encounter_id: str, request: Request,
+                        session: Session = Depends(get_db),
+                        user: User = Depends(require_capability("inpatient.work"))):
+    """Set or change the attending of record on an admission (Front
+    Door pass): the value is a staff-directory id, validated against
+    the directory; null clears it. Every change is audited with the
+    from/to ids — My Patients (app.people) reads this record."""
+    payload = await _json_body(request)
+    if "attending_staff_id" not in payload:
+        raise HTTPException(
+            status_code=422,
+            detail="Requires 'attending_staff_id' (a staff-directory id, "
+                   "or null to clear)")
+    row = _inpatient_row(session, encounter_id)
+    body = row.body or {}
+    if body.get("status") != "in-progress":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Attending changes need an in-progress admission; "
+                   f"Encounter/{encounter_id} is '{body.get('status')}'")
+    new_value = payload.get("attending_staff_id")
+    if new_value is not None:
+        _check_attending(session, new_value)
+        _check_attending_privileges(session, user, new_value,
+                                    _current_bed(body))
+    current = _get_extension(body, ATTENDING_EXTENSION)
+    old_value = current.get("valueString") if current else None
+    _set_attending(session, user, row, new_value)
+    append_audit(session, actor=user.username,
+                 action="inpatient.attending.assign",
+                 entity=f"Encounter/{encounter_id}",
+                 payload={"from_attending": old_value,
+                          "to_attending": new_value,
+                          "patient": _subject_ref(row.body or {})})
+    session.commit()
+    return _admission_detail(session, row)
 
 
 @router.post("/encounters/{encounter_id}/assign-bed")
@@ -1110,7 +1594,9 @@ async def discharge(encounter_id: str, request: Request,
     A03 ADT event. The disposition comes from the payload when given
     (validated against the published terminology), else from the
     discharge plan."""
-    payload = await _json_body(request)
+    # The payload is optional ("when given"): an empty body is an
+    # empty payload, not a 422. A non-empty body must be valid JSON.
+    payload = await _json_body(request) if (await request.body()).strip() else {}
     row = _inpatient_row(session, encounter_id)
     body = dict(row.body or {})
     current = body.get("status")
@@ -1139,6 +1625,24 @@ async def discharge(encounter_id: str, request: Request,
         disposition = plan.get("disposition")
     if disposition is not None:
         _disposition_concept(session, disposition)
+
+    # Phase 12 (Track D): the config-gated follow-up guard. When the
+    # PUBLISHED continuum-ops config requires a booked follow-up
+    # appointment before discharge completes, discharge refuses
+    # (409) until one exists. The guard ships OFF in the seeded
+    # config, so out-of-the-box behaviour is exactly Phase 6's; a
+    # site turns it on by publishing the config (the Phase 7
+    # prior-auth pattern). Lazy import: app.continuum builds here.
+    from .continuum import followup_missing
+    if followup_missing(session, _subject_ref(body)):
+        raise HTTPException(
+            status_code=409,
+            detail=("Discharge refused: the published continuum-ops "
+                    "configuration requires a follow-up appointment "
+                    "to be booked before discharge completes, and "
+                    f"{_subject_ref(body)} has none. Book the "
+                    "follow-up first (aftercare is booked before "
+                    "departure, not after)."))
 
     bed_code = _current_bed(body)
     now_iso = _now_iso()
